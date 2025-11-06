@@ -29,7 +29,15 @@
             </span>
           </div>
         </div>
-        <div class="topbar-right"></div>
+        <!-- ★ ここに共有モード切り替えボタンを追加 -->
+        <div class="topbar-right">
+          <button id="shareWhiteboardBtn" class="topbar-tab primary">
+            ホワイトボード
+          </button>
+          <button id="shareScreenBtn" class="topbar-tab">
+            画面共有
+          </button>
+        </div>
       </header>
 
       <main class="main-layout">
@@ -105,7 +113,6 @@
             <p class="hint">テキストを選択すると設定が表示されます。</p>
           </div>
 
-
           <div class="side-panel-section">
             <div class="section-title">クラス参加</div>
             <label class="field">
@@ -141,7 +148,7 @@
           </div>
         </aside>
 
-          <!-- ★ 畳んだときに出てくるボタン -->
+        <!-- ★ 畳んだときに出てくるボタン -->
         <button
           id="studentPanelOpen"
           class="side-panel-opener"

@@ -22,6 +22,10 @@ const studentCanvas = document.getElementById("studentCanvas");
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
 
+// ★ 共有モード切り替えボタン
+const shareWhiteboardBtn = document.getElementById("shareWhiteboardBtn");
+const shareScreenBtn = document.getElementById("shareScreenBtn");
+
 // ツールボタン
 const toolPenBtn = document.getElementById("toolPen");
 const toolHighlighterBtn = document.getElementById("toolHighlighter");
@@ -53,6 +57,11 @@ let currentClassCode = null;
 let nickname = null;
 let captureTimerId = null;
 const CAPTURE_INTERVAL_MS = 5000;
+
+// ★ キャプチャモード：'whiteboard' or 'screen'
+let captureMode = "whiteboard";
+let screenStream = null;
+let screenVideo = null;
 
 // キャンバスリサイズ（DPR 対応）
 function resizeCanvasToContainer(canvas, wb) {
@@ -281,7 +290,6 @@ window.addEventListener("keydown", e => {
   }
 });
 
-
 // クリップボードからの貼り付け（テキスト / URL）
 // ※入力中のフォームには干渉しない
 window.addEventListener("paste", e => {
@@ -297,9 +305,6 @@ window.addEventListener("paste", e => {
   const text = (e.clipboardData || window.clipboardData).getData("text");
   if (!text) return;
 
-  // ここでは e.preventDefault() してもいいし、しなくても OK
-  // （もう Ctrl+V を keydown で止めるケースではここに来ない）
-
   const value = text.trim();
 
   // ごく簡単な URL 判定（http/https から始まる）
@@ -314,6 +319,100 @@ window.addEventListener("paste", e => {
   }
 });
 
+
+// --- 画面共有関連の処理 ---
+
+// モードボタンの見た目更新
+function updateCaptureButtons() {
+  if (!shareWhiteboardBtn || !shareScreenBtn) return;
+  shareWhiteboardBtn.classList.toggle("primary", captureMode === "whiteboard");
+  shareScreenBtn.classList.toggle("primary", captureMode === "screen");
+}
+
+// 画面共有開始
+async function startScreenCapture() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    alert("このブラウザは画面共有に対応していません。");
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: "always" },
+      audio: false
+    });
+    screenStream = stream;
+
+    if (!screenVideo) {
+      screenVideo = document.createElement("video");
+      screenVideo.style.position = "fixed";
+      screenVideo.style.top = "-10000px"; // 画面外に隠す
+      screenVideo.style.left = "-10000px";
+      screenVideo.muted = true;
+      screenVideo.playsInline = true;
+      document.body.appendChild(screenVideo);
+    }
+
+    screenVideo.srcObject = stream;
+    await screenVideo.play();
+
+    const tracks = stream.getVideoTracks();
+    if (tracks[0]) {
+      // ブラウザUIから「共有停止」された場合
+      tracks[0].addEventListener("ended", () => {
+        stopScreenCapture();
+        captureMode = "whiteboard";
+        updateCaptureButtons();
+      });
+    }
+
+    return true;
+  } catch (err) {
+    console.error("screen capture error", err);
+    alert("画面共有がキャンセルされました。");
+    return false;
+  }
+}
+
+// 画面共有停止
+function stopScreenCapture() {
+  if (screenStream) {
+    screenStream.getTracks().forEach(t => t.stop());
+    screenStream = null;
+  }
+  if (screenVideo) {
+    screenVideo.srcObject = null;
+  }
+}
+
+// モード切り替えボタンのイベント
+if (shareWhiteboardBtn) {
+  shareWhiteboardBtn.addEventListener("click", () => {
+    if (captureMode === "whiteboard") return;
+    stopScreenCapture();
+    captureMode = "whiteboard";
+    updateCaptureButtons();
+    // すぐに新しいサムネイルを送信
+    sendWhiteboardThumbnail();
+  });
+}
+
+if (shareScreenBtn) {
+  shareScreenBtn.addEventListener("click", async () => {
+    if (captureMode === "screen") return;
+    const ok = await startScreenCapture();
+    if (ok) {
+      captureMode = "screen";
+      updateCaptureButtons();
+      sendWhiteboardThumbnail();
+    } else {
+      // 失敗したらホワイトボードに戻す
+      captureMode = "whiteboard";
+      updateCaptureButtons();
+    }
+  });
+}
+
+updateCaptureButtons();
 
 
 // --- クラス参加＆送信周り ---
@@ -337,10 +436,57 @@ joinBtn.addEventListener("click", () => {
   sendWhiteboardThumbnail();
 });
 
-// サムネイル送信
+// サムネイル送信（現在のキャプチャモードに応じて送る）
 function sendWhiteboardThumbnail() {
   if (!currentClassCode || !nickname) return;
 
+  // 画面共有モード
+  if (captureMode === "screen") {
+    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
+
+    const track = screenStream.getVideoTracks()[0];
+    const settings = track ? track.getSettings() : {};
+    const vw = screenVideo.videoWidth || settings.width || window.screen.width;
+    const vh = screenVideo.videoHeight || settings.height || window.screen.height;
+    if (!vw || !vh) return;
+
+    const thumbWidth = 320;
+    const ratio = vh / vw;
+    const thumbHeight = Math.round(thumbWidth * ratio);
+
+    const off = document.createElement("canvas");
+    off.width = thumbWidth;
+    off.height = thumbHeight;
+    const ctx = off.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, off.width, off.height);
+
+    ctx.drawImage(
+      screenVideo,
+      0,
+      0,
+      vw,
+      vh,
+      0,
+      0,
+      thumbWidth,
+      thumbHeight
+    );
+
+    const dataUrl = off.toDataURL("image/jpeg", 0.6);
+
+    socket.emit("student-thumbnail", {
+      classCode: currentClassCode,
+      nickname,
+      dataUrl
+    });
+
+    return;
+  }
+
+  // ホワイトボードモード（従来どおり）
   const srcCanvas = studentCanvas;
   if (!srcCanvas.width || !srcCanvas.height) return;
 
@@ -354,7 +500,7 @@ function sendWhiteboardThumbnail() {
   const ctx = off.getContext("2d");
   ctx.imageSmoothingEnabled = true;
 
-  // ★ 追加：背景を白で塗る
+  // 背景を白で塗る
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, off.width, off.height);
 
@@ -379,10 +525,58 @@ function sendWhiteboardThumbnail() {
   });
 }
 
-// 高画質送信
+// 高画質送信（現在のキャプチャモードに応じて送る）
 function sendHighres() {
   if (!currentClassCode || !nickname) return;
 
+  // 画面共有モード
+  if (captureMode === "screen") {
+    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
+
+    const track = screenStream.getVideoTracks()[0];
+    const settings = track ? track.getSettings() : {};
+    const vw = screenVideo.videoWidth || settings.width || window.screen.width;
+    const vh = screenVideo.videoHeight || settings.height || window.screen.height;
+    if (!vw || !vh) return;
+
+    const maxWidth = 1280;
+    const ratio = vh / vw;
+    const targetWidth = maxWidth;
+    const targetHeight = Math.round(targetWidth * ratio);
+
+    const off = document.createElement("canvas");
+    off.width = targetWidth;
+    off.height = targetHeight;
+    const ctx = off.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, off.width, off.height);
+
+    ctx.drawImage(
+      screenVideo,
+      0,
+      0,
+      vw,
+      vh,
+      0,
+      0,
+      targetWidth,
+      targetHeight
+    );
+
+    const dataUrl = off.toDataURL("image/jpeg", 0.85);
+
+    socket.emit("student-highres", {
+      classCode: currentClassCode,
+      nickname,
+      dataUrl
+    });
+
+    return;
+  }
+
+  // ホワイトボードモード（従来どおり）
   const srcCanvas = studentCanvas;
   if (!srcCanvas.width || !srcCanvas.height) return;
 
@@ -397,7 +591,6 @@ function sendHighres() {
   const ctx = off.getContext("2d");
   ctx.imageSmoothingEnabled = true;
 
-  // ★ 追加：背景を白で塗る
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, off.width, off.height);
 
@@ -441,4 +634,5 @@ window.addEventListener("beforeunload", () => {
   if (captureTimerId) {
     clearInterval(captureTimerId);
   }
+  stopScreenCapture();
 });
