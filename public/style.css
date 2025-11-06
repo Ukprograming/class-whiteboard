@@ -1,4 +1,4 @@
-/* ========== 基本リセット ========== */
+/* ===== 基本リセット ===== */
 *,
 *::before,
 *::after {
@@ -15,425 +15,404 @@ body {
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  background: #f3f4f6;
-  color: #111827;
+  color: #0f172a;
+  background: radial-gradient(circle at top left, #e0f2fe, #f9fafb);
 }
 
-/* ユーティリティ */
-.hidden {
-  display: none !important;
-}
-
-/* ========== 全体レイアウト ========== */
-
+/* ===== アプリ全体 ===== */
 .app-root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* ========== 上部ツールバー ========== */
-
+/* ===== トップバー ===== */
 .topbar {
-  height: 56px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  background: #ffffffcc;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.app-title {
-  font-weight: 600;
-  font-size: 16px;
-  color: #111827;
-}
-
-.topbar-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
-
+.topbar-left,
+.topbar-center,
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-/* 教員側タブボタン */
-.topbar-tab {
-  padding: 6px 14px;
+.topbar label {
+  font-size: 0.9rem;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.topbar input[type="text"] {
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: transparent;
-  font-size: 13px;
-  cursor: pointer;
-  color: #4b5563;
+  border: 1px solid #cbd5f5;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  outline: none;
+  min-width: 120px;
 }
 
-.topbar-tab.primary {
-  background: #2563eb;
-  color: #ffffff;
-  border-color: #1d4ed8;
-  box-shadow: 0 1px 2px rgb(37 99 235 / 0.35);
+.topbar input[type="text"]:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }
 
-/* 教員側クラスコード入力 */
-.topbar-right input[type="text"] {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  font-size: 13px;
-  min-width: 140px;
-}
-
-.button-primary {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #ffffff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-/* 生徒側：上部表示用ラベル */
-.chip {
+.topbar-btn {
+  margin-left: 8px;
   padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  border: 1px solid #cbd5f5;
   background: #e5edff;
-  color: #1d4ed8;
+  color: #1e3a8a;
+  cursor: pointer;
+}
+.topbar-btn:hover {
+  background: #dbeafe;
 }
 
-/* ========== メインエリア ========== */
 
+.status-label {
+  font-size: 0.85rem;
+  color: #0f766e;
+}
+
+/* タブボタン（ホワイトボード / 生徒画面など） */
+.tab-button {
+  border-radius: 999px;
+  border: none;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-button.active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.tab-button:hover {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+/* 共通ボタン */
+button {
+  font-family: inherit;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 小さめのアクションボタン */
+.topbar button:not(.tab-button) {
+  border-radius: 999px;
+  border: none;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #2563eb;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.25);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+
+.topbar button:not(.tab-button):hover {
+  background: #1d4ed8;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+
+/* ===== メインレイアウト ===== */
 .main-layout {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
   display: flex;
-  position: relative; /* ← これを追加（side-panel をこの中で絶対配置するため） */
+  min-height: 0; /* flex 子の高さが縮められるように */
 }
 
-.side-panel {
-  position: absolute;            /* ← フレックスから外して、上にかぶせる */
-  top: 8px;
-  bottom: 10px;
-  left: 10px;
-  width: 260px;
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  padding: 12px 10px;
+/* ===== 左サイドバー（ツール） ===== */
+.wb-sidebar {
+  position: relative;
+  flex: 0 0 260px;
+  max-width: 260px;
+  background: rgba(255, 255, 255, 0.96);
+  border-right: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 10px 10px 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  box-shadow: 2px 0 10px rgb(15 23 42 / 0.16);
-  z-index: 10;                   /* ← ホワイトボードより前面に出す */
+  gap: 10px;
+  box-shadow: 4px 0 12px rgba(15, 23, 42, 0.04);
+  transition: max-width 0.25s ease, flex-basis 0.25s ease, padding 0.25s ease;
 }
 
-/* 折りたたみ時：完全に画面外へ */
-.side-panel.collapsed {
-  transform: translateX(-100%);
-  box-shadow: none;
+.wb-sidebar.collapsed {
+  flex-basis: 52px;
+  max-width: 52px;
+  padding-right: 6px;
 }
 
-
-/* 折りたたみ時に出てくる「再表示ボタン」 */
-.side-panel-opener {
+/* サイドバー折りたたみボタン */
+.sidebar-toggle {
   position: absolute;
-  left: 6px;
   top: 50%;
+  right: -12px;
   transform: translateY(-50%);
-  width: 28px;
-  height: 72px;
-  border-radius: 0 999px 999px 0;
-  border: 1px solid #e5e7eb;
-  background: #ffffffcc;
-  box-shadow: 0 2px 8px rgb(15 23 42 / 0.18);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 16px;
-  z-index: 9;
-}
-
-/* side-panel が collapsed のときだけ表示 */
-.side-panel.collapsed ~ .side-panel-opener {
-  display: flex;
-}
-
-
-.side-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.side-panel-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #4b5563;
-}
-
-.side-panel-toggle {
-  border: none;
-  background: #eef2ff;
+  width: 24px;
+  height: 48px;
   border-radius: 999px;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  font-size: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+  transition: background 0.15s, transform 0.25s;
+  z-index: 5;
 }
 
-.side-panel.collapsed .side-panel-toggle {
+.sidebar-toggle:hover {
+  background: #eff6ff;
+}
+
+.sidebar-toggle .chevron {
+  font-size: 0.9rem;
+  color: #64748b;
+  transition: transform 0.25s;
+}
+
+.wb-sidebar.collapsed + .sidebar-toggle,
+.wb-sidebar.collapsed .sidebar-toggle {
+  /* if placed inside, this rule will still apply */
+}
+
+.wb-sidebar.collapsed .sidebar-toggle .chevron {
   transform: rotate(180deg);
 }
 
-.side-panel-section {
-  padding: 8px;
-  border-radius: 10px;
-  background: #f9fafb;
+/* サイドバー内セクション */
+.wb-section {
+  padding: 8px 6px;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
 }
 
-.side-panel-section.muted {
-  background: #f3f4f6;
-}
-
-.section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-
-/* フィールド・ボタン類 */
-
-.field {
+.wb-section h3 {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 12px;
-  color: #4b5563;
+  gap: 6px;
 }
 
-.field span {
-  white-space: nowrap;
+.wb-section h3 .section-icon {
+  font-size: 1rem;
 }
 
-.field input[type="color"] {
-  width: 32px;
-  height: 24px;
-  padding: 0;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  background: transparent;
-}
-
-.field select,
-.field input[type="text"] {
-  flex: 1;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  height: 28px;
-  font-size: 12px;
-  padding: 0 6px;
-}
-
-/* 生徒側のクラス参加用フィールド */
-.field input[type="text"].full {
-  width: 100%;
+/* 折りたたみ時に文字だけ隠す */
+.wb-sidebar.collapsed h3 span.section-text,
+.wb-sidebar.collapsed .tool-label,
+.wb-sidebar.collapsed .file-button span.label-text {
+  display: none;
 }
 
 /* ツールボタン群 */
-
-.tool-group {
+.tool-row {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
+  gap: 6px;
 }
 
-.tool-btn {
-  flex: 1;
+.tool-button {
+  flex: 1 1 48%;
   min-width: 0;
-  padding: 4px 6px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  font-size: 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  padding: 6px 8px;
   background: #ffffff;
-  cursor: pointer;
-  color: #374151;
-}
-
-.tool-btn.primary {
-  background: #2563eb;
-  color: #ffffff;
-  border-color: #1d4ed8;
-}
-
-/* アップロードボタン風 */
-
-.upload-btn {
+  font-size: 0.78rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  padding: 4px 8px;
+  gap: 4px;
+  cursor: pointer;
+  color: #4b5563;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s,
+    transform 0.05s, color 0.15s;
+}
+
+.tool-button .icon {
+  font-size: 0.9rem;
+}
+
+.tool-button:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.18);
+  transform: translateY(-1px);
+}
+
+.tool-button.active,
+.tool-button.primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
+}
+
+/* ファイルボタン */
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 999px;
-  border: 1px dashed #9ca3af;
+  padding: 6px 10px;
   background: #f9fafb;
+  border: 1px dashed #cbd5f5;
+  color: #475569;
+  font-size: 0.8rem;
   cursor: pointer;
   width: 100%;
-  margin-bottom: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-/* 危険アクション */
-
-.danger-btn {
-  width: 100%;
-  padding: 5px 8px;
-  border-radius: 8px;
-  border: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 12px;
-  cursor: pointer;
+.file-button:hover {
+  background: #eff6ff;
+  border-color: #60a5fa;
+  color: #1d4ed8;
 }
 
-/* 補足テキスト */
-
-.hint {
-  font-size: 11px;
-  color: #6b7280;
-  margin: 0;
-}
-
-/* ========== ワークスペース ========== */
-
-.workspace {
-  flex: 1;
+/* ===== 右側：ホワイトボードエリア ===== */
+.wb-main {
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px 10px 10px 10px;
+  padding: 10px 12px 10px 10px;
 }
 
-.view {
-  flex: 1;
+.board-container,
+.student-view {
+  flex: 1 1 auto;
   min-height: 0;
-}
-
-.canvas-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  border-radius: 16px;
   background: #ffffff;
-  border-radius: 14px;
-  box-shadow: 0 4px 12px rgb(15 23 42 / 0.08);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 8px;
+  position: relative;
   overflow: hidden;
 }
 
-.whiteboard {
+.board-container canvas,
+.student-view canvas {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-/* 右下のズームボタン */
-
-.zoom-controls {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  gap: 6px;
+/* 生徒ビューの表示/非表示 */
+.student-view.hidden {
+  display: none;
 }
 
-.zoom-controls button {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #ffffffdd;
-  font-size: 18px;
-  line-height: 0;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgb(15 23 42 / 0.18);
-}
-
-/* ========== 生徒一覧タイル（教員側） ========== */
-
-.students-header {
-  margin-bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
+/* ===== 生徒タイルグリッド（teacher用） ===== */
 .students-info {
-  font-size: 13px;
-  color: #6b7280;
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: #475569;
 }
 
+/* タイル全体を詰めて表示 */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-  align-content: flex-start;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;                    /* ← 横・縦のすき間を統一して狭くする */
+  align-items: start;          /* ← 高さを揃えず上寄せ */
+  justify-items: center;       /* ← タイルを中央寄せ */
+  width: 100%;
+  padding: 8px 0;
+  box-sizing: border-box;
 }
 
+/* 各タイルのカード設定 */
 .tile {
-  background: #ffffff;
+  background: #f9fafb;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 2px 6px rgb(15 23 42 / 0.08);
-  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 260px;            /* タイルが細くなりすぎないよう制限 */
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
+.tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 画像部分 */
 .tile img {
   width: 100%;
   height: auto;
-  max-height: 150px;
-  object-fit: contain;
-  background: #000;
+  aspect-ratio: 16 / 9;        /* ← サムネイル比率固定で整列感UP */
+  object-fit: cover;
+  background: #e5e7eb;
 }
 
+/* 名前部分 */
 .tile .meta {
-  padding: 4px 8px;
-  font-size: 12px;
-  color: #374151;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 0.9rem;
+  background: #f8fafc;
+  border-top: 1px solid #e5e7eb;
 }
 
-/* ========== モーダル（教員側拡大表示） ========== */
 
+/* ===== モーダル ===== */
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  background: rgba(15, 23, 42, 0.45);
   display: none;
-  background: rgb(15 23 42 / 0.4);
-  backdrop-filter: blur(4px);
   align-items: center;
   justify-content: center;
   z-index: 50;
@@ -444,52 +423,109 @@ body {
 }
 
 .modal {
-  width: min(960px, 96vw);
-  max-height: 90vh;
   background: #ffffff;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgb(15 23 42 / 0.4);
+  border-radius: 18px;
+  padding: 12px 12px 16px;
+  max-width: 90vw;
+  max-height: 90vh;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.6);
+  position: relative;
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
-.modal-header {
-  padding: 10px 14px;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 500;
+.modal-title {
+  margin: 0 32px 4px 0;
+  font-size: 0.95rem;
+  color: #0f172a;
 }
 
-.icon-btn {
-  border: none;
-  background: #f3f4f6;
+.modal-image {
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #0f172a;
+}
+
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   border-radius: 999px;
+  border: none;
   width: 28px;
   height: 28px;
-  cursor: pointer;
-}
-
-.modal-body {
-  padding: 10px;
-  display: flex;
+  background: rgba(15, 23, 42, 0.08);
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  align-items: center;
+  cursor: pointer;
+  font-size: 1rem;
 }
 
-#modalImage {
-  max-width: 100%;
-  max-height: calc(90vh - 80px);
-  object-fit: contain;
-  background: #000;
+/* ホワイトボードコンテナを隠すためのクラス */
+.board-container.hidden {
+  display: none;
 }
 
-/* ========== 生徒側用の小さな補助 ========== */
+/* 教員が「生徒画面確認」モードのときはサイドバーを非表示にして
+   右側エリア（生徒タイル）を画面いっぱいに広げる */
+body.teacher-student-view .wb-sidebar {
+  display: none;
+}
 
-.student-header-labels {
+body.teacher-student-view .wb-main {
+  padding: 10px 16px;
+}
+
+/* カラーパレット */
+.color-row {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.7);
+  background: var(--swatch-color);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
+}
+
+.color-swatch:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.25);
+}
+
+.color-swatch.active {
+  box-shadow: 0 0 0 2px #2563eb;
+  border-color: #ffffff;
+}
+
+/* ペン太さセレクト */
+#penWidthSelect {
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid #cbd5f5;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  outline: none;
+  background: #ffffff;
+}
+
+#penWidthSelect:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+}
+
+
+/* ===== テキストスタイルパネルなどがあればここに追加 ===== */

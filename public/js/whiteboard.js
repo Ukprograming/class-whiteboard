@@ -1,29 +1,39 @@
 // whiteboard.js
 // 無限ホワイトボード + ベクター手書き + テキスト / 付箋 / 図形
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
+// 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
+
+// 画像保存時の軽量化パラメータ
+const MAX_IMAGE_EXPORT_SIZE = 1400;   // 画像の長辺は最大 1400px に縮小
+const IMAGE_EXPORT_QUALITY  = 0.6;    // JPEG 品質（0〜1）
 
 export class Whiteboard {
   constructor({ canvas }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
 
-    // ★ 追加：デバイスピクセル比
+    // 手書き専用レイヤー
+    this.strokeCanvas = document.createElement("canvas");
+    this.strokeCtx = this.strokeCanvas.getContext("2d");
+
+    // デバイスピクセル比
     this.dpr = window.devicePixelRatio || 1;
 
     // 背景（PDF / 画像）
     this.bgCanvas = document.createElement("canvas");
     this.bgCtx = this.bgCanvas.getContext("2d");
 
-    // 手書きストローク（※今回は移動・リサイズはまだ未対応）
-    this.strokes = []; // { type, color, width, points: [{x,y},...] }
+    // 手書きストローク
+    // stroke: { type:'pen'|'highlighter'|'eraser', color, width, points:[{x,y}], groupId?, locked? }
+    this.strokes = [];
 
-    // ベクターオブジェクト（テキスト / 付箋 / 図形）
-    // kind: 'text' | 'sticky' | 'rect' | 'ellipse' | 'image'
+    // ベクターオブジェクト（テキスト / 付箋 / 図形 / 画像 / リンク）
+    // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'link', x,y,width,height,..., groupId?, locked? }
     this.objects = [];
     this.nextObjectId = 1;
 
     // 操作履歴（Undo 用）
-    this.history = []; // { kind:'stroke', stroke } | { kind:'object', id } | { kind:'delete-object', object, index }
+    this.history = []; // { kind:'stroke'|'object'|'delete-object'|'delete-multi', ... }
 
     // 表示（ズーム＆パン）
     this.scale = 1;
@@ -35,7 +45,7 @@ export class Whiteboard {
     this.penColor = "#000000";
     this.penWidth = 3;
     this.highlighterColor = "rgba(255,255,0,0.35)";
-    this.highlighterWidth = 18;
+    this.highlighterWidth = 30;
     this.eraserWidth = 24;
 
     // 状態フラグ
@@ -51,20 +61,35 @@ export class Whiteboard {
     this.lastPanScreenX = 0;
     this.lastPanScreenY = 0;
 
-    // 選択状態（オブジェクトのみ）
-    this.selectedObj = null; // { ...object }
+    // 選択状態（オブジェクト＋ストローク、複数選択対応）
+    this.selectedObj = null;          // テキスト設定用の代表オブジェクト
+    this.multiSelectedObjects = [];   // 図形・テキストなど
+    this.selectedStroke = null;       // 代表ストローク
+    this.multiSelectedStrokes = [];   // 複数ストローク選択
+
     this.isDraggingObj = false;
     this.isResizingObj = false;
     this.resizeHandle = null; // 'nw','ne','se','sw'
-    this.dragStart = null;    // { wx, wy, x, y, width, height, anchorX, anchorY, aspect }
+    this.dragStart = null;    // ドラッグ／リサイズ開始時の状態
     this.handleRects = [];    // 画面上のハンドルの当たり判定用
+
+    // ボックス選択（ドラッグで四角を描いて複数選択）
+    this.isBoxSelecting = false;
+    this.selectionBoxStart = null; // { x, y } ワールド座標
+    this.selectionBoxEnd = null;
+
+    // ピンチズーム / 2本指パン用
+    this.isPinchZoom = false;
+    this.pinchStartDistance = 0;
+    this.pinchStartScale = 1;
+    this.pinchStartCenter = { sx: 0, sy: 0 }; // 画面座標
+    this.pinchWorld = { x: 0, y: 0 };         // ピンチ中心のワールド座標
 
     // テキスト編集用オーバーレイ
     this.textEditor = this._createTextEditor();
     this.editingObj = null; // 編集中の text オブジェクト
 
     // 外側から UI を更新するためのコールバック
-    // teacher.js / student.js から wb.onSelectionChange = fn; という形で登録
     this.onSelectionChange = null;
 
     this._attachEvents();
@@ -188,6 +213,13 @@ export class Whiteboard {
     }
   }
 
+  hasSelection() {
+    return (
+      (this.multiSelectedObjects && this.multiSelectedObjects.length > 0) ||
+      (this.multiSelectedStrokes && this.multiSelectedStrokes.length > 0)
+    );
+  }
+
   clearAll() {
     this.strokes = [];
     this.objects = [];
@@ -201,12 +233,10 @@ export class Whiteboard {
     if (!last) return;
 
     if (last.kind === "stroke") {
-      // ストロークの追加を取り消す → 配列から削除
       const idx = this.strokes.indexOf(last.stroke);
       if (idx >= 0) this.strokes.splice(idx, 1);
 
     } else if (last.kind === "object") {
-      // オブジェクトの追加を取り消す → 配列から削除
       const idx = this.objects.findIndex(o => o.id === last.id);
       if (idx >= 0) this.objects.splice(idx, 1);
       if (this.selectedObj && this.selectedObj.id === last.id) {
@@ -214,11 +244,39 @@ export class Whiteboard {
       }
 
     } else if (last.kind === "delete-object") {
-      // 削除を取り消す → 元の位置にオブジェクトを戻す
       const index =
         typeof last.index === "number" ? last.index : this.objects.length;
       this.objects.splice(index, 0, last.object);
       this._setSelected(last.object);
+
+    } else if (last.kind === "delete-multi") {
+      if (last.objects) {
+        last.objects.forEach(entry => {
+          const idx =
+            typeof entry.index === "number" ? entry.index : this.objects.length;
+          this.objects.splice(idx, 0, entry.object);
+        });
+      }
+      if (last.strokes) {
+        last.strokes.forEach(entry => {
+          const idx =
+            typeof entry.index === "number" ? entry.index : this.strokes.length;
+          this.strokes.splice(idx, 0, entry.stroke);
+        });
+      }
+
+      this.multiSelectedObjects = last.objects
+        ? last.objects.map(e => e.object)
+        : [];
+      this.multiSelectedStrokes = last.strokes
+        ? last.strokes.map(e => e.stroke)
+        : [];
+      this.selectedObj =
+        this.multiSelectedObjects.find(
+          o => o.kind === "text" || o.kind === "link"
+        ) || this.multiSelectedObjects[0] || null;
+      this.selectedStroke = this.multiSelectedStrokes[0] || null;
+      this._fireSelectionChange();
     }
 
     this.render();
@@ -228,10 +286,9 @@ export class Whiteboard {
   copySelection() {
     if (!this.selectedObj) return;
     const kind = this.selectedObj.kind;
-    if (!["text", "sticky", "rect", "ellipse", "link"].includes(kind)) return; // ← link 追加
+    if (!["text", "sticky", "rect", "ellipse", "link"].includes(kind)) return;
     this.clipboard = JSON.parse(JSON.stringify(this.selectedObj));
   }
-
 
   // ペースト
   pasteSelection() {
@@ -249,25 +306,82 @@ export class Whiteboard {
     this.render();
   }
 
-  // 選択中オブジェクトの削除（Undo 可能）
+  // 選択中のオブジェクト／ストロークをまとめて削除（ロックされているものは対象外）
   deleteSelection() {
-    if (!this.selectedObj) return;
+    const objs = (this.multiSelectedObjects || []).filter(o => !o.locked);
+    const strokes = (this.multiSelectedStrokes || []).filter(s => !s.locked);
 
-    const id = this.selectedObj.id;
-    const idx = this.objects.findIndex(o => o.id === id);
-    if (idx === -1) return;
+    if (!objs.length && !strokes.length) return;
 
-    // 削除されたオブジェクトを退避
-    const [removed] = this.objects.splice(idx, 1);
+    const deletedObjects = [];
+    const deletedStrokes = [];
 
-    // Undo 用に履歴へ保存（元の位置も覚えておく）
-    this.history.push({
-      kind: "delete-object",
-      object: removed,
-      index: idx
+    // オブジェクト削除
+    objs.forEach(o => {
+      const idx = this.objects.indexOf(o);
+      if (idx !== -1) {
+        this.objects.splice(idx, 1);
+        deletedObjects.push({ object: o, index: idx });
+      }
     });
 
-    this._setSelected(null);
+    // ストローク削除
+    strokes.forEach(s => {
+      const idx = this.strokes.indexOf(s);
+      if (idx !== -1) {
+        this.strokes.splice(idx, 1);
+        deletedStrokes.push({ stroke: s, index: idx });
+      }
+    });
+
+    this.history.push({
+      kind: "delete-multi",
+      objects: deletedObjects,
+      strokes: deletedStrokes
+    });
+
+    this.selectedObj = null;
+    this.selectedStroke = null;
+    this.multiSelectedObjects = [];
+    this.multiSelectedStrokes = [];
+    this._fireSelectionChange();
+    this.render();
+  }
+
+  // 現在の選択を1つのグループにまとめる
+  groupSelection() {
+    const objs = this.multiSelectedObjects || [];
+    const strokes = this.multiSelectedStrokes || [];
+    if (objs.length + strokes.length <= 1) return;
+
+    const groupId =
+      Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+    objs.forEach(o => { o.groupId = groupId; });
+    strokes.forEach(s => { s.groupId = groupId; });
+
+    this.selectedObj =
+      objs.find(o => o.kind === "text" || o.kind === "link") ||
+      objs[0] ||
+      null;
+    this.selectedStroke = strokes[0] || null;
+    this._fireSelectionChange();
+    this.render();
+  }
+
+  // 現在の選択をロック／アンロック
+  toggleLockSelection() {
+    const objs = this.multiSelectedObjects || [];
+    const strokes = this.multiSelectedStrokes || [];
+    if (!objs.length && !strokes.length) return;
+
+    const anyUnlocked =
+      objs.some(o => !o.locked) || strokes.some(s => !s.locked);
+    const newLocked = anyUnlocked ? true : false;
+
+    objs.forEach(o => { o.locked = newLocked; });
+    strokes.forEach(s => { s.locked = newLocked; });
+
     this.render();
   }
 
@@ -275,12 +389,10 @@ export class Whiteboard {
   pastePlainText(text) {
     if (!text) return;
 
-    // ★ CSS ピクセルベースでキャンバス中央を取得
     const rect = this.canvas.getBoundingClientRect();
     const sx = rect.width / 2;
     const sy = rect.height / 2;
 
-    // 画面座標 → ワールド座標
     const { x: wx, y: wy } = this._screenToWorld(sx, sy);
 
     const id = this.nextObjectId++;
@@ -307,12 +419,10 @@ export class Whiteboard {
     this._openTextEditorForObject(obj);
   }
 
-
   // URL をリンクオブジェクトとして貼り付け
   pasteLink(url) {
     if (!url) return;
 
-    // ★ CSS ピクセルベースでキャンバス中央を取得
     const rect = this.canvas.getBoundingClientRect();
     const sx = rect.width / 2;
     const sy = rect.height / 2;
@@ -341,7 +451,50 @@ export class Whiteboard {
     this.render();
   }
 
+  // クリップボードからの画像貼り付け（ファイル/Blob）
+  async pasteImageBlob(blob) {
+    if (!blob) return;
 
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = url;
+      });
+
+      const rect = this.canvas.getBoundingClientRect();
+      const sx = rect.width / 2;
+      const sy = rect.height / 2;
+      const { x: wx, y: wy } = this._screenToWorld(sx, sy);
+
+      const maxWidth = 800;
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        const scale = maxWidth / w;
+        w = w * scale;
+        h = h * scale;
+      }
+
+      const id = this.nextObjectId++;
+      const obj = {
+        id,
+        kind: "image",
+        x: wx - w / 2,
+        y: wy - h / 2,
+        width: w,
+        height: h,
+        image: img
+      };
+
+      this._addObject(obj);
+      this.render();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
 
   exportPngDataUrl() {
     return this.canvas.toDataURL("image/png");
@@ -367,6 +520,218 @@ export class Whiteboard {
     if (typeof bold === "boolean") this.selectedObj.bold = bold;
     this.render();
     this._fireSelectionChange();
+  }
+
+  // 付箋の色変更（UI から呼ぶ）
+  setSelectedStickyColor(color) {
+    if (!this.selectedObj || this.selectedObj.kind !== "sticky") return;
+    this.selectedObj.fill = color;
+    this.selectedObj.stroke = color;
+    this.render();
+  }
+
+  // ====== ★ 追加：画像圧縮用ユーティリティ ======
+
+  _encodeImageForExport(source, logicalWidth, logicalHeight, maxSize = MAX_IMAGE_EXPORT_SIZE) {
+    if (!source || !logicalWidth || !logicalHeight) return null;
+
+    const absW = Math.max(1, Math.abs(logicalWidth));
+    const absH = Math.max(1, Math.abs(logicalHeight));
+    const longest = Math.max(absW, absH);
+    const scale = longest > maxSize ? maxSize / longest : 1;
+
+    const outW = Math.max(1, Math.round(absW * scale));
+    const outH = Math.max(1, Math.round(absH * scale));
+
+    const c = document.createElement("canvas");
+    c.width = outW;
+    c.height = outH;
+    const ctx = c.getContext("2d");
+
+    try {
+      ctx.drawImage(source, 0, 0, outW, outH);
+    } catch (e) {
+      // Cross-origin などで描けない場合は諦めて null を返す
+      return null;
+    }
+
+    const dataUrl = c.toDataURL("image/jpeg", IMAGE_EXPORT_QUALITY);
+    return { dataUrl, width: outW, height: outH };
+  }
+
+  // ====== ★ 追加：ボード状態のエクスポート／インポート ======
+
+  /**
+   * 現在のホワイトボード状態を「JSONにできる形のオブジェクト」として返す
+   * 画像・PDF（imageオブジェクト）・背景も JPEG + DataURL で軽量保存する
+   */
+  exportBoardData() {
+    const strokes = this.strokes.map(st => ({
+      type: st.type || "pen",
+      color: st.color || this.penColor,
+      width: st.width || this.penWidth,
+      points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
+      groupId: st.groupId || null,
+      locked: !!st.locked
+    }));
+
+    const objects = this.objects.map(o => {
+      const base = {
+        id: o.id,
+        kind: o.kind,
+        x: o.x,
+        y: o.y,
+        width: o.width,
+        height: o.height,
+        groupId: o.groupId || null,
+        locked: !!o.locked
+      };
+
+      if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
+        base.text = o.text || "";
+        base.fontSize = o.fontSize || 16;
+        base.fontFamily = o.fontFamily || "system-ui";
+        base.bold = !!o.bold;
+      }
+
+      if (o.kind === "sticky" || o.kind === "rect" || o.kind === "ellipse") {
+        base.fill = o.fill || "transparent";
+        base.stroke = o.stroke || "transparent";
+      }
+
+      if (o.kind === "link") {
+        base.url = o.url || o.text || "";
+      }
+
+      if (o.kind === "image" && o.image) {
+        const encoded = this._encodeImageForExport(
+          o.image,
+          o.width,
+          o.height,
+          MAX_IMAGE_EXPORT_SIZE
+        );
+        if (encoded) {
+          base.imageDataUrl = encoded.dataUrl;
+          base.imageWidth = encoded.width;
+          base.imageHeight = encoded.height;
+        }
+      }
+
+      return base;
+    });
+
+    // 背景（背景画像がある場合だけ）
+    let background = null;
+    if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
+      const encodedBg = this._encodeImageForExport(
+        this.bgCanvas,
+        this.bgCanvas.width,
+        this.bgCanvas.height,
+        MAX_IMAGE_EXPORT_SIZE
+      );
+      if (encodedBg) {
+        background = {
+          dataUrl: encodedBg.dataUrl,
+          width: encodedBg.width,
+          height: encodedBg.height
+        };
+      }
+    }
+
+    return {
+      version: 1,
+      scale: this.scale,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      nextObjectId: this.nextObjectId,
+      strokes,
+      objects,
+      background
+    };
+  }
+
+  /**
+   * exportBoardData() で得たデータオブジェクトからホワイトボード状態を再構築する
+   * 画像・背景も DataURL から <img> や canvas に復元する
+   */
+  importBoardData(data) {
+    if (!data) return;
+
+    this.scale = data.scale != null ? data.scale : 1;
+    this.offsetX = data.offsetX != null ? data.offsetX : 0;
+    this.offsetY = data.offsetY != null ? data.offsetY : 0;
+    this.nextObjectId = data.nextObjectId != null ? data.nextObjectId : 1;
+
+    this.strokes = (data.strokes || []).map(st => ({
+      type: st.type || "pen",
+      color: st.color || this.penColor,
+      width: st.width || this.penWidth,
+      points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
+      groupId: st.groupId || null,
+      locked: !!st.locked
+    }));
+
+    this.objects = (data.objects || []).map(o => {
+      const obj = {
+        id: o.id,
+        kind: o.kind,
+        x: o.x,
+        y: o.y,
+        width: o.width,
+        height: o.height,
+        groupId: o.groupId || null,
+        locked: !!o.locked
+      };
+
+      if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
+        obj.text = o.text || "";
+        obj.fontSize = o.fontSize || 16;
+        obj.fontFamily = o.fontFamily || "system-ui";
+        obj.bold = !!o.bold;
+      }
+
+      if (o.kind === "sticky" || o.kind === "rect" || o.kind === "ellipse") {
+        obj.fill = o.fill || "transparent";
+        obj.stroke = o.stroke || "transparent";
+      }
+
+      if (o.kind === "link") {
+        obj.url = o.url || o.text || "";
+      }
+
+      if (o.kind === "image") {
+        if (o.imageDataUrl) {
+          const img = new Image();
+          img.src = o.imageDataUrl;
+          obj.image = img;
+        } else {
+          obj.image = null;
+        }
+      }
+
+      return obj;
+    });
+
+    // 背景復元
+    if (data.background && data.background.dataUrl) {
+      const bgImg = new Image();
+      bgImg.onload = () => {
+        this.bgCanvas.width = data.background.width || bgImg.width;
+        this.bgCanvas.height = data.background.height || bgImg.height;
+        this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
+        this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
+        this.render();
+      };
+      bgImg.src = data.background.dataUrl;
+    } else {
+      // 背景なし
+      this.bgCanvas.width = 0;
+      this.bgCanvas.height = 0;
+    }
+
+    this.history = [];
+    this._setSelected(null);
+    this.render();
   }
 
   // ====== 内部ユーティリティ ======
@@ -407,7 +772,26 @@ export class Whiteboard {
   }
 
   _setSelected(obj) {
-    this.selectedObj = obj;
+    this.selectedObj = obj || null;
+    this.multiSelectedObjects = obj ? [obj] : [];
+    this.selectedStroke = null;
+    this.multiSelectedStrokes = [];
+    this._fireSelectionChange();
+  }
+
+  _setSelectedStroke(stroke, additive = false) {
+    if (additive) {
+      if (!stroke) return;
+      if (!this.multiSelectedStrokes.includes(stroke)) {
+        this.multiSelectedStrokes.push(stroke);
+      }
+      this.selectedStroke = this.multiSelectedStrokes[0] || null;
+    } else {
+      this.selectedObj = null;
+      this.multiSelectedObjects = [];
+      this.multiSelectedStrokes = stroke ? [stroke] : [];
+      this.selectedStroke = stroke || null;
+    }
     this._fireSelectionChange();
   }
 
@@ -418,7 +802,7 @@ export class Whiteboard {
       return;
     }
     const o = this.selectedObj;
-    if (o.kind === "text" || o.kind === "link") {   // ← link を追加
+    if (o.kind === "text" || o.kind === "link") {
       this.onSelectionChange({
         kind: "text",
         fontSize: o.fontSize || 16,
@@ -429,7 +813,6 @@ export class Whiteboard {
       this.onSelectionChange({ kind: o.kind });
     }
   }
-
 
   _createTextEditor() {
     const container = this.canvas.parentElement;
@@ -458,7 +841,6 @@ export class Whiteboard {
         e.preventDefault();
         this._cancelTextEditor();
       }
-      // Ctrl+Enter で確定
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         this._commitTextEditor();
@@ -466,7 +848,6 @@ export class Whiteboard {
     });
 
     ta.addEventListener("blur", () => {
-      // フォーカスを失ったときも確定
       if (this.editingObj) {
         this._commitTextEditor();
       }
@@ -481,10 +862,8 @@ export class Whiteboard {
     const fontFamily = obj.fontFamily || "system-ui";
     const bold = obj.bold ? "bold" : "normal";
 
-    const padding = 6;
     const { x, y, width, height } = this._normalizeRect(obj);
 
-    // 画面座標に変換
     const p1 = this._worldToScreen(x, y);
     const p2 = this._worldToScreen(x + width, y + height);
     const sx = p1.x;
@@ -538,23 +917,20 @@ export class Whiteboard {
     const height = 60;
     const obj = {
       id,
-      kind, // 'text' or 'sticky'
+      kind,
       x: wx,
       y: wy,
       width,
       height,
       text: "",
-      // テキストスタイル
       fontSize: 16,
       fontFamily: "system-ui",
       bold: false,
-      // sticky 用
       fill: kind === "sticky" ? "#FEF3C7" : "transparent",
       stroke: kind === "sticky" ? "#FBBF24" : "transparent"
     };
     this._addObject(obj);
     this.render();
-    // キャンバス上で直接入力
     this._openTextEditorForObject(obj);
   }
 
@@ -562,7 +938,7 @@ export class Whiteboard {
     const id = this.nextObjectId++;
     const obj = {
       id,
-      kind, // 'rect' | 'ellipse'
+      kind,
       x: wx,
       y: wy,
       width: 0,
@@ -600,7 +976,6 @@ export class Whiteboard {
   }
 
   _hitTestObject(wx, wy) {
-    // 上にあるもの優先
     for (let i = this.objects.length - 1; i >= 0; i--) {
       const o = this.objects[i];
       const { x, y, width, height } = this._normalizeRect(o);
@@ -611,8 +986,27 @@ export class Whiteboard {
     return null;
   }
 
+  _hitTestStroke(wx, wy) {
+    const threshold = 6 / this.scale;
+    const th2 = threshold * threshold;
+
+    for (let i = this.strokes.length - 1; i >= 0; i--) {
+      const stroke = this.strokes[i];
+      const pts = stroke.points;
+      if (!pts || pts.length === 0) continue;
+
+      for (let j = 0; j < pts.length; j++) {
+        const dx = pts[j].x - wx;
+        const dy = pts[j].y - wy;
+        if (dx * dx + dy * dy <= th2) {
+          return stroke;
+        }
+      }
+    }
+    return null;
+  }
+
   _hitTestResizeHandle(sx, sy) {
-    // this.handleRects: { name, x, y, size }
     for (const h of this.handleRects) {
       if (
         sx >= h.x &&
@@ -620,7 +1014,7 @@ export class Whiteboard {
         sy >= h.y &&
         sy <= h.y + h.size
       ) {
-        return h.name; // 'nw','ne','se','sw'
+        return h.name;
       }
     }
     return null;
@@ -641,15 +1035,49 @@ export class Whiteboard {
 
     const down = e => {
       e.preventDefault();
+
       if (this.editingObj) {
         this._commitTextEditor();
       }
 
-      const { sx, sy, wx, wy } = getPos(e);
+      // 2本指タッチ → ピンチズーム開始
+      if (e.touches && e.touches.length >= 2) {
+        const rect = canvas.getBoundingClientRect();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const sx1 = t1.clientX - rect.left;
+        const sy1 = t1.clientY - rect.top;
+        const sx2 = t2.clientX - rect.left;
+        const sy2 = t2.clientY - rect.top;
 
+        const dx = sx2 - sx1;
+        const dy = sy2 - sy1;
+        const dist = Math.hypot(dx, dy);
+
+        const centerSx = (sx1 + sx2) / 2;
+        const centerSy = (sy1 + sy2) / 2;
+        const world = this._screenToWorld(centerSx, centerSy);
+
+        this.isPinchZoom = true;
+        this.pinchStartDistance = dist;
+        this.pinchStartScale = this.scale;
+        this.pinchStartCenter = { sx: centerSx, sy: centerSy };
+        this.pinchWorld = { x: world.x, y: world.y };
+
+        this.isPanning = false;
+        this.isDrawingStroke = false;
+        this.isDrawingShape = false;
+        this.isDraggingObj = false;
+        this.isResizingObj = false;
+        this.isBoxSelecting = false;
+
+        return;
+      }
+
+      const { sx, sy, wx, wy } = getPos(e);
       const button = e.button != null ? e.button : 0;
 
-      // 中ボタン / 右クリック / Alt でパン（Shift は縦横比固定に使うので除外）
+      // 中ボタン / 右クリック / Alt でパン
       if (button === 1 || button === 2 || e.altKey) {
         this.isPanning = true;
         this.lastPanScreenX = sx;
@@ -657,6 +1085,7 @@ export class Whiteboard {
         return;
       }
 
+      // 手書きツール
       if (this.tool === "pen" || this.tool === "highlighter" || this.tool === "eraser") {
         this.isDrawingStroke = true;
         let color = this.penColor;
@@ -680,48 +1109,42 @@ export class Whiteboard {
         return;
       }
 
+      // テキスト／付箋
       if (this.tool === "text" || this.tool === "sticky") {
         this._createTextObject(wx, wy, this.tool === "sticky" ? "sticky" : "text");
         return;
       }
 
+      // 図形
       if (this.tool === "rect" || this.tool === "ellipse") {
         this._startShape(wx, wy, this.tool === "rect" ? "rect" : "ellipse");
         return;
       }
 
+      // 選択ツール
       if (this.tool === "select") {
-        // まずリサイズハンドル
-        if (this.selectedObj) {
+        // まず、単一選択オブジェクトのリサイズハンドル判定
+        if (this.multiSelectedObjects.length === 1 && this.selectedObj) {
           const handle = this._hitTestResizeHandle(sx, sy);
           if (handle) {
             this.isResizingObj = true;
             this.resizeHandle = handle;
 
-            // 正規化された矩形（左上 & 正の幅・高さ）
             const { x, y, width, height } = this._normalizeRect(this.selectedObj);
+            const aspect = width !== 0 ? Math.abs(height / width) : null;
 
-            // 固定されるアスペクト比（縦横比）
-            const aspect =
-              width !== 0 ? Math.abs(height / width) : null;
-
-            // リサイズ中に動かない「アンカー側の角」を計算
             let anchorX = x;
             let anchorY = y;
             if (handle === "se") {
-              // 右下を動かす → アンカーは左上
               anchorX = x;
               anchorY = y;
             } else if (handle === "ne") {
-              // 右上を動かす → アンカーは左下
               anchorX = x;
               anchorY = y + height;
             } else if (handle === "sw") {
-              // 左下を動かす → アンカーは右上
               anchorX = x + width;
               anchorY = y;
             } else if (handle === "nw") {
-              // 左上を動かす → アンカーは右下
               anchorX = x + width;
               anchorY = y + height;
             }
@@ -741,29 +1164,144 @@ export class Whiteboard {
           }
         }
 
-        // 次にオブジェクト本体
-        const hit = this._hitTestObject(wx, wy);
-        if (hit) {
-          this._setSelected(hit);
+        // オブジェクトのヒットテスト
+        const hitObj = this._hitTestObject(wx, wy);
+        if (hitObj) {
+          if (e.shiftKey) {
+            if (!this.multiSelectedObjects.includes(hitObj)) {
+              this.multiSelectedObjects.push(hitObj);
+            }
+            if (hitObj.kind === "text" || hitObj.kind === "link") {
+              this.selectedObj = hitObj;
+            }
+          } else {
+            if (hitObj.groupId) {
+              const gid = hitObj.groupId;
+              this.multiSelectedObjects = this.objects.filter(o => o.groupId === gid);
+              this.multiSelectedStrokes = this.strokes.filter(s => s.groupId === gid);
+              const textObj =
+                this.multiSelectedObjects.find(
+                  o => o.kind === "text" || o.kind === "link"
+                ) || null;
+              this.selectedObj = textObj || this.multiSelectedObjects[0] || null;
+              this.selectedStroke = this.multiSelectedStrokes[0] || null;
+              this._fireSelectionChange();
+            } else {
+              this._setSelected(hitObj);
+            }
+          }
+
           this.isDraggingObj = true;
           this.dragStart = {
             wx,
             wy,
-            x: hit.x,
-            y: hit.y,
-            width: hit.width,
-            height: hit.height
+            objects: this.multiSelectedObjects
+              .filter(o => !o.locked)
+              .map(o => ({
+                obj: o,
+                x: o.x,
+                y: o.y
+              })),
+            strokes: this.multiSelectedStrokes
+              .filter(st => !st.locked)
+              .map(st => ({
+                stroke: st,
+                points: st.points.map(p => ({ x: p.x, y: p.y }))
+              }))
           };
           this.render();
-        } else {
-          this._setSelected(null);
-          this.render();
+          return;
         }
+
+        // ストロークのヒットテスト
+        const hitStroke = this._hitTestStroke(wx, wy);
+        if (hitStroke) {
+          if (e.shiftKey) {
+            this._setSelectedStroke(hitStroke, true);
+          } else {
+            if (hitStroke.groupId) {
+              const gid = hitStroke.groupId;
+              this.multiSelectedObjects = this.objects.filter(o => o.groupId === gid);
+              this.multiSelectedStrokes = this.strokes.filter(s => s.groupId === gid);
+              const textObj =
+                this.multiSelectedObjects.find(
+                  o => o.kind === "text" || o.kind === "link"
+                ) || null;
+              this.selectedObj = textObj || this.multiSelectedObjects[0] || null;
+              this.selectedStroke = this.multiSelectedStrokes[0] || null;
+              this._fireSelectionChange();
+            } else {
+              this._setSelectedStroke(hitStroke, false);
+            }
+          }
+
+          this.isDraggingObj = true;
+          this.dragStart = {
+            wx,
+            wy,
+            objects: this.multiSelectedObjects
+              .filter(o => !o.locked)
+              .map(o => ({
+                obj: o,
+                x: o.x,
+                y: o.y
+              })),
+            strokes: this.multiSelectedStrokes
+              .filter(st => !st.locked)
+              .map(st => ({
+                stroke: st,
+                points: st.points.map(p => ({ x: p.x, y: p.y }))
+              }))
+          };
+          this.render();
+          return;
+        }
+
+        // 何もヒットしない → ボックス選択開始
+        this.isBoxSelecting = true;
+        this.selectionBoxStart = { x: wx, y: wy };
+        this.selectionBoxEnd = { x: wx, y: wy };
+        this.selectedObj = null;
+        this.multiSelectedObjects = [];
+        this.selectedStroke = null;
+        this.multiSelectedStrokes = [];
+        this._fireSelectionChange();
+        this.render();
         return;
       }
     };
 
     const move = e => {
+      // 2本指ピンチ中
+      if (this.isPinchZoom && e.touches && e.touches.length >= 2) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const sx1 = t1.clientX - rect.left;
+        const sy1 = t1.clientY - rect.top;
+        const sx2 = t2.clientX - rect.left;
+        const sy2 = t2.clientY - rect.top;
+
+        const dx = sx2 - sx1;
+        const dy = sy2 - sy1;
+        const dist = Math.hypot(dx, dy);
+        if (!dist) return;
+
+        const centerSx = (sx1 + sx2) / 2;
+        const centerSy = (sy1 + sy2) / 2;
+
+        const scaleFactor = dist / this.pinchStartDistance;
+        const newScale = Math.min(5, Math.max(0.2, this.pinchStartScale * scaleFactor));
+        this.scale = newScale;
+
+        this.offsetX = centerSx - this.pinchWorld.x * this.scale;
+        this.offsetY = centerSy - this.pinchWorld.y * this.scale;
+
+        this.render();
+        return;
+      }
+
       if (this.isPanning) {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
@@ -796,22 +1334,47 @@ export class Whiteboard {
         return;
       }
 
-      if (this.tool === "select" && (this.isDraggingObj || this.isResizingObj)) {
-        e.preventDefault();
-        const { wx, wy } = getPos(e);
-        const obj = this.selectedObj;
-        if (!obj || !this.dragStart) return;
-
-        if (this.isDraggingObj) {
-          const dx = wx - this.dragStart.wx;
-          const dy = wy - this.dragStart.wy;
-          obj.x = this.dragStart.x + dx;
-          obj.y = this.dragStart.y + dy;
+      if (this.tool === "select") {
+        if (this.isBoxSelecting && this.selectionBoxStart) {
+          e.preventDefault();
+          const { wx, wy } = getPos(e);
+          this.selectionBoxEnd = { x: wx, y: wy };
           this.render();
           return;
         }
 
-        if (this.isResizingObj) {
+        if (this.isDraggingObj && this.dragStart) {
+          e.preventDefault();
+          const { wx, wy } = getPos(e);
+          const dx = wx - this.dragStart.wx;
+          const dy = wy - this.dragStart.wy;
+
+          if (this.dragStart.objects) {
+            this.dragStart.objects.forEach(entry => {
+              entry.obj.x = entry.x + dx;
+              entry.obj.y = entry.y + dy;
+            });
+          }
+
+          if (this.dragStart.strokes) {
+            this.dragStart.strokes.forEach(entry => {
+              const stroke = entry.stroke;
+              stroke.points.forEach((p, i) => {
+                const base = entry.points[i];
+                p.x = base.x + dx;
+                p.y = base.y + dy;
+              });
+            });
+          }
+
+          this.render();
+          return;
+        }
+
+        if (this.isResizingObj && this.selectedObj && this.dragStart) {
+          e.preventDefault();
+          const { wx, wy } = getPos(e);
+          const obj = this.selectedObj;
           const {
             x,
             y,
@@ -822,11 +1385,7 @@ export class Whiteboard {
             aspect
           } = this.dragStart;
 
-          // ─────────────────
-          // Shift キーで縦横比固定
-          // ─────────────────
           if (e.shiftKey && aspect) {
-            // アンカーから見たマウス位置の差
             let dx = wx - anchorX;
             let dy = wy - anchorY;
 
@@ -835,7 +1394,6 @@ export class Whiteboard {
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
-            // どちらの変化量が大きいかで、主導する軸を決める
             let useWidth = true;
             if (absDx === 0 && absDy !== 0) {
               useWidth = false;
@@ -861,7 +1419,6 @@ export class Whiteboard {
             const newDx = newAbsW * signX;
             const newDy = newAbsH * signY;
 
-            // アンカーを固定したまま、反対側の角を newDx / newDy だけ動かす
             let nx, ny, nw, nh;
 
             if (newDx >= 0) {
@@ -888,9 +1445,6 @@ export class Whiteboard {
             return;
           }
 
-          // ─────────────────
-          // 通常（Shift なし）のリサイズ：元の処理
-          // ─────────────────
           let nx = x;
           let ny = y;
           let nw = width;
@@ -922,22 +1476,81 @@ export class Whiteboard {
     };
 
     const up = e => {
+      if (this.isPinchZoom && (!e.touches || e.touches.length < 2)) {
+        this.isPinchZoom = false;
+      }
+
       this.isPanning = false;
       this.isDrawingStroke = false;
       this.currentStroke = null;
+
       if (this.isDrawingShape) {
         this._finishShape();
       }
+
       if (this.isDraggingObj || this.isResizingObj) {
         this.isDraggingObj = false;
         this.isResizingObj = false;
         this.resizeHandle = null;
         this.dragStart = null;
+      }
+
+      if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
+        const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);
+        const sy = Math.min(this.selectionBoxStart.y, this.selectionBoxEnd.y);
+        const ex = Math.max(this.selectionBoxStart.x, this.selectionBoxEnd.x);
+        const ey = Math.max(this.selectionBoxStart.y, this.selectionBoxEnd.y);
+
+        const selectedObjects = [];
+        for (const o of this.objects) {
+          const { x, y, width, height } = this._normalizeRect(o);
+          const ox1 = x;
+          const oy1 = y;
+          const ox2 = x + width;
+          const oy2 = y + height;
+
+          const intersect =
+            ox1 < ex && ox2 > sx && oy1 < ey && oy2 > sy;
+
+          if (intersect) {
+            selectedObjects.push(o);
+          }
+        }
+
+        const selectedStrokes = [];
+        for (const st of this.strokes) {
+          if (!st.points || st.points.length === 0) continue;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of st.points) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+          }
+          const intersect =
+            minX < ex && maxX > sx && minY < ey && maxY > sy;
+          if (intersect) {
+            selectedStrokes.push(st);
+          }
+        }
+
+        this.multiSelectedObjects = selectedObjects;
+        this.multiSelectedStrokes = selectedStrokes;
+        this.selectedStroke = selectedStrokes[0] || null;
+
+        const textObj =
+          selectedObjects.find(o => o.kind === "text" || o.kind === "link") || null;
+        this.selectedObj = textObj || (selectedObjects[0] || null);
+
+        this._fireSelectionChange();
+
+        this.isBoxSelecting = false;
+        this.selectionBoxStart = null;
+        this.selectionBoxEnd = null;
         this.render();
       }
     };
 
-    // ダブルクリックでテキスト編集 or リンクを開く
     const dbl = e => {
       if (this.tool !== "select") return;
       const { wx, wy } = getPos(e);
@@ -945,7 +1558,6 @@ export class Whiteboard {
       if (!hit) return;
 
       if (hit.kind === "link" && hit.url) {
-        // リンクオブジェクト → URL を新しいタブで開く
         window.open(hit.url, "_blank");
         return;
       }
@@ -956,20 +1568,16 @@ export class Whiteboard {
       }
     };
 
-
-    // マウス
     canvas.addEventListener("mousedown", down);
     canvas.addEventListener("mousemove", move);
     canvas.addEventListener("mouseup", up);
     canvas.addEventListener("mouseleave", up);
     canvas.addEventListener("dblclick", dbl);
 
-    // タッチ
     canvas.addEventListener("touchstart", down, { passive: false });
     canvas.addEventListener("touchmove", move, { passive: false });
     canvas.addEventListener("touchend", up);
 
-    // ホイール：パン／Ctrl+ホイール：ズーム
     canvas.addEventListener(
       "wheel",
       e => {
@@ -991,7 +1599,6 @@ export class Whiteboard {
     );
   }
 
-  // テキスト折り返し用：幅に収まるように行分割（簡易・1文字単位）
   _wrapTextLines(text, maxWidth, fontSize, fontFamily, bold) {
     const ctx = this.ctx;
     ctx.save();
@@ -1014,22 +1621,69 @@ export class Whiteboard {
   }
 
   // ====== 描画 ======
-
   render() {
-    const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
-
     const dpr = this.dpr || 1;
 
-    // 一度リセットして全クリア
+    if (this.strokeCanvas.width !== w || this.strokeCanvas.height !== h) {
+      this.strokeCanvas.width = w;
+      this.strokeCanvas.height = h;
+    }
+
+    const sctx = this.strokeCtx;
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.clearRect(0, 0, w, h);
+    sctx.imageSmoothingEnabled = true;
+
+    sctx.setTransform(
+      this.scale * dpr,
+      0,
+      0,
+      this.scale * dpr,
+      this.offsetX * dpr,
+      this.offsetY * dpr
+    );
+
+    for (const stroke of this.strokes) {
+      const pts = stroke.points;
+      if (!pts || pts.length === 0) continue;
+
+      if (stroke.type === "eraser") {
+        sctx.globalCompositeOperation = "destination-out";
+        sctx.strokeStyle = "#000000";
+        sctx.lineWidth = stroke.width;
+        sctx.globalAlpha = 1;
+      } else if (stroke.type === "highlighter") {
+        sctx.globalCompositeOperation = "source-over";
+        sctx.strokeStyle = stroke.color;
+        sctx.lineWidth = stroke.width;
+        sctx.globalAlpha = 0.35;
+      } else {
+        sctx.globalCompositeOperation = "source-over";
+        sctx.strokeStyle = stroke.color;
+        sctx.lineWidth = stroke.width;
+        sctx.globalAlpha = 1;
+      }
+
+      sctx.lineCap = "round";
+      sctx.lineJoin = "round";
+      sctx.beginPath();
+      sctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        sctx.lineTo(pts[i].x, pts[i].y);
+      }
+      sctx.stroke();
+    }
+
+    sctx.globalAlpha = 1;
+    sctx.globalCompositeOperation = "source-over";
+
+    const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-
-    // お好みでアンチエイリアス ON
     ctx.imageSmoothingEnabled = true;
 
-    // scale / offset に対して「DPR を掛けて」実ピクセルに変換
     ctx.setTransform(
       this.scale * dpr,
       0,
@@ -1039,7 +1693,6 @@ export class Whiteboard {
       this.offsetY * dpr
     );
 
-    // グリッド（画面範囲）
     const gridStep = 200;
     const invScale = 1 / this.scale;
     const left = -this.offsetX * invScale;
@@ -1064,20 +1717,19 @@ export class Whiteboard {
     }
     ctx.stroke();
 
-    // 背景
     if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
       ctx.drawImage(this.bgCanvas, 0, 0);
     }
 
-    // オブジェクト（テキスト / 付箋 / 図形 / 画像）
     this.handleRects = [];
     for (const obj of this.objects) {
       const { x, y, width, height } = this._normalizeRect(obj);
-      const isSelected = this.selectedObj && this.selectedObj.id === obj.id;
+      const isSelected =
+        this.multiSelectedObjects &&
+        this.multiSelectedObjects.includes(obj);
       const strokeColor = obj.stroke || "#111827";
       const fillColor = obj.fill || "transparent";
 
-      // 画像オブジェクト（PDFページなど）
       if (obj.kind === "image" && obj.image) {
         ctx.drawImage(obj.image, x, y, width, height);
       }
@@ -1089,7 +1741,12 @@ export class Whiteboard {
         }
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 2 / this.scale;
-        ctx.strokeRect(x + 0.5 / this.scale, y + 0.5 / this.scale, width, height);
+        ctx.strokeRect(
+          x + 0.5 / this.scale,
+          y + 0.5 / this.scale,
+          width,
+          height
+        );
       } else if (obj.kind === "ellipse") {
         const cx = x + width / 2;
         const cy = y + height / 2;
@@ -1097,7 +1754,7 @@ export class Whiteboard {
         const ry = height / 2;
         ctx.beginPath();
         ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
-        if (fillColor !== "transparent") {
+        if (fillColor !== "透明" && fillColor !== "transparent") {
           ctx.fillStyle = fillColor;
           ctx.fill();
         }
@@ -1114,9 +1771,14 @@ export class Whiteboard {
         const availableWidth = width - padding * 2;
 
         const text = obj.text || "";
-        const lines = this._wrapTextLines(text, availableWidth, fontSize, fontFamily, bold);
+        const lines = this._wrapTextLines(
+          text,
+          availableWidth,
+          fontSize,
+          fontFamily,
+          bold
+        );
 
-        // 通常テキスト：濃いグレー / リンク：青
         ctx.fillStyle = obj.kind === "link" ? "#2563eb" : "#111827";
         ctx.font = `${bold} ${fontSize / this.scale}px ${fontFamily}`;
         ctx.textBaseline = "top";
@@ -1127,12 +1789,11 @@ export class Whiteboard {
           const tx = x + padding;
           ctx.fillText(line, tx, ty);
 
-          // リンクの場合は下線を引く
           if (obj.kind === "link") {
             const textWidth = ctx.measureText(line).width;
             ctx.beginPath();
-            ctx.moveTo(tx, ty + lineHeight - (4 / this.scale));
-            ctx.lineTo(tx + textWidth, ty + lineHeight - (4 / this.scale));
+            ctx.moveTo(tx, ty + lineHeight - 4 / this.scale);
+            ctx.lineTo(tx + textWidth, ty + lineHeight - 4 / this.scale);
             ctx.lineWidth = 1.5 / this.scale;
             ctx.strokeStyle = "#2563eb";
             ctx.stroke();
@@ -1142,9 +1803,22 @@ export class Whiteboard {
         }
       }
 
+      if (obj.locked) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(148,163,184,0.9)";
+        ctx.lineWidth = 1 / this.scale;
+        ctx.setLineDash([4 / this.scale, 3 / this.scale]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + width, y + height);
+        ctx.stroke();
+        ctx.restore();
+      }
 
-      // 選択枠とハンドル
-      if (isSelected) {
+      const isSingleSelected =
+        isSelected && this.multiSelectedObjects.length === 1;
+
+      if (isSingleSelected) {
         ctx.save();
         ctx.strokeStyle = "#3b82f6";
         ctx.lineWidth = 1.5 / this.scale;
@@ -1152,7 +1826,6 @@ export class Whiteboard {
         ctx.strokeRect(x, y, width, height);
         ctx.setLineDash([]);
 
-        // ハンドル（4隅）
         const handleSize = 10 / this.scale;
         const corners = [
           { name: "nw", cx: x, cy: y },
@@ -1169,7 +1842,6 @@ export class Whiteboard {
           ctx.fillRect(hx, hy, handleSize, handleSize);
           ctx.strokeRect(hx, hy, handleSize, handleSize);
 
-          // 画面座標に保存（ヒットテスト用）
           const s1 = this._worldToScreen(hx, hy);
           const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
           this.handleRects.push({
@@ -1180,42 +1852,68 @@ export class Whiteboard {
           });
         }
         ctx.restore();
+      } else if (isSelected) {
+        ctx.save();
+        ctx.strokeStyle = "#3b82f6";
+        ctx.lineWidth = 1.2 / this.scale;
+        ctx.setLineDash([4 / this.scale, 2 / this.scale]);
+        ctx.strokeRect(x, y, width, height);
+        ctx.setLineDash([]);
+        ctx.restore();
       }
     }
 
-    // 手書きストローク（※選択・変形はまだ未対応）
-    for (const stroke of this.strokes) {
-      const pts = stroke.points;
-      if (!pts || pts.length === 0) continue;
+    if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
+      const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);
+      const sy = Math.min(this.selectionBoxStart.y, this.selectionBoxEnd.y);
+      const ex = Math.max(this.selectionBoxStart.x, this.selectionBoxEnd.x);
+      const ey = Math.max(this.selectionBoxStart.y, this.selectionBoxEnd.y);
+      const rw = ex - sx;
+      const rh = ey - sy;
 
-      if (stroke.type === "eraser") {
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = stroke.width;
-        ctx.globalAlpha = 1;
-      } else if (stroke.type === "highlighter") {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.width;
-        ctx.globalAlpha = 0.35;
-      } else {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.width;
-        ctx.globalAlpha = 1;
-      }
-
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) {
-        ctx.lineTo(pts[i].x, pts[i].y);
-      }
-      ctx.stroke();
+      ctx.save();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.setLineDash([4 / this.scale, 2 / this.scale]);
+      ctx.strokeRect(sx, sy, rw, rh);
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(59,130,246,0.08)";
+      ctx.fillRect(sx, sy, rw, rh);
+      ctx.restore();
     }
 
+    if (this.multiSelectedStrokes && this.multiSelectedStrokes.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = "#f97316";
+      ctx.lineWidth = 1.2 / this.scale;
+      ctx.setLineDash([4 / this.scale, 2 / this.scale]);
+
+      for (const st of this.multiSelectedStrokes) {
+        if (!st.points || st.points.length === 0) continue;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of st.points) {
+          if (p.x < minX) minX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y > maxY) maxY = p.y;
+        }
+        if (minX !== Infinity) {
+          ctx.strokeRect(
+            minX,
+            minY,
+            maxX - minX,
+            maxY - minY
+          );
+        }
+      }
+
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(this.strokeCanvas, 0, 0);
   }
 }
