@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Class Whiteboard - 教員用</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    </script>
+  </head>
+  <body>
+    <div class="app-root teacher">
+      <!-- 上部バー：タブ＋クラスコードのみ -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="app-title">Class Whiteboard（教員）</span>
+        </div>
+        <div class="topbar-center">
+          <button id="showBoardBtn" class="topbar-tab primary">
+            ホワイトボード
+          </button>
+          <button id="showStudentsBtn" class="topbar-tab">生徒画面</button>
+        </div>
+        <div class="topbar-right">
+          <input
+            id="classCodeInput"
+            type="text"
+            placeholder="クラスコード"
+            autocomplete="off"
+          />
+          <button id="joinBtn" class="button-primary">参加</button>
+        </div>
+      </header>
+
+      <main class="main-layout">
+        <!-- 左側：折りたたみ可能なツールパネル -->
+        <aside class="side-panel" id="teacherSidePanel">
+          <div class="side-panel-header">
+            <span class="side-panel-title">ツール</span>
+            <button
+              id="teacherSideToggle"
+              class="side-panel-toggle"
+              title="ツールパネルを折りたたみ"
+            >
+              ⯈
+            </button>
+          </div>
+
+          <div class="side-panel-section">
+            <div class="section-title">描画モード</div>
+            <div class="tool-group">
+              <button id="toolPen" class="tool-btn primary">ペン</button>
+              <button id="toolHighlighter" class="tool-btn">蛍光ペン</button>
+              <button id="toolEraser" class="tool-btn">消しゴム</button>
+            </div>
+            <div class="tool-group" style="margin-top: 6px">
+              <button id="toolText" class="tool-btn">テキスト</button>
+              <button id="toolSticky" class="tool-btn">付箋</button>
+              <button id="toolRect" class="tool-btn">四角形</button>
+              <button id="toolEllipse" class="tool-btn">円</button>
+              <button id="toolSelect" class="tool-btn">選択</button>
+            </div>
+          </div>
+
+          <div class="side-panel-section">
+            <div class="section-title">ペン設定</div>
+            <label class="field">
+              <span>色</span>
+              <input id="penColor" type="color" value="#111827" />
+            </label>
+            <label class="field">
+              <span>太さ</span>
+              <select id="penWidth">
+                <option value="2">細</option>
+                <option value="3" selected>中</option>
+                <option value="5">太</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="textStyleSection" class="side-panel-section hidden">
+            <div class="section-title">テキスト設定</div>
+            <label class="field">
+              <span>フォント</span>
+              <select id="textFontFamily">
+                <option value="system-ui">標準</option>
+                <option value="serif">明朝系</option>
+                <option value="monospace">等幅</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>サイズ</span>
+              <input
+                id="textFontSize"
+                type="number"
+                min="8"
+                max="72"
+                value="16"
+                style="width: 70px"
+              />
+            </label>
+            <div class="tool-group">
+              <button id="textBoldToggle" class="tool-btn">B</button>
+            </div>
+            <p class="hint">テキストを選択すると設定が表示されます。</p>
+          </div>
+
+
+          <div class="side-panel-section">
+            <div class="section-title">資料</div>
+            <label class="upload-btn">
+              PDF / 画像を読み込み
+              <input
+                type="file"
+                id="pdfImageInput"
+                accept=".pdf,image/*"
+                hidden
+              />
+            </label>
+            <button id="clearBoardBtn" class="danger-btn">
+              ホワイトボードを全消去
+            </button>
+          </div>
+
+          <div class="side-panel-section muted">
+            <div class="section-title">拡張スペース</div>
+            <p class="hint">
+              今後、スタンプ・付箋・図形ツールなどをここに追加できます。
+            </p>
+          </div>
+        </aside>
+
+          <!-- ★ 畳んだときに出てくるボタン -->
+        <button
+          id="teacherPanelOpen"
+          class="side-panel-opener"
+          title="ツールを表示"
+        >
+          ☰
+        </button>
+
+        <!-- 右側：ホワイトボード／生徒画面 -->
+        <section class="workspace">
+          <!-- ホワイトボード表示 -->
+          <div id="boardView" class="view">
+            <div class="canvas-container">
+              <canvas id="teacherCanvas" class="whiteboard"></canvas>
+              <div class="zoom-controls">
+                <button id="zoomOutBtn">−</button>
+                <button id="zoomInBtn">＋</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 生徒画面表示 -->
+          <div id="studentsView" class="view hidden">
+            <div class="students-header">
+              <div id="studentsInfo" class="students-info">
+                接続中の生徒: 0人
+              </div>
+            </div>
+            <div id="tileGrid" class="tile-grid"></div>
+          </div>
+        </section>
+      </main>
+
+      <!-- 生徒画面拡大表示用モーダル -->
+      <div id="modalBackdrop" class="modal-backdrop">
+        <div class="modal">
+          <div class="modal-header">
+            <span id="modalTitle"></span>
+            <button id="modalCloseBtn" class="icon-btn">✕</button>
+          </div>
+          <div class="modal-body">
+            <img id="modalImage" alt="" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="./teacher.js"></script>
+  </body>
+</html>

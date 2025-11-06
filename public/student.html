@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Class Whiteboard - 生徒用</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    </script>
+  </head>
+  <body>
+    <div class="app-root student">
+      <!-- 上部バー：表示だけ -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="app-title">Class Whiteboard（生徒）</span>
+        </div>
+        <div class="topbar-center">
+          <div class="student-header-labels">
+            <span class="chip">
+              クラスコード:
+              <span id="headerClassCode">未参加</span>
+            </span>
+            <span class="chip">
+              ニックネーム:
+              <span id="headerNickname">未参加</span>
+            </span>
+          </div>
+        </div>
+        <div class="topbar-right"></div>
+      </header>
+
+      <main class="main-layout">
+        <!-- 左側: クラス参加＋ツール -->
+        <aside class="side-panel" id="studentSidePanel">
+          <div class="side-panel-header">
+            <span class="side-panel-title">クラス＆ツール</span>
+            <button
+              id="studentSideToggle"
+              class="side-panel-toggle"
+              title="ツールパネルを折りたたみ"
+            >
+              ⯈
+            </button>
+          </div>
+
+          <div class="side-panel-section">
+            <div class="section-title">描画モード</div>
+            <div class="tool-group">
+              <button id="toolPen" class="tool-btn primary">ペン</button>
+              <button id="toolHighlighter" class="tool-btn">蛍光ペン</button>
+              <button id="toolEraser" class="tool-btn">消しゴム</button>
+            </div>
+            <div class="tool-group" style="margin-top: 6px">
+              <button id="toolText" class="tool-btn">テキスト</button>
+              <button id="toolSticky" class="tool-btn">付箋</button>
+              <button id="toolRect" class="tool-btn">四角形</button>
+              <button id="toolEllipse" class="tool-btn">円</button>
+              <button id="toolSelect" class="tool-btn">選択</button>
+            </div>
+          </div>
+
+          <div class="side-panel-section">
+            <div class="section-title">ペン設定</div>
+            <label class="field">
+              <span>色</span>
+              <input id="penColor" type="color" value="#111827" />
+            </label>
+            <label class="field">
+              <span>太さ</span>
+              <select id="penWidth">
+                <option value="2">細</option>
+                <option value="3" selected>中</option>
+                <option value="5">太</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="textStyleSection" class="side-panel-section hidden">
+            <div class="section-title">テキスト設定</div>
+            <label class="field">
+              <span>フォント</span>
+              <select id="textFontFamily">
+                <option value="system-ui">標準</option>
+                <option value="serif">明朝系</option>
+                <option value="monospace">等幅</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>サイズ</span>
+              <input
+                id="textFontSize"
+                type="number"
+                min="8"
+                max="72"
+                value="16"
+                style="width: 70px"
+              />
+            </label>
+            <div class="tool-group">
+              <button id="textBoldToggle" class="tool-btn">B</button>
+            </div>
+            <p class="hint">テキストを選択すると設定が表示されます。</p>
+          </div>
+
+
+          <div class="side-panel-section">
+            <div class="section-title">クラス参加</div>
+            <label class="field">
+              <span>クラスコード</span>
+              <input
+                id="classCodeInput"
+                type="text"
+                class="full"
+                placeholder="例: A1"
+                autocomplete="off"
+              />
+            </label>
+            <label class="field">
+              <span>ニックネーム</span>
+              <input
+                id="nicknameInput"
+                type="text"
+                class="full"
+                placeholder="名前など"
+                autocomplete="off"
+              />
+            </label>
+            <button id="joinBtn" class="button-primary" style="width: 100%; margin-top: 6px;">
+              クラスに参加
+            </button>
+          </div>
+
+          <div class="side-panel-section muted">
+            <div class="section-title">拡張スペース</div>
+            <p class="hint">
+              今後、スタンプや付箋などをここに追加できます。
+            </p>
+          </div>
+        </aside>
+
+          <!-- ★ 畳んだときに出てくるボタン -->
+        <button
+          id="studentPanelOpen"
+          class="side-panel-opener"
+          title="ツールを表示"
+        >
+          ☰
+        </button>
+
+        <!-- 右側：ホワイトボードのみ -->
+        <section class="workspace">
+          <div id="boardView" class="view">
+            <div class="canvas-container">
+              <canvas id="studentCanvas" class="whiteboard"></canvas>
+              <div class="zoom-controls">
+                <button id="zoomOutBtn">−</button>
+                <button id="zoomInBtn">＋</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="./student.js"></script>
+  </body>
+</html>
