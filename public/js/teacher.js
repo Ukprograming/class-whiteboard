@@ -1,11 +1,8 @@
-// public/js/teacher.js
+// public/js/teacher.js 
 import { initBoardUI } from "./board-ui.js";
 
-// 共通ホワイトボード UI 初期化
-const whiteboard = initBoardUI();
-
-// 共通ホワイトボード UI 初期化
-const whiteboard = initBoardUI();
+// 共通ホワイトボード UI 初期化（教員用は teacherBoard という名前にする）
+const teacherBoard = initBoardUI();
 
 // === GAS Web アプリの URL（自分の URL に差し替える） ===
 const GAS_ENDPOINT = "https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbzhJ4hbzCVMbFYW6pP5ZLBK5A2OSH-yoNofg64pt9FMC57c5-z_KeD5zB6DW0ehzMB3hw/exec";
@@ -47,12 +44,12 @@ async function teacherSaveBoard() {
     alert("先にクラスコードを入力して「クラス開始」してください。");
     return;
   }
-  if (!whiteboard || typeof whiteboard.exportBoardData !== "function") {
+  if (!teacherBoard || typeof teacherBoard.exportBoardData !== "function") {
     alert("ホワイトボードの状態を取得できません。");
     return;
   }
 
-  const boardData = whiteboard.exportBoardData();
+  const boardData = teacherBoard.exportBoardData();
 
   const payload = {
     action: "saveBoard",
@@ -82,7 +79,7 @@ async function teacherLoadBoard() {
     alert("先にクラスコードを入力して「クラス開始」してください。");
     return;
   }
-  if (!whiteboard || typeof whiteboard.importBoardData !== "function") {
+  if (!teacherBoard || typeof teacherBoard.importBoardData !== "function") {
     alert("ホワイトボードに読み込めません。");
     return;
   }
@@ -100,7 +97,7 @@ async function teacherLoadBoard() {
       return;
     }
 
-    whiteboard.importBoardData(json.boardData);
+    teacherBoard.importBoardData(json.boardData);
     alert("ホワイトボードを読み込みました。");
   } catch (err) {
     console.error(err);
