@@ -22,6 +22,25 @@ export function initBoardUI() {
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
 
+  // ★ スタンプパレット関連（ここだけ差し替え）
+  const stampPalette = document.getElementById("stampPalette");
+  const stampPaletteCloseBtn = document.getElementById("stampPaletteCloseBtn");
+  // パレットの白いカード（あれば使う）
+  const stampPaletteInner = stampPalette
+    ? stampPalette.querySelector(".stamp-palette-inner")
+    : null;
+
+  function showStampPalette() {
+    if (!stampPalette) return;
+    stampPalette.classList.remove("stamp-palette-hidden");
+  }
+  function hideStampPalette() {
+    if (!stampPalette) return;
+    stampPalette.classList.add("stamp-palette-hidden");
+  }
+
+  let currentStampKey = null;
+
   // PDF出力ボタン（先生・生徒共通）
   const exportPdfBtn = document.getElementById("exportPdfBtn");
 
@@ -34,21 +53,84 @@ export function initBoardUI() {
   let currentPenColor = "#111827";
   let currentPenWidth = 3;
 
+  function showStampPalette() {
+    if (!stampPalette) return;
+    stampPalette.classList.remove("stamp-palette-hidden");
+  }
+
+  function hideStampPalette() {
+    if (!stampPalette) return;
+    stampPalette.classList.add("stamp-palette-hidden");
+  }
+
   function updateToolButtons(activeTool) {
     toolButtons.forEach(btn => {
       const t = btn.dataset.tool;
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
     });
+
+    // スタンプツール以外になったらパレットは閉じる
+    if (activeTool !== "stamp") {
+      hideStampPalette();
+    }
   }
 
+  // ツールボタン共通処理
   toolButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const tool = btn.dataset.tool;
       wb.setTool(tool);
       updateToolButtons(tool);
+
+      // スタンプツールが選択されたらパレットを表示
+      if (tool === "stamp") {
+        showStampPalette();
+      }
     });
   });
+
+  // ========= スタンプパレットの生成＆選択 =========
+  if (stampPalette && wb.stampPresets) {
+    // 生成先：白いカード内 .stamp-items があれば使う、無ければ作る
+    const host = stampPaletteInner || stampPalette;
+
+    let itemsContainer = host.querySelector(".stamp-items");
+    if (!itemsContainer) {
+      itemsContainer = document.createElement("div");
+      itemsContainer.className = "stamp-items";
+      host.appendChild(itemsContainer);
+    }
+
+    // ★ パレット直下に昔の .stamp-item が残っていると二重表示になるので全部除去
+    //    （.stamp-items の中身はこのあと作り直す）
+    stampPalette.querySelectorAll(".stamp-item").forEach(el => el.remove());
+
+    // ★ 中身をクリアしてから、whiteboard.js の stampPresets だけで再構築
+    itemsContainer.innerHTML = "";
+
+    Object.entries(wb.stampPresets).forEach(([key, preset]) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "stamp-item";
+      item.dataset.stampKey = key;
+      item.title = key;
+      item.textContent = preset.emoji || "★";
+
+      item.addEventListener("click", () => {
+        // Whiteboard 側に選択を伝える → そのまま配置できるように閉じる
+        if (typeof wb.setStampType === "function") wb.setStampType(key);
+        hideStampPalette();
+      });
+
+      itemsContainer.appendChild(item);
+    });
+
+    if (stampPaletteCloseBtn) {
+      stampPaletteCloseBtn.addEventListener("click", hideStampPalette);
+    }
+  }
+
 
   // 初期ツールはペン
   updateToolButtons("pen");

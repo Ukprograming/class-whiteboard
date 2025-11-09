@@ -4,8 +4,8 @@
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
 // 画像保存時の軽量化パラメータ
-const MAX_IMAGE_EXPORT_SIZE = 2048  ;   // 画像の長辺は最大 1400px に縮小
-const IMAGE_EXPORT_QUALITY  = 0.95;    // JPEG 品質（0〜1）
+const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
+const IMAGE_EXPORT_QUALITY  = 0.95;   // JPEG 品質（0〜1）
 
 export class Whiteboard {
   constructor({ canvas }) {
@@ -31,8 +31,9 @@ export class Whiteboard {
     // stroke: { type:'pen'|'highlighter'|'eraser', color, width, points:[{x,y}], groupId?, locked? }
     this.strokes = [];
 
-    // ベクターオブジェクト（テキスト / 付箋 / 図形 / 画像 / リンク）
-    // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'link', x,y,width,height,..., groupId?, locked? }
+    // ベクターオブジェクト（テキスト / 付箋 / 図形 / 画像 / リンク / スタンプ）
+    // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'link'|'stamp',
+    //           x,y,width,height,..., groupId?, locked? }
     this.objects = [];
     this.nextObjectId = 1;
 
@@ -96,6 +97,29 @@ export class Whiteboard {
     // 外側から UI を更新するためのコールバック
     this.onSelectionChange = null;
 
+    // ★ スタンプ関連
+    this.currentStampType = null; // 例: "star-yellow"
+    this.stampPresets = {
+      "star-yellow": { emoji: "⭐", baseSize: 80 },
+      "circle-ok": { emoji: "⭕", baseSize: 80 },
+      "cross-ng": { emoji: "❌", baseSize: 80 },
+      "maru-hanamaru": { emoji: "💮", baseSize: 80 },
+      "check": { emoji: "✅", baseSize: 80 },
+      "question": { emoji: "❓", baseSize: 80 },
+      "exclamation": { emoji: "❗", baseSize: 80 },
+      "lightbulb": { emoji: "💡", baseSize: 80 },
+      "pin": { emoji: "📌", baseSize: 80 },
+      "clap": { emoji: "👏", baseSize: 80 },
+      "good": { emoji: "👍", baseSize: 80 },
+      "fire": { emoji: "🔥", baseSize: 80 },
+      "megaphone": { emoji: "📣", baseSize: 80 },
+      "excellent": { emoji: "🏆", baseSize: 80 },
+      "pencil": { emoji: "✏️", baseSize: 80 },
+      "note": { emoji: "📝", baseSize: 80 },
+      "100": { emoji: "💯", baseSize: 80 },
+      "sparkle": { emoji: "✨", baseSize: 80 }
+    };
+
     this._attachEvents();
     this.render();
   }
@@ -134,6 +158,11 @@ export class Whiteboard {
     } else {
       this.highlighterColor = color;
     }
+  }
+
+  // ★ board-ui.js から呼ばれる
+  setStampType(stampKey) {
+    this.currentStampType = stampKey;
   }
 
   async loadImageFile(file) {
@@ -291,11 +320,11 @@ export class Whiteboard {
     this.render();
   }
 
-  // 選択中テキストのコピー
+  // 選択中オブジェクトのコピー
   copySelection() {
     if (!this.selectedObj) return;
     const kind = this.selectedObj.kind;
-    if (!["text", "sticky", "rect", "ellipse", "link"].includes(kind)) return;
+    if (!["text", "sticky", "rect", "ellipse", "link", "stamp"].includes(kind)) return;
     this.clipboard = JSON.parse(JSON.stringify(this.selectedObj));
   }
 
@@ -612,6 +641,10 @@ export class Whiteboard {
         base.url = o.url || o.text || "";
       }
 
+      if (o.kind === "stamp") {
+        base.stampKey = o.stampKey || this.currentStampType || "star-yellow";
+      }
+
       if (o.kind === "image" && o.image) {
         const encoded = this._encodeImageForExport(
           o.image,
@@ -706,6 +739,10 @@ export class Whiteboard {
 
       if (o.kind === "link") {
         obj.url = o.url || o.text || "";
+      }
+
+      if (o.kind === "stamp") {
+        obj.stampKey = o.stampKey || "star-yellow";
       }
 
       if (o.kind === "image") {
@@ -984,6 +1021,29 @@ export class Whiteboard {
     this.render();
   }
 
+  // ★ スタンプ配置
+  _placeStampAt(wx, wy) {
+    const key = this.currentStampType || "star-yellow";
+    const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
+    const size = preset.baseSize || 80;
+    const half = size / 2;
+
+    const id = this.nextObjectId++;
+    const obj = {
+      id,
+      kind: "stamp",
+      stampKey: key,
+      x: wx - half,
+      y: wy - half,
+      width: size,
+      height: size,
+      locked: false
+    };
+
+    this._addObject(obj);
+    this.render();
+  }
+
   _hitTestObject(wx, wy) {
     for (let i = this.objects.length - 1; i >= 0; i--) {
       const o = this.objects[i];
@@ -1127,6 +1187,12 @@ export class Whiteboard {
       // 図形
       if (this.tool === "rect" || this.tool === "ellipse") {
         this._startShape(wx, wy, this.tool === "rect" ? "rect" : "ellipse");
+        return;
+      }
+
+      // ★ スタンプ
+      if (this.tool === "stamp") {
+        this._placeStampAt(wx, wy);
         return;
       }
 
@@ -1629,6 +1695,26 @@ export class Whiteboard {
     return lines;
   }
 
+  // スタンプ描画
+  _drawStamp(obj, x, y, width, height) {
+    const preset = this.stampPresets[obj.stampKey] || this.stampPresets["star-yellow"];
+    const emoji = preset.emoji;
+    const ctx = this.ctx;
+
+    const size = Math.min(width, height) * 0.9;
+    const fontPx = (size / this.scale);
+
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+
+    ctx.save();
+    ctx.font = `${fontPx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.fillText(emoji, cx, cy);
+    ctx.restore();
+  }
+
   // ====== 描画 ======
   render() {
     const w = this.canvas.width;
@@ -1770,6 +1856,11 @@ export class Whiteboard {
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 2 / this.scale;
         ctx.stroke();
+      }
+
+      // ★ スタンプ描画
+      if (obj.kind === "stamp") {
+        this._drawStamp(obj, x, y, width, height);
       }
 
       if (obj.kind === "text" || obj.kind === "sticky" || obj.kind === "link") {

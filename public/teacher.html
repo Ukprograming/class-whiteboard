@@ -99,6 +99,10 @@
           <button data-tool="ellipse" class="tool-button" title="楕円">
             <span class="icon">⬭</span><span class="tool-label">楕円</span>
           </button>
+          <button data-tool="stamp" class="tool-button" title="スタンプ">
+            <span class="icon">⭐</span><span class="tool-label">スタンプ</span>
+          </button>
+
         </div>
       </section>
 
@@ -230,5 +234,76 @@
 
   <!-- モジュール -->
   <script type="module" src="/js/teacher.js"></script>
+
+    <!-- socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- モジュール -->
+  <script type="module" src="/js/teacher.js"></script>
+
+  <!-- ▼ 教員用・共通チャットUI（右側パネル） -->
+  <button id="chatToggleBtn" class="chat-toggle-btn" title="チャットを開く">
+    💬
+    <span id="chatNotifyDot" class="chat-notify-dot"></span>
+  </button>
+
+  <aside id="chatPanel" class="chat-panel collapsed">
+    <header class="chat-panel-header">
+      <h3 class="chat-title">クラスチャット</h3>
+      <div id="chatTargetArea" class="chat-target-area">
+        <label>
+          宛先：
+          <select id="chatTargetSelect">
+            <option value="">生徒を選択</option>
+          </select>
+        </label>
+      </div>
+      <button id="chatCloseBtn" class="chat-close-btn">×</button>
+    </header>
+
+    <div id="chatMessages" class="chat-messages"></div>
+
+    <footer class="chat-input-area">
+      <input
+        id="chatInput"
+        type="text"
+        placeholder="メッセージを入力"
+        autocomplete="off"
+      />
+      <button id="chatSendBtn">送信</button>
+    </footer>
+  </aside>
+  <!-- 既存の script タグたち ... -->
+
+  <!-- ▼ スタンプ候補パレット（キャンバス上に重ねて表示） -->
+  <div id="stampPalette" class="stamp-palette stamp-palette-hidden">
+    <div class="stamp-palette-inner">
+      <div class="stamp-palette-header">
+        <span>スタンプを選択</span>
+        <button id="stampPaletteCloseBtn" class="stamp-palette-close">×</button>
+      </div>
+      <div class="stamp-palette-grid">
+        <!-- 授業で使えそうなポップなスタンプ 10〜20種類 -->
+        <button class="stamp-item" data-stamp-key="star-yellow">⭐</button>
+        <button class="stamp-item" data-stamp-key="star-glow">🌟</button>
+        <button class="stamp-item" data-stamp-key="circle-ok">⭕</button>
+        <button class="stamp-item" data-stamp-key="cross-ng">❌</button>
+        <button class="stamp-item" data-stamp-key="maru-hanamaru">💮</button>
+        <button class="stamp-item" data-stamp-key="check">✅</button>
+        <button class="stamp-item" data-stamp-key="question">❓</button>
+        <button class="stamp-item" data-stamp-key="exclamation">❗</button>
+        <button class="stamp-item" data-stamp-key="lightbulb">💡</button>
+        <button class="stamp-item" data-stamp-key="pin">📌</button>
+        <button class="stamp-item" data-stamp-key="clap">👏</button>
+        <button class="stamp-item" data-stamp-key="good">👍</button>
+        <button class="stamp-item" data-stamp-key="bad">👎</button>
+        <button class="stamp-item" data-stamp-key="fire">🔥</button>
+        <button class="stamp-item" data-stamp-key="megaphone">📣</button>
+        <button class="stamp-item" data-stamp-key="pencil">✏️</button>
+        <button class="stamp-item" data-stamp-key="smile">😊</button>
+        <button class="stamp-item" data-stamp-key="think">🤔</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

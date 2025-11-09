@@ -124,6 +124,49 @@ io.on("connection", socket => {
     }
   });
 
+  // === ここからチャット関連 ===
+
+  // 生徒 → 教員 チャット
+  socket.on("student-chat-to-teacher", ({ classCode, nickname, message }) => {
+    if (!classCode || !message) return;
+    const cls = classes[classCode];
+    if (!cls || !cls.teacherSocketId) return;
+
+    const teacherId = cls.teacherSocketId;
+
+    io.to(teacherId).emit("chat-message", {
+      fromRole: "student",
+      fromSocketId: socket.id,
+      fromNickname: nickname || "生徒",
+      toRole: "teacher",
+      toSocketId: teacherId,
+      classCode,
+      message,
+      timestamp: Date.now()
+    });
+  });
+
+  // 教員 → 生徒 チャット
+  socket.on("teacher-chat-to-student", ({ classCode, targetSocketId, message }) => {
+    if (!classCode || !targetSocketId || !message) return;
+    const cls = classes[classCode];
+    if (!cls) return;
+
+    const studentInfo = cls.students[targetSocketId];
+    if (!studentInfo) return;
+
+    io.to(targetSocketId).emit("chat-message", {
+      fromRole: "teacher",
+      fromSocketId: socket.id,
+      fromNickname: "先生",
+      toRole: "student",
+      toSocketId: targetSocketId,
+      classCode,
+      message,
+      timestamp: Date.now()
+    });
+  });
+
   // 生徒 → 教員：縮小キャプチャ
   socket.on("student-thumbnail", ({ classCode, nickname, dataUrl }) => {
     const cls = classes[classCode];

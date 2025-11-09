@@ -33,6 +33,24 @@ const modalCloseBtn = document.getElementById("modalCloseBtn");
 const teacherOpenSaveDialogBtn = document.getElementById("teacherOpenSaveDialogBtn");
 const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogBtn");
 
+// ========= チャット UI 要素（教員） =========
+const chatToggleBtn = document.getElementById("chatToggleBtn");
+const chatNotifyDot = document.getElementById("chatNotifyDot");
+const chatPanel = document.getElementById("chatPanel");
+const chatCloseBtn = document.getElementById("chatCloseBtn");
+const chatMessagesEl = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+const chatSendBtn = document.getElementById("chatSendBtn");
+const chatTargetSelect = document.getElementById("chatTargetSelect");
+
+// チャット状態
+let chatPanelOpen = false;
+let chatUnreadCount = 0;
+
+// 生徒ごとのチャット履歴: { [socketId]: [ { from: 'me'|'them', nickname, text, timestamp } ] }
+const chatHistories = {};
+let activeChatTargetSocketId = null;
+
 let currentClassCode = null;
 let latestThumbnails = {}; // { socketId: { nickname, dataUrl } }
 
@@ -593,7 +611,171 @@ socket.on("student-list-update", list => {
   if (studentsInfo) {
     studentsInfo.textContent = `接続中の生徒: ${list.length}人`;
   }
+
+  // チャット宛先セレクトも更新
+  if (chatTargetSelect) {
+    const current = activeChatTargetSocketId;
+    chatTargetSelect.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "生徒を選択";
+    chatTargetSelect.appendChild(placeholder);
+
+    list.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.socketId;
+      opt.textContent = s.nickname || s.socketId;
+      chatTargetSelect.appendChild(opt);
+    });
+
+    // 可能なら以前選んでいた生徒を再選択
+    if (current) {
+      const found = Array.from(chatTargetSelect.options).find(
+        o => o.value === current
+      );
+      if (found) {
+        found.selected = true;
+        activeChatTargetSocketId = current;
+      } else {
+        activeChatTargetSocketId = "";
+      }
+    }
+  }
 });
+
+// ========= チャット：共通関数（教員） =========
+
+function setChatPanelOpen(open) {
+  chatPanelOpen = open;
+  if (!chatPanel || !chatToggleBtn) return;
+
+  chatPanel.classList.toggle("collapsed", !open);
+  if (open) {
+    chatUnreadCount = 0;
+    chatToggleBtn.classList.remove("has-unread");
+  }
+}
+
+function appendChatMessageToHistory(targetSocketId, msg) {
+  if (!chatHistories[targetSocketId]) {
+    chatHistories[targetSocketId] = [];
+  }
+  chatHistories[targetSocketId].push(msg);
+}
+
+function renderChatMessagesForTarget(targetSocketId) {
+  if (!chatMessagesEl) return;
+  chatMessagesEl.innerHTML = "";
+
+  if (!targetSocketId || !chatHistories[targetSocketId]) {
+    const empty = document.createElement("div");
+    empty.className = "chat-message-row";
+    empty.textContent = "宛先の生徒を選択してください。";
+    chatMessagesEl.appendChild(empty);
+    return;
+  }
+
+  chatHistories[targetSocketId].forEach(m => {
+    const row = document.createElement("div");
+    row.className =
+      "chat-message-row " +
+      (m.from === "me" ? "chat-message--me" : "chat-message--them");
+
+    const meta = document.createElement("div");
+    meta.className = "chat-message-meta";
+
+    const time = new Date(m.timestamp || Date.now());
+    const timeStr = time.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+
+    if (m.from === "me") {
+      meta.textContent = `自分 • ${timeStr}`;
+    } else {
+      meta.textContent = `${m.nickname || "生徒"} • ${timeStr}`;
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "chat-message-bubble";
+    bubble.textContent = m.text;
+
+    row.appendChild(meta);
+    row.appendChild(bubble);
+    chatMessagesEl.appendChild(row);
+  });
+
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+}
+
+// チャットパネル開閉
+if (chatToggleBtn && chatPanel) {
+  chatToggleBtn.addEventListener("click", () => {
+    setChatPanelOpen(!chatPanelOpen);
+    if (chatPanelOpen) {
+      // 開くときに現在の宛先の履歴を表示
+      renderChatMessagesForTarget(activeChatTargetSocketId);
+      if (chatInput) chatInput.focus();
+    }
+  });
+}
+
+if (chatCloseBtn) {
+  chatCloseBtn.addEventListener("click", () => {
+    setChatPanelOpen(false);
+  });
+}
+
+// 宛先セレクト変更
+if (chatTargetSelect) {
+  chatTargetSelect.addEventListener("change", () => {
+    activeChatTargetSocketId = chatTargetSelect.value || "";
+    renderChatMessagesForTarget(activeChatTargetSocketId);
+  });
+}
+
+// メッセージ送信
+function teacherSendChat() {
+  if (!currentClassCode) {
+    alert("クラスを開始してからチャットを送信してください。");
+    return;
+  }
+  if (!activeChatTargetSocketId) {
+    alert("宛先の生徒を選択してください。");
+    return;
+  }
+  if (!chatInput) return;
+
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  socket.emit("teacher-chat-to-student", {
+    classCode: currentClassCode,
+    targetSocketId: activeChatTargetSocketId,
+    message: text
+  });
+
+  appendChatMessageToHistory(activeChatTargetSocketId, {
+    from: "me",
+    nickname: null,
+    text,
+    timestamp: Date.now()
+  });
+  renderChatMessagesForTarget(activeChatTargetSocketId);
+
+  chatInput.value = "";
+}
+
+if (chatSendBtn && chatInput) {
+  chatSendBtn.addEventListener("click", teacherSendChat);
+  chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      teacherSendChat();
+    }
+  });
+}
+
 
 // サムネイル受信
 socket.on("student-thumbnail", ({ socketId, nickname, dataUrl }) => {
@@ -607,6 +789,35 @@ socket.on("student-highres", ({ socketId, nickname, dataUrl }) => {
   modalTitle.textContent = `${nickname} さんの画面`;
   modalImage.src = dataUrl;
   modalBackdrop.classList.add("show");
+});
+
+// ========= チャット受信（教員） =========
+socket.on("chat-message", payload => {
+  if (!payload) return;
+  if (payload.toRole !== "teacher") return;
+
+  const fromId = payload.fromSocketId;
+  const fromNickname = payload.fromNickname || "生徒";
+  const text = payload.message;
+  const timestamp = payload.timestamp || Date.now();
+
+  appendChatMessageToHistory(fromId, {
+    from: "them",
+    nickname: fromNickname,
+    text,
+    timestamp
+  });
+
+  // 現在の表示中会話ならそのまま描画
+  if (chatPanelOpen && activeChatTargetSocketId === fromId) {
+    renderChatMessagesForTarget(fromId);
+  } else {
+    // 未読バッジをON
+    chatUnreadCount += 1;
+    if (chatToggleBtn) {
+      chatToggleBtn.classList.add("has-unread");
+    }
+  }
 });
 
 // タイル描画

@@ -47,6 +47,21 @@ const studentPanelOpen = document.getElementById("studentPanelOpen");
 // PNG 保存ボタン
 const savePngBtn = document.getElementById("savePngBtn");
 
+// ========= チャット UI 要素（生徒） =========
+const chatToggleBtn = document.getElementById("chatToggleBtn");
+const chatNotifyDot = document.getElementById("chatNotifyDot");
+const chatPanel = document.getElementById("chatPanel");
+const chatCloseBtn = document.getElementById("chatCloseBtn");
+const chatMessagesEl = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+const chatSendBtn = document.getElementById("chatSendBtn");
+
+// チャット状態
+let chatPanelOpen = false;
+let chatUnreadCount = 0;
+// 生徒は教員との1対1のみ
+let chatMessages = []; // [ { from:'me'|'them', nickname, text, timestamp } ]
+
 // キャンバス（board-ui.js が使っているものと同じはず）
 const studentCanvas =
   document.getElementById("studentCanvas") ||
@@ -657,6 +672,16 @@ function updateCaptureButtons() {
   modeWhiteboardBtn.classList.toggle("active", isWhiteboard);
   modeScreenBtn.classList.toggle("primary", !isWhiteboard);
   modeScreenBtn.classList.toggle("active", !isWhiteboard);
+
+  // ★ チャット入力の有効/無効も反映
+  if (chatInput && chatSendBtn) {
+    const disabled = !isWhiteboard;
+    chatInput.disabled = disabled;
+    chatSendBtn.disabled = disabled;
+    chatInput.placeholder = disabled
+      ? "ホワイトボード共有中のみ送信できます"
+      : "メッセージを入力";
+  }
 }
 
 function stopScreenCapture() {
@@ -748,6 +773,124 @@ if (modeScreenBtn) {
 }
 
 updateCaptureButtons();
+
+// ========= チャット：共通関数（生徒） =========
+
+function setChatPanelOpen(open) {
+  chatPanelOpen = open;
+  if (!chatPanel || !chatToggleBtn) return;
+
+  chatPanel.classList.toggle("collapsed", !open);
+  if (open) {
+    chatUnreadCount = 0;
+    chatToggleBtn.classList.remove("has-unread");
+  }
+}
+
+function renderStudentChatMessages() {
+  if (!chatMessagesEl) return;
+  chatMessagesEl.innerHTML = "";
+
+  if (!chatMessages.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-message-row";
+    empty.textContent = "メッセージはまだありません。";
+    chatMessagesEl.appendChild(empty);
+    return;
+  }
+
+  chatMessages.forEach(m => {
+    const row = document.createElement("div");
+    row.className =
+      "chat-message-row " +
+      (m.from === "me" ? "chat-message--me" : "chat-message--them");
+
+    const meta = document.createElement("div");
+    meta.className = "chat-message-meta";
+
+    const time = new Date(m.timestamp || Date.now());
+    const timeStr = time.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+
+    if (m.from === "me") {
+      meta.textContent = `自分 • ${timeStr}`;
+    } else {
+      meta.textContent = `${m.nickname || "先生"} • ${timeStr}`;
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "chat-message-bubble";
+    bubble.textContent = m.text;
+
+    row.appendChild(meta);
+    row.appendChild(bubble);
+    chatMessagesEl.appendChild(row);
+  });
+
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+}
+
+// チャットパネル開閉
+if (chatToggleBtn && chatPanel) {
+  chatToggleBtn.addEventListener("click", () => {
+    setChatPanelOpen(!chatPanelOpen);
+    if (chatPanelOpen) {
+      renderStudentChatMessages();
+      if (chatInput) chatInput.focus();
+    }
+  });
+}
+
+if (chatCloseBtn) {
+  chatCloseBtn.addEventListener("click", () => {
+    setChatPanelOpen(false);
+  });
+}
+
+// 生徒 → 教員 チャット送信
+function studentSendChat() {
+  if (!currentClassCode || !nickname) {
+    alert("クラスに参加してからチャットを送信してください。");
+    return;
+  }
+  // 条件: ホワイトボード表示状態のときのみチャット可能
+  if (captureMode !== "whiteboard") {
+    alert("ホワイトボード共有モードのときのみチャットできます。");
+    return;
+  }
+  if (!chatInput) return;
+
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  socket.emit("student-chat-to-teacher", {
+    classCode: currentClassCode,
+    nickname,
+    message: text
+  });
+
+  chatMessages.push({
+    from: "me",
+    nickname: null,
+    text,
+    timestamp: Date.now()
+  });
+  renderStudentChatMessages();
+
+  chatInput.value = "";
+}
+
+if (chatSendBtn && chatInput) {
+  chatSendBtn.addEventListener("click", studentSendChat);
+  chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      studentSendChat();
+    }
+  });
+}
 
 /* ========================================
    サムネイル送信（ホワイトボード / 画面共有）
@@ -934,6 +1077,30 @@ function sendHighres() {
 // 教員側からの高画質リクエスト
 socket.on("request-highres", () => {
   sendHighres();
+});
+
+// ========= チャット受信（生徒） =========
+socket.on("chat-message", payload => {
+  if (!payload) return;
+  if (payload.toRole !== "student") return;
+
+  const fromNickname = payload.fromNickname || "先生";
+  const text = payload.message;
+  const timestamp = payload.timestamp || Date.now();
+
+  chatMessages.push({
+    from: "them",
+    nickname: fromNickname,
+    text,
+    timestamp
+  });
+
+  if (chatPanelOpen) {
+    renderStudentChatMessages();
+  } else if (chatToggleBtn) {
+    chatUnreadCount += 1;
+    chatToggleBtn.classList.add("has-unread");
+  }
 });
 
 /* ========================================

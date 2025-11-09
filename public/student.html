@@ -94,6 +94,10 @@
           <button data-tool="ellipse" class="tool-button" title="楕円">
             <span class="icon">⬭</span><span class="tool-label">楕円</span>
           </button>
+              <!-- ★ スタンプツール -->
+          <button data-tool="stamp" class="tool-button" title="スタンプ">
+            <span class="icon">⭐</span><span class="tool-label">スタンプ</span>
+          </button>
         </div>
       </section>
 
@@ -107,6 +111,52 @@
           <span class="label-text">PDF読み込み</span>
           <input id="pdfInput" type="file" accept="application/pdf" hidden />
         </label>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">🎨</span>
+          <span class="section-text">ペン設定</span>
+        </h3>
+        <div class="color-row">
+          <!-- 初期カラーパレット 10色 -->
+          <button class="color-swatch active" data-pen-color="#111827" style="--swatch-color:#111827;"></button>
+          <button class="color-swatch" data-pen-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+          <button class="color-swatch" data-pen-color="#f97316" style="--swatch-color:#f97316;"></button>
+          <button class="color-swatch" data-pen-color="#facc15" style="--swatch-color:#facc15;"></button>
+          <button class="color-swatch" data-pen-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+          <button class="color-swatch" data-pen-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+          <button class="color-swatch" data-pen-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+          <button class="color-swatch" data-pen-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+          <button class="color-swatch" data-pen-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+          <button class="color-swatch" data-pen-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+        </div>
+
+        <div class="tool-row" style="margin-top:6px;">
+          <select id="penWidthSelect">
+            <option value="2">細</option>
+            <option value="3" selected>普通</option>
+            <option value="5">太</option>
+            <option value="8">極太</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">📌</span>
+          <span class="section-text">付箋カラー</span>
+        </h3>
+        <div class="color-row">
+          <button class="color-swatch" data-sticky-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+          <button class="color-swatch" data-sticky-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+          <button class="color-swatch" data-sticky-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+          <button class="color-swatch" data-sticky-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+          <button class="color-swatch" data-sticky-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+        </div>
+        <p style="margin:6px 0 0; font-size:0.75rem; color:#94a3b8;">
+          付箋を選択してから色をクリックすると変更されます
+        </p>
       </section>
 
       <section class="wb-section">
@@ -157,5 +207,72 @@
 
   <!-- モジュール -->
   <script type="module" src="/js/student.js"></script>
+
+    <!-- socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- モジュール -->
+  <script type="module" src="/js/student.js"></script>
+
+  <!-- ▼ 生徒用チャットUI（右側パネル） -->
+  <button id="chatToggleBtn" class="chat-toggle-btn" title="チャットを開く">
+    💬
+    <span id="chatNotifyDot" class="chat-notify-dot"></span>
+  </button>
+
+  <aside id="chatPanel" class="chat-panel collapsed">
+    <header class="chat-panel-header">
+      <h3 class="chat-title">教員とのチャット</h3>
+      <div id="chatTargetArea" class="chat-target-area chat-target-area--student">
+        教員との個別チャット
+      </div>
+      <button id="chatCloseBtn" class="chat-close-btn">×</button>
+    </header>
+
+    <div id="chatMessages" class="chat-messages"></div>
+
+    <footer class="chat-input-area">
+      <input
+        id="chatInput"
+        type="text"
+        placeholder="メッセージを入力（ホワイトボード共有中のみ送信可）"
+        autocomplete="off"
+      />
+      <button id="chatSendBtn">送信</button>
+    </footer>
+  </aside>
+  <!-- 既存の script タグたち ... -->
+
+  <!-- ▼ スタンプ候補パレット（キャンバス上に重ねて表示） -->
+  <div id="stampPalette" class="stamp-palette stamp-palette-hidden">
+    <div class="stamp-palette-inner">
+      <div class="stamp-palette-header">
+        <span>スタンプを選択</span>
+        <button id="stampPaletteCloseBtn" class="stamp-palette-close">×</button>
+      </div>
+      <div class="stamp-palette-grid">
+        <!-- 授業で使えそうなポップなスタンプ 10〜20種類 -->
+        <button class="stamp-item" data-stamp-key="star-yellow">⭐</button>
+        <button class="stamp-item" data-stamp-key="star-glow">🌟</button>
+        <button class="stamp-item" data-stamp-key="circle-ok">⭕</button>
+        <button class="stamp-item" data-stamp-key="cross-ng">❌</button>
+        <button class="stamp-item" data-stamp-key="maru-hanamaru">💮</button>
+        <button class="stamp-item" data-stamp-key="check">✅</button>
+        <button class="stamp-item" data-stamp-key="question">❓</button>
+        <button class="stamp-item" data-stamp-key="exclamation">❗</button>
+        <button class="stamp-item" data-stamp-key="lightbulb">💡</button>
+        <button class="stamp-item" data-stamp-key="pin">📌</button>
+        <button class="stamp-item" data-stamp-key="clap">👏</button>
+        <button class="stamp-item" data-stamp-key="good">👍</button>
+        <button class="stamp-item" data-stamp-key="bad">👎</button>
+        <button class="stamp-item" data-stamp-key="fire">🔥</button>
+        <button class="stamp-item" data-stamp-key="megaphone">📣</button>
+        <button class="stamp-item" data-stamp-key="pencil">✏️</button>
+        <button class="stamp-item" data-stamp-key="smile">😊</button>
+        <button class="stamp-item" data-stamp-key="think">🤔</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
+
