@@ -1,11 +1,11 @@
-// public/js/student.js
+// public/js/student.js 
 import { initBoardUI } from "./board-ui.js";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
 
-// === GAS Web アプリの URL（teacher.js と同じもの） ===
-const GAS_ENDPOINT = "https://script.google.com/a/macros/hokkaido-c.ed.jp/s/AKfycbzhJ4hbzCVMbFYW6pP5ZLBK5A2OSH-yoNofg64pt9FMC57c5-z_KeD5zB6DW0ehzMB3hw/exec";
+// === API ベースパス（server.js の /api/board プロキシを叩く） ===
+const BOARD_API_BASE = "/api/board";
 
 // 生徒用 保存 / 読み込みボタン（HTML で用意しておく）
 const studentSaveBoardBtn = document.getElementById("studentSaveBoardBtn");
@@ -64,6 +64,13 @@ let captureMode = "whiteboard";
 let screenStream = null;
 let screenVideo = null;
 
+// ========= Explorer風 モーダル用の状態（生徒用） =========
+let boardDialogOverlay = null;          // オーバーレイ要素
+let boardDialogMode = "save";           // "save" or "load"
+let boardDialogSelectedFolder = "";     // 選択中フォルダ（自分の役割フォルダ内のサブフォルダパス）
+let boardDialogSelectedFileId = null;   // 選択中ファイルID
+let lastUsedFolderPath = "";            // 直近に使ったフォルダを記憶
+
 // ========= 左パネル折りたたみ（旧 UI 用） =========
 function resizeCanvasToContainer() {
   if (!studentCanvas || !whiteboard) return;
@@ -102,9 +109,357 @@ if (studentPanelOpen && studentSidePanel) {
   });
 }
 
-// ========= ホワイトボード 保存 / 読み込み（生徒） =========
+/* ========================================
+   生徒用 ホワイトボード保存 / 読み込み
+   Explorer 風ダイアログ
+   ======================================== */
 
-async function studentSaveBoard() {
+// ---- API ヘルパー ----
+
+// 自分の役割フォルダ（classCode + nickname）配下のフォルダ一覧
+async function fetchFolderList() {
+  if (!currentClassCode || !nickname) {
+    throw new Error("クラスコードとニックネームが設定されていません。");
+  }
+
+  const res = await fetch(`${BOARD_API_BASE}/folders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "listFolders",
+      role: "student",
+      classCode: currentClassCode,
+      nickname
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("folders API error", res.status, text);
+    throw new Error(`フォルダ一覧 API が失敗しました (status=${res.status})`);
+  }
+
+  const json = await res.json();
+  if (!json.ok) {
+    throw new Error(json.message || "フォルダ一覧の取得に失敗しました。");
+  }
+
+  const folders = json.folders || [];
+  return folders.map(f => {
+    const path = f.path || f.folderPath || "";
+    const name = f.name || path || "(未命名フォルダ)";
+    return { path, name };
+  });
+}
+
+// 指定フォルダ内のファイル一覧取得
+async function fetchFileList(folderPath) {
+  if (!currentClassCode || !nickname) {
+    throw new Error("クラスコードとニックネームが設定されていません。");
+  }
+
+  const res = await fetch(`${BOARD_API_BASE}/list`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "listBoards",
+      role: "student",
+      classCode: currentClassCode,
+      nickname,
+      folderPath: folderPath || ""
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("listBoards API error", res.status, text);
+    throw new Error(`ファイル一覧 API が失敗しました (status=${res.status})`);
+  }
+
+  const json = await res.json();
+  if (!json.ok) {
+    throw new Error(json.message || "ファイル一覧の取得に失敗しました。");
+  }
+
+  return json.files || [];
+}
+
+// ---- モーダル生成 / 表示・非表示 ----
+
+function createBoardDialogIfNeeded() {
+  if (boardDialogOverlay) return;
+
+  boardDialogOverlay = document.createElement("div");
+  boardDialogOverlay.id = "boardDialogOverlay";
+  boardDialogOverlay.className = "board-dialog-overlay";
+
+  boardDialogOverlay.innerHTML = `
+    <div class="board-dialog">
+      <div class="board-dialog-header">
+        <span id="boardDialogTitle"></span>
+        <button id="boardDialogCloseBtn" class="board-dialog-close">×</button>
+      </div>
+
+      <div class="board-dialog-body">
+        <div class="board-dialog-left">
+          <h3>フォルダ</h3>
+          <ul id="boardDialogFolderList" class="board-dialog-list"></ul>
+        </div>
+        <div class="board-dialog-right">
+          <h3>ファイル</h3>
+          <ul id="boardDialogFileList" class="board-dialog-list"></ul>
+        </div>
+      </div>
+
+      <div class="board-dialog-footer">
+        <div id="boardDialogSaveArea">
+          <label class="board-dialog-field">
+            フォルダ名（新規も可）:
+            <input id="boardDialogFolderInput" type="text" placeholder="例: 宿題/一次関数" />
+          </label>
+          <label class="board-dialog-field">
+            ファイル名:
+            <input id="boardDialogFileNameInput" type="text" placeholder="例: 今日のノート" />
+          </label>
+          <button id="boardDialogSaveBtn" class="topbar-btn">保存</button>
+        </div>
+
+        <div id="boardDialogLoadArea">
+          <span class="board-dialog-hint">読み込みたいファイルを選択してください。</span>
+          <button id="boardDialogLoadBtn" class="topbar-btn">読み込み</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(boardDialogOverlay);
+
+  // 閉じるボタン
+  const closeBtn = document.getElementById("boardDialogCloseBtn");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      closeBoardDialog();
+    });
+  }
+
+  // 背景クリックで閉じる
+  boardDialogOverlay.addEventListener("click", e => {
+    if (e.target === boardDialogOverlay) {
+      closeBoardDialog();
+    }
+  });
+
+  // 保存ボタン
+  const saveBtn = document.getElementById("boardDialogSaveBtn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", onClickSaveConfirm);
+  }
+
+  // 読み込みボタン
+  const loadBtn = document.getElementById("boardDialogLoadBtn");
+  if (loadBtn) {
+    loadBtn.addEventListener("click", onClickLoadConfirm);
+  }
+}
+
+function openBoardDialog(mode) {
+  if (!currentClassCode || !nickname) {
+    alert("クラスに参加してから保存・読み込みを行ってください。");
+    return;
+  }
+  if (!whiteboard || typeof whiteboard.exportBoardData !== "function") {
+    alert("ホワイトボードが初期化されていません。");
+    return;
+  }
+
+  boardDialogMode = mode === "load" ? "load" : "save";
+  createBoardDialogIfNeeded();
+
+  const titleEl = document.getElementById("boardDialogTitle");
+  const saveArea = document.getElementById("boardDialogSaveArea");
+  const loadArea = document.getElementById("boardDialogLoadArea");
+  const folderInput = document.getElementById("boardDialogFolderInput");
+  const fileNameInput = document.getElementById("boardDialogFileNameInput");
+
+  if (titleEl) {
+    titleEl.textContent = boardDialogMode === "save"
+      ? "自分のホワイトボードを保存"
+      : "自分のホワイトボードを開く";
+  }
+
+  if (saveArea && loadArea) {
+    if (boardDialogMode === "save") {
+      saveArea.style.display = "flex";
+      loadArea.style.display = "none";
+    } else {
+      saveArea.style.display = "none";
+      loadArea.style.display = "flex";
+    }
+  }
+
+  // 選択状態初期化
+  boardDialogSelectedFileId = null;
+  boardDialogSelectedFolder = lastUsedFolderPath || "";
+
+  if (folderInput) {
+    if (boardDialogMode === "save") {
+      folderInput.value = boardDialogSelectedFolder;
+    } else {
+      folderInput.value = "";
+    }
+  }
+  if (fileNameInput && boardDialogMode === "save") {
+    fileNameInput.value = "";
+  }
+
+  boardDialogOverlay.classList.add("show");
+
+  // フォルダ一覧を読み込む
+  reloadFolderList();
+}
+
+function closeBoardDialog() {
+  if (boardDialogOverlay) {
+    boardDialogOverlay.classList.remove("show");
+  }
+}
+
+// ---- フォルダ & ファイル一覧の描画 ----
+
+async function reloadFolderList() {
+  const folderListEl = document.getElementById("boardDialogFolderList");
+  const fileListEl = document.getElementById("boardDialogFileList");
+  if (!folderListEl || !fileListEl) return;
+
+  folderListEl.innerHTML = `<li>読み込み中...</li>`;
+  fileListEl.innerHTML = "";
+
+  try {
+    const folders = await fetchFolderList();
+
+    folderListEl.innerHTML = "";
+
+    // ルート（自分の役割フォルダ直下）を一つ追加
+    const rootLi = document.createElement("li");
+    rootLi.textContent = "(自分のフォルダ直下)";
+    rootLi.dataset.folderPath = "";
+    rootLi.classList.add("board-dialog-folder-item");
+    if (!boardDialogSelectedFolder) {
+      rootLi.classList.add("selected");
+    }
+    rootLi.addEventListener("click", () => {
+      selectFolder("");
+    });
+    folderListEl.appendChild(rootLi);
+
+    folders.forEach(f => {
+      const li = document.createElement("li");
+      li.textContent = f.name;
+      li.dataset.folderPath = f.path;
+      li.classList.add("board-dialog-folder-item");
+      if (f.path === boardDialogSelectedFolder) {
+        li.classList.add("selected");
+      }
+      li.addEventListener("click", () => {
+        selectFolder(f.path);
+      });
+      folderListEl.appendChild(li);
+    });
+
+    // 現在の選択フォルダでファイル一覧を読み込み
+    reloadFileList(boardDialogSelectedFolder);
+  } catch (err) {
+    console.error(err);
+    alert("フォルダ一覧の取得中にエラーが発生しました。");
+    folderListEl.innerHTML = `<li>フォルダ一覧の取得に失敗しました</li>`;
+  }
+}
+
+async function reloadFileList(folderPath) {
+  const fileListEl = document.getElementById("boardDialogFileList");
+  const fileNameInput = document.getElementById("boardDialogFileNameInput");
+  if (!fileListEl) return;
+
+  fileListEl.innerHTML = `<li>読み込み中...</li>`;
+  boardDialogSelectedFileId = null;
+
+  try {
+    const files = await fetchFileList(folderPath);
+
+    fileListEl.innerHTML = "";
+
+    if (files.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "このフォルダにはまだファイルがありません。";
+      li.classList.add("board-dialog-file-empty");
+      fileListEl.appendChild(li);
+      return;
+    }
+
+    files.forEach(file => {
+      const li = document.createElement("li");
+      li.classList.add("board-dialog-file-item");
+      li.dataset.fileId = file.fileId;
+
+      const dateStr = file.lastUpdated
+        ? new Date(file.lastUpdated).toLocaleString()
+        : "";
+
+      li.textContent = dateStr
+        ? `${file.fileName}（${dateStr}）`
+        : file.fileName;
+
+      li.addEventListener("click", () => {
+        Array.from(fileListEl.querySelectorAll(".board-dialog-file-item")).forEach(el =>
+          el.classList.remove("selected")
+        );
+        li.classList.add("selected");
+
+        boardDialogSelectedFileId = file.fileId;
+
+        if (boardDialogMode === "save" && fileNameInput) {
+          fileNameInput.value = file.fileName;
+        }
+      });
+
+      fileListEl.appendChild(li);
+    });
+  } catch (err) {
+    console.error(err);
+    alert("ファイル一覧の取得中にエラーが発生しました。");
+    fileListEl.innerHTML = `<li>ファイル一覧の取得に失敗しました</li>`;
+  }
+}
+
+function selectFolder(folderPath) {
+  boardDialogSelectedFolder = folderPath || "";
+  lastUsedFolderPath = boardDialogSelectedFolder;
+
+  const folderListEl = document.getElementById("boardDialogFolderList");
+  const folderInput = document.getElementById("boardDialogFolderInput");
+
+  if (folderListEl) {
+    Array.from(folderListEl.querySelectorAll(".board-dialog-folder-item")).forEach(el =>
+      el.classList.remove("selected")
+    );
+    const target = Array.from(folderListEl.querySelectorAll(".board-dialog-folder-item")).find(
+      el => (el.dataset.folderPath || "") === boardDialogSelectedFolder
+    );
+    if (target) {
+      target.classList.add("selected");
+    }
+  }
+
+  if (folderInput && boardDialogMode === "save") {
+    folderInput.value = boardDialogSelectedFolder;
+  }
+
+  reloadFileList(boardDialogSelectedFolder);
+}
+
+// ---- 保存 / 読み込みの実処理 ----
+
+async function studentSaveBoardInternal(folderPath, fileName) {
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してから保存してください。");
     return;
@@ -116,16 +471,27 @@ async function studentSaveBoard() {
 
   const boardData = whiteboard.exportBoardData();
 
+  let finalFileName = (fileName || "").trim();
+  if (!finalFileName) {
+    finalFileName = new Date()
+      .toISOString()
+      .slice(0, 16)
+      .replace("T", "_")
+      .replace(/:/g, "-"); // 例: 2025-11-07_10-30
+  }
+
   const payload = {
     action: "saveBoard",
     role: "student",
     classCode: currentClassCode,
     nickname,
+    folderPath: (folderPath || "").trim(),
+    fileName: finalFileName,
     boardData
   };
 
   try {
-    const res = await fetch(GAS_ENDPOINT, {
+    const res = await fetch(`${BOARD_API_BASE}/save`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -133,13 +499,14 @@ async function studentSaveBoard() {
 
     const json = await res.json().catch(() => ({}));
     alert(json.message || "ホワイトボードを保存しました。");
+    closeBoardDialog();
   } catch (err) {
     console.error(err);
     alert("ホワイトボードの保存に失敗しました。");
   }
 }
 
-async function studentLoadBoard() {
+async function studentLoadBoardInternal(folderPath, fileId) {
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してから読み込んでください。");
     return;
@@ -148,37 +515,87 @@ async function studentLoadBoard() {
     alert("ホワイトボードに読み込めません。");
     return;
   }
-
-  const url = `${GAS_ENDPOINT}?action=loadBoard&role=student&classCode=${encodeURIComponent(
-    currentClassCode
-  )}&nickname=${encodeURIComponent(nickname)}`;
+  if (!fileId) {
+    alert("読み込むファイルを選択してください。");
+    return;
+  }
 
   try {
-    const res = await fetch(url);
-    const json = await res.json();
+    const res = await fetch(`${BOARD_API_BASE}/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "loadBoard",
+        role: "student",
+        classCode: currentClassCode,
+        nickname,
+        folderPath: (folderPath || "").trim(),
+        fileId
+      })
+    });
 
-    if (!json || !json.boardData) {
-      alert("保存されたホワイトボードが見つかりませんでした。");
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.message || "ホワイトボードの読み込みに失敗しました。");
+      return;
+    }
+
+    if (!json.boardData) {
+      alert("ボードデータが見つかりませんでした。");
       return;
     }
 
     whiteboard.importBoardData(json.boardData);
     alert("ホワイトボードを読み込みました。");
+    closeBoardDialog();
   } catch (err) {
     console.error(err);
-    alert("ホワイトボードの読み込みに失敗しました。");
+    alert("ホワイトボードの読み込み中にエラーが発生しました。");
   }
 }
 
-// ボタンにイベントを紐付け
-if (studentSaveBoardBtn) {
-  studentSaveBoardBtn.addEventListener("click", studentSaveBoard);
-}
-if (studentLoadBoardBtn) {
-  studentLoadBoardBtn.addEventListener("click", studentLoadBoard);
+// ---- モーダル内ボタンのハンドラ ----
+
+function onClickSaveConfirm() {
+  const folderInput = document.getElementById("boardDialogFolderInput");
+  const fileNameInput = document.getElementById("boardDialogFileNameInput");
+
+  const folderPath =
+    (folderInput && folderInput.value.trim()) ||
+    boardDialogSelectedFolder ||
+    "";
+
+  const fileName = fileNameInput ? fileNameInput.value.trim() : "";
+
+  studentSaveBoardInternal(folderPath, fileName);
 }
 
-// ========= PNG 保存 =========
+function onClickLoadConfirm() {
+  if (!boardDialogSelectedFileId) {
+    alert("読み込みたいファイルを選択してください。");
+    return;
+  }
+  const folderPath = boardDialogSelectedFolder || "";
+  studentLoadBoardInternal(folderPath, boardDialogSelectedFileId);
+}
+
+// ---- ボタンにイベントを紐付け ----
+
+if (studentSaveBoardBtn) {
+  studentSaveBoardBtn.addEventListener("click", () => {
+    openBoardDialog("save");
+  });
+}
+if (studentLoadBoardBtn) {
+  studentLoadBoardBtn.addEventListener("click", () => {
+    openBoardDialog("load");
+  });
+}
+
+/* ========================================
+   PNG 保存
+   ======================================== */
+
 if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
   savePngBtn.addEventListener("click", () => {
     const dataUrl = whiteboard.exportPngDataUrl();
@@ -191,7 +608,10 @@ if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function
   });
 }
 
-// ========= クラス参加 =========
+/* ========================================
+   クラス参加
+   ======================================== */
+
 if (joinBtn && classCodeInput && nicknameInput) {
   joinBtn.addEventListener("click", () => {
     const code = classCodeInput.value.trim();
@@ -226,7 +646,10 @@ socket.on("join-student", payload => {
   }
 });
 
-// ========= 共有モード切り替え（ホワイトボード / 画面共有） =========
+/* ========================================
+   共有モード切り替え（ホワイトボード / 画面共有）
+   ======================================== */
+
 function updateCaptureButtons() {
   if (!modeWhiteboardBtn || !modeScreenBtn) return;
   const isWhiteboard = captureMode === "whiteboard";
@@ -244,7 +667,6 @@ function stopScreenCapture() {
   if (screenVideo) {
     screenVideo.srcObject = null;
   }
-  // サーバーへ通知したい場合はここで emit
   socket.emit("student-screen-share-stopped", { classCode: currentClassCode });
 }
 
@@ -275,7 +697,6 @@ async function startScreenCapture() {
 
     const tracks = stream.getVideoTracks();
     if (tracks[0]) {
-      // ブラウザ UI から「共有停止」された場合
       tracks[0].addEventListener("ended", () => {
         stopScreenCapture();
         captureMode = "whiteboard";
@@ -283,7 +704,6 @@ async function startScreenCapture() {
       });
     }
 
-    // サーバーへ「画面共有開始」を通知したい場合
     socket.emit("student-screen-share-started", {
       classCode: currentClassCode
     });
@@ -329,7 +749,10 @@ if (modeScreenBtn) {
 
 updateCaptureButtons();
 
-// ========= サムネイル送信（ホワイトボード / 画面共有） =========
+/* ========================================
+   サムネイル送信（ホワイトボード / 画面共有）
+   ======================================== */
+
 function sendWhiteboardThumbnail() {
   if (!currentClassCode || !nickname) return;
 
@@ -417,11 +840,13 @@ function sendWhiteboardThumbnail() {
   });
 }
 
-// ========= 高画質送信（ホワイトボード / 画面共有） =========
+/* ========================================
+   高画質送信（ホワイトボード / 画面共有）
+   ======================================== */
+
 function sendHighres() {
   if (!currentClassCode || !nickname) return;
 
-  // 画面共有モード
   if (captureMode === "screen") {
     if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
 
@@ -468,7 +893,6 @@ function sendHighres() {
     return;
   }
 
-  // ホワイトボードモード
   const srcCanvas = studentCanvas;
   if (!srcCanvas || !srcCanvas.width || !srcCanvas.height) return;
 
@@ -512,7 +936,10 @@ socket.on("request-highres", () => {
   sendHighres();
 });
 
-// ========= キャプチャループ管理 =========
+/* ========================================
+   キャプチャループ管理
+   ======================================== */
+
 function restartCaptureLoop() {
   if (captureTimerId) {
     clearInterval(captureTimerId);

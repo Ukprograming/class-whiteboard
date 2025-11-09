@@ -4,8 +4,8 @@
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
 // 画像保存時の軽量化パラメータ
-const MAX_IMAGE_EXPORT_SIZE = 1400;   // 画像の長辺は最大 1400px に縮小
-const IMAGE_EXPORT_QUALITY  = 0.6;    // JPEG 品質（0〜1）
+const MAX_IMAGE_EXPORT_SIZE = 2048  ;   // 画像の長辺は最大 1400px に縮小
+const IMAGE_EXPORT_QUALITY  = 0.95;    // JPEG 品質（0〜1）
 
 export class Whiteboard {
   constructor({ canvas }) {
@@ -22,6 +22,10 @@ export class Whiteboard {
     // 背景（PDF / 画像）
     this.bgCanvas = document.createElement("canvas");
     this.bgCtx = this.bgCanvas.getContext("2d");
+
+    // ★ 初期は背景なしにする（サイズ 0 にしておく）
+    this.bgCanvas.width = 0;
+    this.bgCanvas.height = 0;
 
     // 手書きストローク
     // stroke: { type:'pen'|'highlighter'|'eraser', color, width, points:[{x,y}], groupId?, locked? }
@@ -225,6 +229,11 @@ export class Whiteboard {
     this.objects = [];
     this.history = [];
     this._setSelected(null);
+
+    // ★ 背景も完全リセット
+    this.bgCanvas.width = 0;
+    this.bgCanvas.height = 0;
+
     this.render();
   }
 

@@ -527,5 +527,136 @@ body.teacher-student-view .wb-main {
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }
 
+.board-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.board-dialog-overlay.show {
+  display: flex;
+}
+
+.board-dialog {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
+  width: 760px;
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.board-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+}
+
+.board-dialog-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.board-dialog-body {
+  display: flex;
+  min-height: 260px;
+  max-height: 420px;
+}
+
+.board-dialog-left,
+.board-dialog-right {
+  flex: 1;
+  border-right: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  overflow-y: auto;
+}
+
+.board-dialog-right {
+  border-right: none;
+}
+
+.board-dialog-left h3,
+.board-dialog-right h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.board-dialog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.board-dialog-list li {
+  padding: 4px 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.board-dialog-folder-item.selected,
+.board-dialog-file-item.selected {
+  background-color: #e5f0ff;
+}
+
+.board-dialog-list li:hover {
+  background-color: #f3f4f6;
+}
+
+.board-dialog-file-empty {
+  color: #9ca3af;
+  cursor: default;
+}
+
+.board-dialog-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.board-dialog-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 2px;
+}
+
+.board-dialog-field input {
+  font-size: 13px;
+  padding: 3px 6px;
+}
+
+#boardDialogSaveArea {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+#boardDialogLoadArea {
+  display: none;
+  gap: 12px;
+  align-items: center;
+}
+
+.board-dialog-hint {
+  color: #6b7280;
+}
+
 
 /* ===== テキストスタイルパネルなどがあればここに追加 ===== */

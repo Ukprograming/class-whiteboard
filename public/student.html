@@ -11,6 +11,7 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body class="app-root">
 
@@ -39,10 +40,15 @@
 
       <!-- ▼ ホワイトボード保存 / 読み込み（生徒自身のノート用） -->
       <button id="studentSaveBoardBtn" class="topbar-btn">
-        💾 保存
+        💾 保存…
       </button>
       <button id="studentLoadBoardBtn" class="topbar-btn">
-        📂 読み込み
+        📂 開く…
+      </button>
+
+      <!-- ★ PDF 出力ボタン（教員と共通の ID を使う） -->
+      <button id="exportPdfBtn" class="topbar-btn">
+        📄 PDF出力
       </button>
     </div>
   </header>

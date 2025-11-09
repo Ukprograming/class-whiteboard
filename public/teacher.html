@@ -12,6 +12,8 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 </head>
 <body class="app-root">
 
@@ -36,13 +38,21 @@
     </div>
 
     <div class="topbar-right">
-      <!-- ホワイトボード保存 / 読み込み -->
-      <button id="teacherSaveBoardBtn" class="topbar-btn">
-        💾 保存
-      </button>
-      <button id="teacherLoadBoardBtn" class="topbar-btn">
-        📂 読み込み
-      </button>
+      <!-- ホワイトボード保存 / 読み込み：Explorer風モーダルを開く -->
+      <div class="save-load-group">
+        <div class="save-load-row">
+          <button id="teacherOpenSaveDialogBtn" class="topbar-btn">
+            💾 保存…
+          </button>
+          <button id="teacherOpenLoadDialogBtn" class="topbar-btn">
+            📂 開く…
+          </button>
+          <!-- ★ ここに PDF 出力ボタンを追加 -->
+          <button id="exportPdfBtn" class="topbar-btn">
+            📄 PDF出力
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -149,7 +159,6 @@
           付箋を選択してから色をクリックすると変更されます
         </p>
       </section>
-
 
       <section class="wb-section">
         <h3>

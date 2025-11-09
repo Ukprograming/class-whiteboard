@@ -22,6 +22,9 @@ export function initBoardUI() {
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
 
+  // PDF出力ボタン（先生・生徒共通）
+  const exportPdfBtn = document.getElementById("exportPdfBtn");
+
   // ペン色・太さ / 付箋カラー
   const penColorButtons = document.querySelectorAll("[data-pen-color]");
   const penWidthSelect = document.getElementById("penWidthSelect");
@@ -243,7 +246,6 @@ export function initBoardUI() {
     }
   });
 
-
   // ========= キャンバスリサイズ（高 DPI 対応） =========
   function resizeCanvasToContainer() {
     const container = canvas.parentElement;
@@ -279,6 +281,166 @@ export function initBoardUI() {
         resizeCanvasToContainer();
       }, 260);
     });
+  }
+
+  // ========= PDF 出力（編集範囲のみ） =========
+  if (exportPdfBtn) {
+    exportPdfBtn.addEventListener("click", () => {
+      exportBoardToPdf(canvas);
+    });
+  }
+
+  /**
+   * キャンバス上で「背景ではないピクセル」が存在する矩形範囲を検出する
+   * - 完全透明 or ほぼ白(#ffffffに近い)は「背景」とみなす
+   * - 何も描かれていなければ null
+   */
+  function detectContentBoundsFromCanvas(canvas) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+
+    let imageData;
+    try {
+      imageData = ctx.getImageData(0, 0, w, h).data;
+    } catch (err) {
+      console.error("getImageData に失敗したため、キャンバス全体を出力します:", err);
+      return { x: 0, y: 0, width: w, height: h };
+    }
+
+    let top = h;
+    let left = w;
+    let right = 0;
+    let bottom = 0;
+    let hasContent = false;
+
+    for (let y = 0; y < h; y++) {
+      const rowOffset = y * w * 4;
+      for (let x = 0; x < w; x++) {
+        const i = rowOffset + x * 4;
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        const a = imageData[i + 3];
+
+        const isTransparent = a === 0;
+        const isAlmostWhite = r > 250 && g > 250 && b > 250;
+
+        if (isTransparent || isAlmostWhite) continue;
+
+        hasContent = true;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+
+    if (!hasContent) {
+      return null;
+    }
+
+    const padding = 16; // 少し余白を足す
+    left = Math.max(0, left - padding);
+    top = Math.max(0, top - padding);
+    right = Math.min(w - 1, right + padding);
+    bottom = Math.min(h - 1, bottom + padding);
+
+    return {
+      x: left,
+      y: top,
+      width: right - left + 1,
+      height: bottom - top + 1
+    };
+  }
+
+  /**
+   * 与えられたキャンバスを 1ページPDFとして保存
+   */
+  function saveCanvasAsPdf(croppedCanvas) {
+    const jspdf = window.jspdf;
+    if (!jspdf || !jspdf.jsPDF) {
+      alert("PDF出力ライブラリ(jsPDF)が読み込まれていません。");
+      return;
+    }
+    const { jsPDF } = jspdf;
+
+    const imgData = croppedCanvas.toDataURL("image/png");
+    const isLandscape = croppedCanvas.width >= croppedCanvas.height;
+
+    const pdf = new jsPDF({
+      orientation: isLandscape ? "l" : "p",
+      unit: "mm",
+      format: "a4"
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgAspect = croppedCanvas.width / croppedCanvas.height;
+    const pageAspect = pageWidth / pageHeight;
+
+    let renderWidth, renderHeight;
+    const margin = 10; // mm
+
+    if (pageAspect > imgAspect) {
+      // ページの方が横に広い → 高さ基準でフィット
+      renderHeight = pageHeight - margin * 2;
+      renderWidth = renderHeight * imgAspect;
+    } else {
+      // ページの方が縦に長い → 幅基準でフィット
+      renderWidth = pageWidth - margin * 2;
+      renderHeight = renderWidth / imgAspect;
+    }
+
+    const x = (pageWidth - renderWidth) / 2;
+    const y = (pageHeight - renderHeight) / 2;
+
+    pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
+
+    const filename =
+      "whiteboard-" +
+      new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", "_")
+        .replace(/:/g, "-") +
+      ".pdf";
+
+    pdf.save(filename);
+  }
+
+  /**
+   * ホワイトボード全体から「編集範囲」を自動検出して PDF として保存
+   */
+  function exportBoardToPdf(canvas) {
+    const bounds = detectContentBoundsFromCanvas(canvas);
+    if (!bounds) {
+      alert("出力する内容がありません。");
+      return;
+    }
+
+    const off = document.createElement("canvas");
+    off.width = bounds.width;
+    off.height = bounds.height;
+
+    const ctx = off.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, off.width, off.height);
+
+    ctx.drawImage(
+      canvas,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      bounds.width,
+      bounds.height
+    );
+
+    saveCanvasAsPdf(off);
   }
 
   return wb;
