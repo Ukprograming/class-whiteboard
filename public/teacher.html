@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -13,7 +13,6 @@
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
 </head>
 <body class="app-root">
 
@@ -47,7 +46,7 @@
           <button id="teacherOpenLoadDialogBtn" class="topbar-btn">
             📂 開く…
           </button>
-          <!-- ★ ここに PDF 出力ボタンを追加 -->
+          <!-- PDF 出力ボタン -->
           <button id="exportPdfBtn" class="topbar-btn">
             📄 PDF出力
           </button>
@@ -93,16 +92,15 @@
           </button>
         </div>
         <div class="tool-row">
-          <button data-tool="rect" class="tool-button" title="四角形">
-            <span class="icon">▭</span><span class="tool-label">四角</span>
-          </button>
-          <button data-tool="ellipse" class="tool-button" title="楕円">
-            <span class="icon">⬭</span><span class="tool-label">楕円</span>
+          <button data-tool="shape" class="tool-button" title="図形">
+            <span class="icon">⬚</span><span class="tool-label">図形</span>
           </button>
           <button data-tool="stamp" class="tool-button" title="スタンプ">
             <span class="icon">⭐</span><span class="tool-label">スタンプ</span>
           </button>
-
+          <button id="deleteBtn" class="tool-button" type="button" title="削除">
+            <span class="icon">🗑️</span><span class="tool-label">削除</span>
+          </button>
         </div>
       </section>
 
@@ -164,6 +162,65 @@
         </p>
       </section>
 
+            <!-- 付箋カラーセクションのすぐ下あたりに挿入 -->
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">📐</span>
+          <span class="section-text">図形スタイル</span>
+        </h3>
+
+        <p style="margin:0 0 4px; font-size:0.75rem; color:#94a3b8;">
+          図形や付箋を選択してから変更します
+        </p>
+
+        <!-- 線の色 -->
+        <div style="margin-top:4px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          線の色
+        </div>
+        <div class="color-row">
+          <button class="color-swatch" data-shape-stroke-color="#111827" style="--swatch-color:#111827;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#f97316" style="--swatch-color:#f97316;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#facc15" style="--swatch-color:#facc15;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+        </div>
+
+        <!-- 塗りつぶし色 -->
+        <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          塗りつぶし
+        </div>
+        <div class="color-row">
+          <!-- 「なし」 -->
+          <button class="color-swatch" data-shape-fill-color="transparent" style="--swatch-color:#ffffff;" title="塗りつぶしなし"></button>
+
+          <!-- 付箋と似た柔らかい色をいくつか -->
+          <button class="color-swatch" data-shape-fill-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+          <button class="color-swatch" data-shape-fill-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+          <button class="color-swatch" data-shape-fill-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+          <button class="color-swatch" data-shape-fill-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+          <button class="color-swatch" data-shape-fill-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+        </div>
+
+        <!-- 線の太さ -->
+        <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          線の太さ
+        </div>
+        <div class="tool-row">
+          <select id="shapeStrokeWidthSelect">
+            <option value="1">極細</option>
+            <option value="2">細</option>
+            <option value="3" selected>普通</option>
+            <option value="5">太</option>
+            <option value="8">極太</option>
+          </select>
+        </div>
+      </section>
+
       <section class="wb-section">
         <h3>
           <span class="section-icon">✏️</span>
@@ -191,6 +248,15 @@
           </button>
           <button id="zoomOutBtn" class="tool-button">
             <span class="icon">➖</span><span class="tool-label">縮小</span>
+          </button>
+        </div>
+        <!-- 前面 / 後面移動ボタン -->
+        <div class="tool-row">
+          <button id="bringToFrontBtn" class="tool-button" title="前面へ移動">
+            <span class="icon">⬆️</span><span class="tool-label">前面へ</span>
+          </button>
+          <button id="sendToBackBtn" class="tool-button" title="背面へ移動">
+            <span class="icon">⬇️</span><span class="tool-label">背面へ</span>
           </button>
         </div>
       </section>
@@ -235,12 +301,6 @@
   <!-- モジュール -->
   <script type="module" src="/js/teacher.js"></script>
 
-    <!-- socket.io -->
-  <script src="/socket.io/socket.io.js"></script>
-
-  <!-- モジュール -->
-  <script type="module" src="/js/teacher.js"></script>
-
   <!-- ▼ 教員用・共通チャットUI（右側パネル） -->
   <button id="chatToggleBtn" class="chat-toggle-btn" title="チャットを開く">
     💬
@@ -273,7 +333,6 @@
       <button id="chatSendBtn">送信</button>
     </footer>
   </aside>
-  <!-- 既存の script タグたち ... -->
 
   <!-- ▼ スタンプ候補パレット（キャンバス上に重ねて表示） -->
   <div id="stampPalette" class="stamp-palette stamp-palette-hidden">
@@ -283,26 +342,20 @@
         <button id="stampPaletteCloseBtn" class="stamp-palette-close">×</button>
       </div>
       <div class="stamp-palette-grid">
-        <!-- 授業で使えそうなポップなスタンプ 10〜20種類 -->
-        <button class="stamp-item" data-stamp-key="star-yellow">⭐</button>
-        <button class="stamp-item" data-stamp-key="star-glow">🌟</button>
-        <button class="stamp-item" data-stamp-key="circle-ok">⭕</button>
-        <button class="stamp-item" data-stamp-key="cross-ng">❌</button>
-        <button class="stamp-item" data-stamp-key="maru-hanamaru">💮</button>
-        <button class="stamp-item" data-stamp-key="check">✅</button>
-        <button class="stamp-item" data-stamp-key="question">❓</button>
-        <button class="stamp-item" data-stamp-key="exclamation">❗</button>
-        <button class="stamp-item" data-stamp-key="lightbulb">💡</button>
-        <button class="stamp-item" data-stamp-key="pin">📌</button>
-        <button class="stamp-item" data-stamp-key="clap">👏</button>
-        <button class="stamp-item" data-stamp-key="good">👍</button>
-        <button class="stamp-item" data-stamp-key="bad">👎</button>
-        <button class="stamp-item" data-stamp-key="fire">🔥</button>
-        <button class="stamp-item" data-stamp-key="megaphone">📣</button>
-        <button class="stamp-item" data-stamp-key="pencil">✏️</button>
-        <button class="stamp-item" data-stamp-key="smile">😊</button>
-        <button class="stamp-item" data-stamp-key="think">🤔</button>
+        <!-- 中身は JS（board-ui.js）が wb.stampPresets から作り直します -->
       </div>
+    </div>
+  </div>
+
+  <!-- ▼ 図形パレット（図形ツール用） -->
+  <div id="shapePalette" class="stamp-palette stamp-palette-hidden shape-palette">
+    <div class="stamp-palette-inner shape-palette-inner">
+      <div class="stamp-palette-header">
+        <span>図形を選択</span>
+        <button id="shapePaletteCloseBtn" class="stamp-palette-close">×</button>
+      </div>
+      <!-- 中身（.shape-items）は board-ui.js 側で動的に生成 -->
+      <div class="shape-items"></div>
     </div>
   </div>
 </body>

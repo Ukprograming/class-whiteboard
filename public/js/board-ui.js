@@ -21,25 +21,38 @@ export function initBoardUI() {
   const zoomOutBtn = document.getElementById("zoomOutBtn");
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
+  const deleteBtn = document.getElementById("deleteBtn");
 
-  // ★ スタンプパレット関連（ここだけ差し替え）
+  let currentTool = "pen";
+
+  // ★ 前面 / 背面ボタン
+  const bringToFrontBtn = document.getElementById("bringToFrontBtn");
+  const sendToBackBtn = document.getElementById("sendToBackBtn");
+
+  // ★ スタンプパレット関連
   const stampPalette = document.getElementById("stampPalette");
   const stampPaletteCloseBtn = document.getElementById("stampPaletteCloseBtn");
-  // パレットの白いカード（あれば使う）
   const stampPaletteInner = stampPalette
     ? stampPalette.querySelector(".stamp-palette-inner")
     : null;
 
-  function showStampPalette() {
-    if (!stampPalette) return;
-    stampPalette.classList.remove("stamp-palette-hidden");
-  }
-  function hideStampPalette() {
-    if (!stampPalette) return;
-    stampPalette.classList.add("stamp-palette-hidden");
-  }
+  // ★ 図形パレット関連
+  const shapePalette = document.getElementById("shapePalette");
+  const shapePaletteCloseBtn = document.getElementById("shapePaletteCloseBtn");
+  const shapePaletteInner = shapePalette
+    ? shapePalette.querySelector(".shape-palette-inner")
+    : null;
 
-  let currentStampKey = null;
+  // ★ 図形スタイル（線色 / 塗り色 / 線幅）
+  const shapeStrokeColorButtons = document.querySelectorAll(
+    "[data-shape-stroke-color]"
+  );
+  const shapeFillColorButtons = document.querySelectorAll(
+    "[data-shape-fill-color]"
+  );
+  const shapeStrokeWidthSelect = document.getElementById(
+    "shapeStrokeWidthSelect"
+  );
 
   // PDF出力ボタン（先生・生徒共通）
   const exportPdfBtn = document.getElementById("exportPdfBtn");
@@ -53,46 +66,164 @@ export function initBoardUI() {
   let currentPenColor = "#111827";
   let currentPenWidth = 3;
 
+  let currentStampKey = null;
+
+  // ========= パレットの表示 / 非表示 =========
   function showStampPalette() {
     if (!stampPalette) return;
     stampPalette.classList.remove("stamp-palette-hidden");
   }
-
   function hideStampPalette() {
     if (!stampPalette) return;
     stampPalette.classList.add("stamp-palette-hidden");
   }
 
+  // ★ ここを修正：図形パレット用の専用クラス shape-palette-hidden を使う
+  // ★ 図形パレット表示/非表示（stamp-palette-hidden も一緒に管理する）
+  function showShapePalette() {
+    if (!shapePalette) return;
+    shapePalette.classList.remove("shape-palette-hidden");
+    shapePalette.classList.remove("stamp-palette-hidden"); // ← これを追加
+  }
+
+  function hideShapePalette() {
+    if (!shapePalette) return;
+    shapePalette.classList.add("shape-palette-hidden");
+    shapePalette.classList.add("stamp-palette-hidden"); // ← これを追加
+  }
+
+
+  // 起動直後はどちらも確実に隠しておく（クリックを奪わないように）
+  hideStampPalette();
+  hideShapePalette();
+
+  // ========= 選択状態に応じたボタン UI 更新 =========
+  function updateSelectionButtonsUI() {
+    // --- グループボタン：選択が2つ以上あるときだけ有効 ---
+    if (groupBtn) {
+      const objCount = Array.isArray(wb.multiSelectedObjects)
+        ? wb.multiSelectedObjects.length
+        : 0;
+      const strokeCount = Array.isArray(wb.multiSelectedStrokes)
+        ? wb.multiSelectedStrokes.length
+        : 0;
+      const selCount = objCount + strokeCount;
+
+      const canGroup = selCount >= 2;
+      groupBtn.disabled = !canGroup;
+      groupBtn.classList.toggle("disabled", !canGroup);
+      groupBtn.classList.toggle("primary", canGroup);
+      groupBtn.classList.toggle("active", canGroup);
+    }
+
+    // --- 削除ボタン（選択がないときは無効化） ---
+    if (deleteBtn) {
+      const hasSel =
+        wb && typeof wb.hasSelection === "function"
+          ? wb.hasSelection()
+          : false;
+
+      deleteBtn.disabled = !hasSel;
+      deleteBtn.classList.toggle("disabled", !hasSel);
+    }
+  }
+
+  // ========= 図形スタイル UI 更新 =========
+  function updateShapeStyleUI(info) {
+    // 図形が選択されていない or テキストなどのときはリセット
+    if (!info || !info.kind || info.kind === "text") {
+      shapeStrokeColorButtons.forEach(b => b.classList.remove("active"));
+      shapeFillColorButtons.forEach(b => b.classList.remove("active"));
+      if (shapeStrokeWidthSelect) shapeStrokeWidthSelect.value = "3";
+      return;
+    }
+
+    // 線の色
+    if (info.stroke) {
+      shapeStrokeColorButtons.forEach(b => {
+        const c = b.dataset.shapeStrokeColor;
+        b.classList.toggle("active", c === info.stroke);
+      });
+    }
+
+    // 塗りつぶし色
+    if (info.fill !== undefined) {
+      shapeFillColorButtons.forEach(b => {
+        const c = b.dataset.shapeFillColor;
+        b.classList.toggle("active", c === info.fill);
+      });
+    }
+
+    // 線の太さ
+    if (shapeStrokeWidthSelect && info.strokeWidth != null) {
+      const val = String(info.strokeWidth);
+      const hasOption = Array.from(shapeStrokeWidthSelect.options).some(
+        opt => opt.value === val
+      );
+      shapeStrokeWidthSelect.value = hasOption ? val : "3";
+    }
+  }
+
+  // ========= ツールボタンの UI 更新 =========
   function updateToolButtons(activeTool) {
+    currentTool = activeTool;
+
     toolButtons.forEach(btn => {
       const t = btn.dataset.tool;
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
     });
 
-    // スタンプツール以外になったらパレットは閉じる
-    if (activeTool !== "stamp") {
+    // スタンプ・図形ツール以外ではパレットを閉じる
+    if (activeTool !== "stamp" && stampPalette) {
       hideStampPalette();
+    }
+    if (activeTool !== "shape" && shapePalette) {
+      hideShapePalette();
     }
   }
 
-  // ツールボタン共通処理
+  // ========= Whiteboard 側からの選択変更通知 =========
+  wb.onSelectionChange = info => {
+    updateSelectionButtonsUI();
+    updateShapeStyleUI(info);
+  };
+
+  // 初期状態も反映
+  updateSelectionButtonsUI();
+
+  // ========= ツールボタン共通処理 =========
   toolButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const tool = btn.dataset.tool;
-      wb.setTool(tool);
-      updateToolButtons(tool);
+      if (!tool) return;
 
-      // スタンプツールが選択されたらパレットを表示
+      // shape / stamp 以外は普通のツール
+      if (tool !== "shape" && tool !== "stamp") {
+        wb.setTool(tool);
+        updateToolButtons(tool);
+        return;
+      }
+
+      // スタンプツール
       if (tool === "stamp") {
+        wb.setTool("stamp");
+        updateToolButtons("stamp");
         showStampPalette();
+        return;
+      }
+
+      // 図形ツール
+      if (tool === "shape") {
+        wb.setTool("shape");
+        updateToolButtons("shape");
+        showShapePalette();
       }
     });
   });
 
   // ========= スタンプパレットの生成＆選択 =========
   if (stampPalette && wb.stampPresets) {
-    // 生成先：白いカード内 .stamp-items があれば使う、無ければ作る
     const host = stampPaletteInner || stampPalette;
 
     let itemsContainer = host.querySelector(".stamp-items");
@@ -102,11 +233,8 @@ export function initBoardUI() {
       host.appendChild(itemsContainer);
     }
 
-    // ★ パレット直下に昔の .stamp-item が残っていると二重表示になるので全部除去
-    //    （.stamp-items の中身はこのあと作り直す）
+    // 古い .stamp-item を削除しておく
     stampPalette.querySelectorAll(".stamp-item").forEach(el => el.remove());
-
-    // ★ 中身をクリアしてから、whiteboard.js の stampPresets だけで再構築
     itemsContainer.innerHTML = "";
 
     Object.entries(wb.stampPresets).forEach(([key, preset]) => {
@@ -118,8 +246,9 @@ export function initBoardUI() {
       item.textContent = preset.emoji || "★";
 
       item.addEventListener("click", () => {
-        // Whiteboard 側に選択を伝える → そのまま配置できるように閉じる
         if (typeof wb.setStampType === "function") wb.setStampType(key);
+        wb.setTool("stamp");
+        updateToolButtons("stamp");
         hideStampPalette();
       });
 
@@ -131,14 +260,88 @@ export function initBoardUI() {
     }
   }
 
+  // ========= 図形パレットの生成＆選択 =========
+  if (shapePalette) {
+    const host = shapePaletteInner || shapePalette;
+    let itemsContainer = host.querySelector(".shape-items");
+    if (!itemsContainer) {
+      itemsContainer = document.createElement("div");
+      itemsContainer.className = "shape-items";
+      host.appendChild(itemsContainer);
+    }
 
-  // 初期ツールはペン
+    // 一旦クリア
+    itemsContainer.innerHTML = "";
+
+    // Whiteboard 側に shapePresets があればそれを使う。なければデフォルト。
+    const defaultShapes = [
+      { key: "line", label: "直線", icon: "／" },
+      { key: "arrow", label: "矢印", icon: "→" },
+      { key: "double-arrow", label: "相互矢印", icon: "↔" },
+      { key: "triangle", label: "三角形", icon: "△" },
+      { key: "rect", label: "四角形", icon: "▭" },
+      { key: "circle", label: "円", icon: "◯" },
+      { key: "tri-prism", label: "三角柱", icon: "△▭" },
+      { key: "rect-prism", label: "直方体", icon: "▭▭" },
+      { key: "cylinder", label: "円柱", icon: "◯┃" }
+    ];
+
+    const shapePresets = wb.shapePresets || defaultShapes;
+
+    shapePresets.forEach(shape => {
+      const key = shape.key || shape.id;
+      if (!key) return;
+
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "shape-item";
+      item.dataset.shapeKey = key;
+      item.title = shape.label || key;
+
+      item.innerHTML = `
+        <span class="shape-icon">${shape.icon || "⬚"}</span>
+        <span class="shape-label">${shape.label || key}</span>
+      `;
+
+      item.addEventListener("click", () => {
+        if (typeof wb.setShapeType === "function") {
+          // ★ Whiteboard 側が "ellipse" を期待しているので、circle だけ変換する
+          const shapeKeyForWB = key === "circle" ? "ellipse" : key;
+          wb.setShapeType(shapeKeyForWB);
+          wb.setTool("shape");
+          updateToolButtons("shape");
+        } else {
+          // まだ実装していない場合のフォールバック
+          if (key === "rect") {
+            wb.setTool("rect");
+            updateToolButtons("rect");
+          } else if (key === "circle") {
+            wb.setTool("ellipse");
+            updateToolButtons("ellipse");
+          } else {
+            alert("この図形はまだ実装されていません。");
+          }
+        }
+        hideShapePalette();
+      });
+
+
+      itemsContainer.appendChild(item);
+    });
+
+    if (shapePaletteCloseBtn) {
+      shapePaletteCloseBtn.addEventListener("click", hideShapePalette);
+    }
+  }
+
+  // ========= 初期ツール / ペン設定 =========
   updateToolButtons("pen");
   wb.setTool("pen");
 
-  // 初期ペン設定
   wb.setPen(currentPenColor, currentPenWidth);
-  wb.setHighlighterColor(currentPenColor);
+  if (wb.setHighlighterColor) {
+    wb.setHighlighterColor(currentPenColor);
+  }
 
   // ========= ペン色パレット =========
   if (penColorButtons.length > 0) {
@@ -184,6 +387,57 @@ export function initBoardUI() {
     });
   }
 
+  // ========= 図形：線の色 =========
+  if (
+    shapeStrokeColorButtons.length > 0 &&
+    typeof wb.setSelectedStrokeColor === "function"
+  ) {
+    shapeStrokeColorButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const color = btn.dataset.shapeStrokeColor;
+        if (!color) return;
+
+        wb.setSelectedStrokeColor(color);
+
+        // UI 側ハイライト
+        shapeStrokeColorButtons.forEach(b =>
+          b.classList.toggle("active", b === btn)
+        );
+      });
+    });
+  }
+
+  // ========= 図形：塗りつぶし色 =========
+  if (
+    shapeFillColorButtons.length > 0 &&
+    typeof wb.setSelectedStickyColor === "function"
+  ) {
+    shapeFillColorButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const color = btn.dataset.shapeFillColor;
+        if (color == null) return;
+
+        // "transparent" もそのまま渡す（塗りなし）
+        wb.setSelectedStickyColor(color);
+
+        shapeFillColorButtons.forEach(b =>
+          b.classList.toggle("active", b === btn)
+        );
+      });
+    });
+  }
+
+  // ========= 図形：線の太さ =========
+  if (
+    shapeStrokeWidthSelect &&
+    typeof wb.setSelectedStrokeWidth === "function"
+  ) {
+    shapeStrokeWidthSelect.addEventListener("change", () => {
+      const width = parseInt(shapeStrokeWidthSelect.value, 10) || 3;
+      wb.setSelectedStrokeWidth(width);
+    });
+  }
+
   // ========= PDF 読み込み =========
   if (pdfInput) {
     pdfInput.addEventListener("change", async e => {
@@ -223,16 +477,42 @@ export function initBoardUI() {
     zoomOutBtn.addEventListener("click", () => wb.zoomAtCanvasCenter(0.9));
   }
 
-  // ========= グループ化 / ロック =========
+  // ========= グループ化 =========
   if (groupBtn) {
     groupBtn.addEventListener("click", () => {
-      if (wb.groupSelection) wb.groupSelection();
+      if (wb.groupSelection) {
+        wb.groupSelection();
+        updateSelectionButtonsUI();
+      }
     });
   }
 
+  // ========= ロック =========
   if (lockBtn) {
     lockBtn.addEventListener("click", () => {
       if (wb.toggleLockSelection) wb.toggleLockSelection();
+    });
+  }
+
+  // ========= 削除ボタン =========
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", () => {
+      if (wb.hasSelection && wb.hasSelection()) {
+        wb.deleteSelection();
+        updateSelectionButtonsUI();
+      }
+    });
+  }
+
+  // ========= 前面 / 背面ボタン（whiteboard.js にあれば） =========
+  if (bringToFrontBtn && typeof wb.bringSelectionToFront === "function") {
+    bringToFrontBtn.addEventListener("click", () => {
+      wb.bringSelectionToFront();
+    });
+  }
+  if (sendToBackBtn && typeof wb.sendSelectionToBack === "function") {
+    sendToBackBtn.addEventListener("click", () => {
+      wb.sendSelectionToBack();
     });
   }
 
@@ -280,6 +560,7 @@ export function initBoardUI() {
       if (wb.hasSelection && wb.hasSelection()) {
         e.preventDefault();
         wb.deleteSelection();
+        updateSelectionButtonsUI();
       }
     }
   });
@@ -372,11 +653,6 @@ export function initBoardUI() {
     });
   }
 
-  /**
-   * キャンバス上で「背景ではないピクセル」が存在する矩形範囲を検出する
-   * - 完全透明 or ほぼ白(#ffffffに近い)は「背景」とみなす
-   * - 何も描かれていなければ null
-   */
   function detectContentBoundsFromCanvas(canvas) {
     const ctx = canvas.getContext("2d");
     const w = canvas.width;
@@ -436,9 +712,6 @@ export function initBoardUI() {
     };
   }
 
-  /**
-   * 与えられたキャンバスを 1ページPDFとして保存
-   */
   function saveCanvasAsPdf(croppedCanvas) {
     const jspdf = window.jspdf;
     if (!jspdf || !jspdf.jsPDF) {
@@ -466,11 +739,9 @@ export function initBoardUI() {
     const margin = 10; // mm
 
     if (pageAspect > imgAspect) {
-      // ページの方が横に広い → 高さ基準でフィット
       renderHeight = pageHeight - margin * 2;
       renderWidth = renderHeight * imgAspect;
     } else {
-      // ページの方が縦に長い → 幅基準でフィット
       renderWidth = pageWidth - margin * 2;
       renderHeight = renderWidth / imgAspect;
     }
@@ -492,9 +763,6 @@ export function initBoardUI() {
     pdf.save(filename);
   }
 
-  /**
-   * ホワイトボード全体から「編集範囲」を自動検出して PDF として保存
-   */
   function exportBoardToPdf(canvas) {
     const bounds = detectContentBoundsFromCanvas(canvas);
     if (!bounds) {

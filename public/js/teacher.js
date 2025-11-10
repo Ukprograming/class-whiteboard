@@ -1,7 +1,6 @@
-// public/js/teacher.js
 import { initBoardUI } from "./board-ui.js";
 
-// 共通ホワイトボード UI 初期化（教員用）
+
 const teacherBoard = initBoardUI();
 
 // === サーバー側のボード API ベースパス ===

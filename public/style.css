@@ -152,10 +152,12 @@ button:disabled {
 .main-layout {
   flex: 1 1 auto;
   display: flex;
-  min-height: 0; /* flex 子の高さが縮められるように */
+  min-height: 0;
+  /* トップバーの高さぶんを引いた値（だいたい 56px 前後）
+     必要なら 52px や 60px に微調整してOKです */
+  height: calc(100vh - 56px);
 }
 
-/* ===== 左サイドバー（ツール） ===== */
 .wb-sidebar {
   position: relative;
   flex: 0 0 260px;
@@ -168,7 +170,13 @@ button:disabled {
   gap: 10px;
   box-shadow: 4px 0 12px rgba(15, 23, 42, 0.04);
   transition: max-width 0.25s ease, flex-basis 0.25s ease, padding 0.25s ease;
+
+  /* ★ ここを追加：中身が増えたら中でスクロール */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
+
+
 
 .wb-sidebar.collapsed {
   flex-basis: 52px;
@@ -511,8 +519,9 @@ body.teacher-student-view .wb-main {
   border-color: #ffffff;
 }
 
-/* ペン太さセレクト */
-#penWidthSelect {
+/* ペン太さセレクト & 図形の線幅セレクト */
+#penWidthSelect,
+#shapeStrokeWidthSelect {
   width: 100%;
   border-radius: 999px;
   border: 1px solid #cbd5f5;
@@ -522,10 +531,12 @@ body.teacher-student-view .wb-main {
   background: #ffffff;
 }
 
-#penWidthSelect:focus {
+#penWidthSelect:focus,
+#shapeStrokeWidthSelect:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }
+
 
 .board-dialog-overlay {
   position: fixed;
@@ -939,4 +950,209 @@ body.teacher-student-view .wb-main {
   max-height: 280px;          /* パレットからはみ出すときにスクロール */
   overflow: auto;
 }
+
+/* =========================
+   図形パレット
+   ========================= */
+
+.shape-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 7000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none; /* hidden時のクリック貫通用 */
+}
+
+.shape-palette-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shape-palette:not(.shape-palette-hidden) {
+  pointer-events: auto;
+}
+
+.shape-palette-inner {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+  padding: 10px;
+  min-width: 260px;
+  max-width: 420px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+}
+
+.shape-palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.shape-palette-close {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* 図形一覧エリア（ボタンを並べるところ） */
+.shape-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 6px;
+  overflow-y: auto;
+  padding: 4px 0 2px;
+}
+
+.hw-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.hw-dialog-overlay.show {
+  display: flex;
+}
+
+.hw-dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
+  max-width: 720px;
+  width: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hw-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hw-dialog-title {
+  font-weight: 600;
+}
+
+.hw-dialog-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.hw-dialog-body {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hw-canvas-area {
+  flex: 1 1 380px;
+}
+
+.hw-preview-area {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hw-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.hw-tool-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  background: #f9fafb;
+  cursor: pointer;
+}
+
+.hw-tool-btn--active {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+
+.hw-canvas {
+  border: 1px solid #cbd5f5;
+  border-radius: 8px;
+  background: #ffffff;
+  width: 100%;
+  height: 200px;
+}
+
+.hw-preview-text {
+  width: 100%;
+  resize: vertical;
+}
+
+.hw-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hw-primary-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* 図形パレット全体（必要なら） */
+.shape-palette .shape-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 図形ボタン */
+.shape-item {
+  min-width: 80px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.05s ease;
+}
+
+.shape-item:hover {
+  background: #eef2ff;
+  box-shadow: 0 2px 4px rgba(148, 163, 184, 0.4);
+}
+
+.shape-item:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(148, 163, 184, 0.6);
+}
+
 /* ===== テキストスタイルパネルなどがあればここに追加 ===== */
