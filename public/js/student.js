@@ -1,4 +1,4 @@
-// public/js/student.js 
+// public/js/student.js
 import { initBoardUI } from "./board-ui.js";
 
 // 共通ホワイトボード UI 初期化
@@ -25,8 +25,7 @@ const joinBtn =
   document.getElementById("studentJoinBtn") ||
   document.getElementById("joinBtn");
 
-const statusLabel =
-  document.getElementById("studentStatus") || null;
+const statusLabel = document.getElementById("studentStatus") || null;
 
 const headerClassCode = document.getElementById("headerClassCode");
 const headerNickname = document.getElementById("headerNickname");
@@ -38,6 +37,11 @@ const modeWhiteboardBtn =
 const modeScreenBtn =
   document.getElementById("studentModeScreen") ||
   document.getElementById("shareScreenBtn");
+const modeNotebookBtn = document.getElementById("studentModeNotebook");
+
+// レイアウト要素
+const mainLayoutEl = document.querySelector(".main-layout");
+const notebookLayoutEl = document.getElementById("notebookLayout");
 
 // 左パネル（旧 UI のみ）
 const studentSidePanel = document.getElementById("studentSidePanel");
@@ -76,6 +80,11 @@ const CAPTURE_INTERVAL_MS = 5000;
 
 // キャプチャモード：'whiteboard' or 'screen'
 let captureMode = "whiteboard";
+// 画面表示モード：'whiteboard' | 'screen' | 'notebook'
+let viewMode = "whiteboard";
+let captureIntervalIdNotebook = null; // ノート提出用のキャプチャタイマー
+let currentStream = null; // ノート提出用カメラの MediaStream
+
 let screenStream = null;
 let screenVideo = null;
 
@@ -638,49 +647,83 @@ if (joinBtn && classCodeInput && nicknameInput) {
     currentClassCode = code;
     nickname = nick;
 
-    // 既存実装に合わせたイベント
+    // ホワイトボード側の参加
     socket.emit("join-student", { classCode: code, nickname: nick });
-    // 新しいイベント名も飛ばしておく（サーバー側で使うなら）
-    socket.emit("join-student", { classCode: code, nickname: nick });
+
+    // ノート提出側の参加（生徒IDはニックネームをそのまま利用）
+    joinedNotebookClassCode = currentClassCode;
+    notebookStudentId = nickname;
+    socket.emit("joinAsStudent", {
+      classCode: joinedNotebookClassCode,
+      studentId: notebookStudentId
+    });
 
     if (headerClassCode) headerClassCode.textContent = code;
     if (headerNickname) headerNickname.textContent = nick;
-    if (statusLabel) {
-      statusLabel.textContent = `${code} に参加しました`;
-    }
+    // ツールバーが2行にならないよう、statusLabel には表示しない
 
     restartCaptureLoop();
     sendWhiteboardThumbnail();
   });
 }
 
-// 新イベント名に対応するステータス更新（必要なら）
+// ノート提出用のクラス情報
+let joinedNotebookClassCode = null;
+let notebookStudentId = null;
+
+// 新イベント名に対応するステータス更新（生徒側のステータスはツールバーに表示しない）
 socket.on("join-student", payload => {
-  if (statusLabel && payload?.classCode) {
-    statusLabel.textContent = `${payload.classCode} に参加しました`;
-  }
+  console.log("join-student", payload);
 });
 
 /* ========================================
-   共有モード切り替え（ホワイトボード / 画面共有）
+   共有モード / 表示モード切り替え
    ======================================== */
 
-function updateCaptureButtons() {
-  if (!modeWhiteboardBtn || !modeScreenBtn) return;
-  const isWhiteboard = captureMode === "whiteboard";
-  modeWhiteboardBtn.classList.toggle("primary", isWhiteboard);
-  modeWhiteboardBtn.classList.toggle("active", isWhiteboard);
-  modeScreenBtn.classList.toggle("primary", !isWhiteboard);
-  modeScreenBtn.classList.toggle("active", !isWhiteboard);
+function updateModeUI() {
+  // ボタンの見た目
+  if (modeWhiteboardBtn) {
+    const active = viewMode === "whiteboard";
+    modeWhiteboardBtn.classList.toggle("primary", active);
+    modeWhiteboardBtn.classList.toggle("active", active);
+  }
+  if (modeScreenBtn) {
+    const active = viewMode === "screen";
+    modeScreenBtn.classList.toggle("primary", active);
+    modeScreenBtn.classList.toggle("active", active);
+  }
+  if (modeNotebookBtn) {
+    const active = viewMode === "notebook";
+    modeNotebookBtn.classList.toggle("primary", active);
+    modeNotebookBtn.classList.toggle("active", active);
+  }
 
-  // ★ チャット入力の有効/無効も反映
+  // レイアウト切り替え
+  if (mainLayoutEl && notebookLayoutEl) {
+    if (viewMode === "notebook") {
+      mainLayoutEl.style.display = "none";
+      notebookLayoutEl.style.display = "flex";
+    } else {
+      mainLayoutEl.style.display = "";
+      notebookLayoutEl.style.display = "none";
+      // ホワイトボードレイアウトに戻ったときはキャンバスサイズを調整
+      resizeCanvasToContainer();
+    }
+  }
+
+  // チャット入力の有効/無効（ホワイトボードモードのときのみ）
   if (chatInput && chatSendBtn) {
-    const disabled = !isWhiteboard;
+    const disabled = viewMode !== "whiteboard";
     chatInput.disabled = disabled;
     chatSendBtn.disabled = disabled;
     chatInput.placeholder = disabled
       ? "ホワイトボード共有中のみ送信できます"
       : "メッセージを入力";
+  }
+
+  // ノート提出モード以外ではカメラ停止（通信量を抑える）
+  if (viewMode !== "notebook") {
+    stopNotebookCamera();
   }
 }
 
@@ -725,7 +768,8 @@ async function startScreenCapture() {
       tracks[0].addEventListener("ended", () => {
         stopScreenCapture();
         captureMode = "whiteboard";
-        updateCaptureButtons();
+        viewMode = "whiteboard";
+        updateModeUI();
       });
     }
 
@@ -743,38 +787,63 @@ async function startScreenCapture() {
 
 if (modeWhiteboardBtn) {
   modeWhiteboardBtn.addEventListener("click", () => {
-    if (captureMode === "whiteboard") return;
-    stopScreenCapture();
-    captureMode = "whiteboard";
-    updateCaptureButtons();
+    if (viewMode === "whiteboard") return;
+    // 画面共有を停止
+    if (captureMode === "screen") {
+      stopScreenCapture();
+      captureMode = "whiteboard";
+    }
+    viewMode = "whiteboard";
+    updateModeUI();
     sendWhiteboardThumbnail();
   });
 }
 
 if (modeScreenBtn) {
   modeScreenBtn.addEventListener("click", async () => {
-    if (captureMode === "screen") return;
+    if (viewMode === "screen") return;
     if (!currentClassCode || !nickname) {
       alert("先にクラスに参加してください。");
+      viewMode = "whiteboard";
       captureMode = "whiteboard";
-      updateCaptureButtons();
+      updateModeUI();
       return;
     }
     const ok = await startScreenCapture();
     if (ok) {
       captureMode = "screen";
-      updateCaptureButtons();
+      viewMode = "screen";
+      updateModeUI();
       sendWhiteboardThumbnail();
     } else {
       captureMode = "whiteboard";
-      updateCaptureButtons();
+      viewMode = "whiteboard";
+      updateModeUI();
     }
   });
 }
 
-updateCaptureButtons();
+if (modeNotebookBtn) {
+  modeNotebookBtn.addEventListener("click", () => {
+    if (!currentClassCode || !nickname) {
+      alert("先にクラスに参加してください。");
+      return;
+    }
+    // ノート提出モードでは画面共有はオフ・ホワイトボード送信は通常通り
+    if (captureMode === "screen") {
+      stopScreenCapture();
+      captureMode = "whiteboard";
+    }
+    viewMode = "notebook";
+    updateModeUI();
+  });
+}
 
-// ========= チャット：共通関数（生徒） =========
+updateModeUI();
+
+/* ========================================
+   チャット：共通関数（生徒）
+   ======================================== */
 
 function setChatPanelOpen(open) {
   chatPanelOpen = open;
@@ -856,7 +925,7 @@ function studentSendChat() {
     return;
   }
   // 条件: ホワイトボード表示状態のときのみチャット可能
-  if (captureMode !== "whiteboard") {
+  if (viewMode !== "whiteboard") {
     alert("ホワイトボード共有モードのときのみチャットできます。");
     return;
   }
@@ -946,11 +1015,11 @@ function sendWhiteboardThumbnail() {
   }
 
   // ホワイトボードモード
-  const srcCanvas = studentCanvas;
-  if (!srcCanvas || !srcCanvas.width || !srcCanvas.height) return;
+  const srcCanvasThumb = studentCanvas;
+  if (!srcCanvasThumb || !srcCanvasThumb.width || !srcCanvasThumb.height) return;
 
   const thumbWidth = 320;
-  const ratio = srcCanvas.height / srcCanvas.width;
+  const ratio = srcCanvasThumb.height / srcCanvasThumb.width;
   const thumbHeight = Math.round(thumbWidth * ratio);
 
   const off = document.createElement("canvas");
@@ -963,11 +1032,11 @@ function sendWhiteboardThumbnail() {
   ctx.fillRect(0, 0, off.width, off.height);
 
   ctx.drawImage(
-    srcCanvas,
+    srcCanvasThumb,
     0,
     0,
-    srcCanvas.width,
-    srcCanvas.height,
+    srcCanvasThumb.width,
+    srcCanvasThumb.height,
     0,
     0,
     thumbWidth,
@@ -1036,11 +1105,11 @@ function sendHighres() {
     return;
   }
 
-  const srcCanvas = studentCanvas;
-  if (!srcCanvas || !srcCanvas.width || !srcCanvas.height) return;
+  const srcCanvasHigh = studentCanvas;
+  if (!srcCanvasHigh || !srcCanvasHigh.width || !srcCanvasHigh.height) return;
 
   const maxWidth = 1280;
-  const ratio = srcCanvas.height / srcCanvas.width;
+  const ratio = srcCanvasHigh.height / srcCanvasHigh.width;
   const targetWidth = maxWidth;
   const targetHeight = Math.round(targetWidth * ratio);
 
@@ -1054,11 +1123,11 @@ function sendHighres() {
   ctx.fillRect(0, 0, off.width, off.height);
 
   ctx.drawImage(
-    srcCanvas,
+    srcCanvasHigh,
     0,
     0,
-    srcCanvas.width,
-    srcCanvas.height,
+    srcCanvasHigh.width,
+    srcCanvasHigh.height,
     0,
     0,
     targetWidth,
@@ -1104,7 +1173,459 @@ socket.on("chat-message", payload => {
 });
 
 /* ========================================
-   キャプチャループ管理
+   ノート提出（カメラ / 台形補正）関連
+   ======================================== */
+
+// UI 要素
+const cameraSelect = document.getElementById("cameraSelect");
+const startCameraBtn = document.getElementById("startCameraBtn");
+const paperSizeSelect = document.getElementById("paperSizeSelect");
+const videoEl = document.getElementById("video");
+const previewCanvas = document.getElementById("previewCanvas");
+const previewCtx = previewCanvas ? previewCanvas.getContext("2d") : null;
+const feedbackImage = document.getElementById("feedbackImage");
+
+// ★ 拡大表示中のみ高画質送信モード（教員側からの指示で切り替え）
+let highQualityMode = false;
+
+// 用紙サイズ定義（mm） → 縦横比だけ使う
+const PAPER_SIZES = {
+  A4: { widthMm: 210, heightMm: 297 },
+  B5: { widthMm: 182, heightMm: 257 },
+  B4: { widthMm: 257, heightMm: 364 }
+};
+let currentPaperSize = "A4";
+
+// OpenCV 用
+let opencvReady = false;
+const srcCanvas = document.createElement("canvas"); // 元映像を読む隠しキャンバス
+const srcCtx = srcCanvas.getContext("2d");
+
+// 「四隅クリック」用の状態（キャンバス座標を 0〜1 に正規化して持つ）
+// クリックルール：画面上で「左上 → 右上 → 右下 → 左下」の順にクリック
+let selectedCorners = []; // [{nx, ny}, ...] nx,ny: 0〜1
+let cornersLocked = false; // 4点揃ったら true
+
+// OpenCVロード確認
+if (previewCanvas && previewCtx) {
+  const opencvCheckInterval = setInterval(() => {
+    if (typeof cv !== "undefined" && cv.Mat) {
+      opencvReady = true;
+      clearInterval(opencvCheckInterval);
+      console.log("OpenCV.js is ready");
+    }
+  }, 500);
+}
+
+// ★ 教員側からの「高画質ON/OFF」指示を受信
+socket.on("setHighQualityMode", ({ enabled }) => {
+  highQualityMode = !!enabled;
+  console.log("High quality mode:", highQualityMode);
+
+  // ★ 解像度を切り替え
+  setupPreviewCanvas();
+});
+
+// 用紙サイズ変更（縦横比だけ反映）
+if (paperSizeSelect) {
+  paperSizeSelect.addEventListener("change", () => {
+    currentPaperSize = paperSizeSelect.value;
+    setupPreviewCanvas();
+  });
+}
+
+// カメラ一覧取得
+async function listCameras() {
+  if (!cameraSelect) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === "videoinput");
+    cameraSelect.innerHTML = "";
+    videoDevices.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `カメラ${index + 1}`;
+      cameraSelect.appendChild(option);
+    });
+  } catch (e) {
+    console.error(e);
+    alert("カメラデバイスの取得に失敗しました");
+  }
+}
+
+// カメラ開始 / 再開始
+if (startCameraBtn) {
+  startCameraBtn.addEventListener("click", async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("このブラウザはカメラに対応していません");
+      return;
+    }
+
+    if (!joinedNotebookClassCode || !notebookStudentId) {
+      alert("クラスに参加してからカメラを開始してください。");
+      return;
+    }
+
+    // 既存ストリーム停止
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+
+    const deviceId = cameraSelect ? cameraSelect.value : undefined;
+
+    try {
+      const constraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          width:  { ideal: 1920 }, 
+          height: { ideal: 1080 }, 
+          facingMode: "environment"
+        },
+        audio: false
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      currentStream = stream;
+      if (videoEl) {
+        videoEl.srcObject = stream;
+
+        videoEl.onloadedmetadata = () => {
+          videoEl.play();
+          setupPreviewCanvas();
+        };
+      }
+
+      if (captureIntervalIdNotebook) clearInterval(captureIntervalIdNotebook);
+      captureIntervalIdNotebook = setInterval(captureAndSendImage, 3000);
+
+      // ここでもツールバーの statusLabel には何も表示しない
+    } catch (e) {
+      console.error(e);
+      alert("カメラの起動に失敗しました");
+    }
+  });
+}
+
+// レイアウト関連
+function getCurrentPaperAspect() {
+  const s = PAPER_SIZES[currentPaperSize] || PAPER_SIZES.A4;
+  return s.heightMm / s.widthMm;
+}
+
+function setupPreviewCanvas() {
+  if (!previewCanvas || !previewCtx) return;
+
+  // ★ 高画質モードのときだけ、内部解像度を 2倍にする
+  const baseWidth = highQualityMode ? 1280 : 640;
+
+  const aspect = getCurrentPaperAspect();
+  const targetWidth = baseWidth;
+  const targetHeight = Math.round(targetWidth * aspect);
+
+  previewCanvas.width = targetWidth;
+  previewCanvas.height = targetHeight;
+
+  // 角を変えたときは再描画
+  drawCorrectedFrameToPreview();
+}
+
+// ====== 四隅クリック関連 ======
+
+// キャンバス上のクリック位置を、object-fit: contain による余白も考慮して 0〜1 に正規化して保存
+if (previewCanvas) {
+  previewCanvas.addEventListener("click", (e) => {
+    const rect = previewCanvas.getBoundingClientRect();
+
+    const canvasW = previewCanvas.width;
+    const canvasH = previewCanvas.height;
+    if (!canvasW || !canvasH) return;
+
+    const boxW = rect.width;
+    const boxH = rect.height;
+
+    const canvasAspect = canvasH / canvasW;
+    const boxAspect = boxH / boxW;
+
+    let drawnW, drawnH, offsetX, offsetY;
+
+    // object-fit: contain により、縦か横どちらかが「余る」ケースを考慮
+    if (canvasAspect > boxAspect) {
+      // キャンバスの方が縦長 → 高さがピッタリ、左右に余白
+      drawnH = boxH;
+      drawnW = boxH / canvasAspect;
+      offsetX = (boxW - drawnW) / 2;
+      offsetY = 0;
+    } else {
+      // キャンバスの方が横長 or 同じ → 幅がピッタリ、上下に余白
+      drawnW = boxW;
+      drawnH = boxW * canvasAspect;
+      offsetX = 0;
+      offsetY = (boxH - drawnH) / 2;
+    }
+
+    // クリック位置（CSSピクセル）から、実際の描画領域内座標へ変換
+    const cssX = e.clientX - rect.left - offsetX;
+    const cssY = e.clientY - rect.top - offsetY;
+
+    // 0〜1 の正規化座標に変換
+    let nx = cssX / drawnW;
+    let ny = cssY / drawnH;
+
+    // 念のため 0〜1 の範囲にクリップ（描画領域外をクリックした場合も端に寄せる）
+    nx = Math.min(1, Math.max(0, nx));
+    ny = Math.min(1, Math.max(0, ny));
+
+    if (!cornersLocked) {
+      selectedCorners.push({ nx, ny });
+
+      if (selectedCorners.length === 1) {
+        console.log("1点目: 自分から見て『左上』をクリックしてください");
+      } else if (selectedCorners.length === 2) {
+        console.log("2点目: 『右上』をクリックしてください");
+      } else if (selectedCorners.length === 3) {
+        console.log("3点目: 『右下』をクリックしてください");
+      } else if (selectedCorners.length === 4) {
+        cornersLocked = true;
+        console.log(
+          "4点目: 『左下』をクリックしました。四隅が確定しました（左上→右上→右下→左下）。"
+        );
+      }
+    }
+
+    drawCorrectedFrameToPreview();
+  });
+
+  // ダブルクリックで四隅リセット
+  previewCanvas.addEventListener("dblclick", () => {
+    selectedCorners = [];
+    cornersLocked = false;
+    console.log("Corners reset");
+    drawCorrectedFrameToPreview();
+  });
+}
+
+/**
+ * クリック順をそのまま TL, TR, BR, BL として扱う
+ * ルール:
+ *   selectedCorners[0] … 画面上で「左上」
+ *   selectedCorners[1] … 「右上」
+ *   selectedCorners[2] … 「右下」
+ *   selectedCorners[3] … 「左下」
+ */
+function getOrderedCornersFromClicks() {
+  if (selectedCorners.length !== 4) return null;
+  const [p0, p1, p2, p3] = selectedCorners;
+  return [p0, p1, p2, p3]; // TL, TR, BR, BL
+}
+
+// キャンバス上に四隅のガイドを描画（生徒向けの目安）
+function drawCornerOverlay() {
+  // ★ 補正完了後（cornersLocked） はガイドを非表示にする
+  if (!previewCanvas || !previewCtx) return;
+  if (selectedCorners.length === 0 || cornersLocked) return;
+
+  const w = previewCanvas.width;
+  const h = previewCanvas.height;
+
+  previewCtx.save();
+  previewCtx.lineWidth = 2;
+  previewCtx.strokeStyle = "rgba(0, 255, 0, 0.8)";
+  previewCtx.fillStyle = "rgba(0, 255, 0, 0.8)";
+  previewCtx.font = "14px sans-serif";
+
+  // 点の描画 + 番号ラベル
+  selectedCorners.forEach((p, idx) => {
+    const x = p.nx * w;
+    const y = p.ny * h;
+    previewCtx.beginPath();
+    previewCtx.arc(x, y, 4, 0, Math.PI * 2);
+    previewCtx.fill();
+    previewCtx.fillText(String(idx + 1), x + 6, y - 6);
+  });
+
+  // 4点すべてあるときは輪郭も描く（1→2→3→4→1 の順）
+  if (selectedCorners.length === 4) {
+    const pts = selectedCorners.map(p => ({
+      x: p.nx * w,
+      y: p.ny * h
+    }));
+
+    previewCtx.beginPath();
+    previewCtx.moveTo(pts[0].x, pts[0].y); // TL
+    previewCtx.lineTo(pts[1].x, pts[1].y); // TR
+    previewCtx.lineTo(pts[2].x, pts[2].y); // BR
+    previewCtx.lineTo(pts[3].x, pts[3].y); // BL
+    previewCtx.closePath();
+    previewCtx.stroke();
+  }
+
+  previewCtx.restore();
+}
+
+// 台形補正メイン
+function drawCorrectedFrameToPreview() {
+  if (!videoEl || !previewCanvas || !previewCtx) return;
+
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  if (!vw || !vh) {
+    // カメラがまだ準備できていない場合は真っ白に
+    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    return;
+  }
+
+  const dw = previewCanvas.width;
+  const dh = previewCanvas.height;
+
+  // OpenCV が使えない場合は単純に縮小表示
+  if (!opencvReady || typeof cv === "undefined") {
+    previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+    drawCornerOverlay();
+    return;
+  }
+
+  // 元映像を隠しキャンバスに描画
+  srcCanvas.width = vw;
+  srcCanvas.height = vh;
+  srcCtx.drawImage(videoEl, 0, 0, vw, vh);
+
+  let src = cv.imread(srcCanvas);
+  let dst = new cv.Mat();
+
+  try {
+    if (selectedCorners.length === 4) {
+      // クリック順に基づき、四隅を TL,TR,BR,BL として使用
+      const orderedNorm = getOrderedCornersFromClicks();
+
+      if (orderedNorm) {
+        const [tlN, trN, brN, blN] = orderedNorm;
+
+        // 正規化座標 → 元映像のピクセル座標へ変換
+        const tl = { x: tlN.nx * vw, y: tlN.ny * vh };
+        const tr = { x: trN.nx * vw, y: trN.ny * vh };
+        const br = { x: brN.nx * vw, y: brN.ny * vh };
+        const bl = { x: blN.nx * vw, y: blN.ny * vh };
+
+        const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          tl.x, tl.y,
+          tr.x, tr.y,
+          br.x, br.y,
+          bl.x, bl.y
+        ]);
+        const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          0, 0,
+          dw, 0,
+          dw, dh,
+          0, dh
+        ]);
+
+        const M = cv.getPerspectiveTransform(srcTri, dstTri);
+        cv.warpPerspective(
+          src,
+          dst,
+          M,
+          new cv.Size(dw, dh),
+          cv.INTER_LINEAR,
+          cv.BORDER_CONSTANT,
+          new cv.Scalar()
+        );
+
+        cv.imshow(previewCanvas, dst);
+
+        srcTri.delete();
+        dstTri.delete();
+        M.delete();
+      } else {
+        // 念のためフォールバック
+        previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+      }
+    } else {
+      // 四隅が未設定 → そのまま縮小表示（四隅クリックのための状態）
+      previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+    }
+
+    // 四隅ガイドを上から描く（補正完了後は drawCornerOverlay 内で抑制）
+    drawCornerOverlay();
+  } catch (e) {
+    console.error(e);
+    previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+    drawCornerOverlay();
+  } finally {
+    src.delete();
+    dst.delete();
+  }
+}
+
+// 画像送信
+function captureAndSendImage() {
+  if (
+    !currentStream ||
+    !joinedNotebookClassCode ||
+    !notebookStudentId ||
+    !previewCanvas
+  ) {
+    return;
+  }
+  const width = videoEl ? videoEl.videoWidth : 0;
+  const height = videoEl ? videoEl.videoHeight : 0;
+  if (!width || !height) return;
+
+  // 台形補正 → previewCanvas に描画
+  drawCorrectedFrameToPreview();
+
+  // ★ 高画質モード中のみ PNG、それ以外は JPEG(0.5)
+  let dataUrl;
+  if (highQualityMode) {
+    dataUrl = previewCanvas.toDataURL("image/png");
+  } else {
+    dataUrl = previewCanvas.toDataURL("image/jpeg", 0.5);
+  }
+
+  socket.emit("studentImageUpdate", {
+    classCode: joinedNotebookClassCode,
+    studentId: notebookStudentId,
+    imageData: dataUrl
+  });
+}
+
+// 教員からのフィードバック画像受信
+socket.on("teacherSharedImage", ({ imageData }) => {
+  if (feedbackImage) {
+    feedbackImage.src = imageData;
+  }
+});
+
+// ノート提出用カメラ停止
+function stopNotebookCamera() {
+  if (captureIntervalIdNotebook) {
+    clearInterval(captureIntervalIdNotebook);
+    captureIntervalIdNotebook = null;
+  }
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+}
+
+// ページ読み込み時
+window.addEventListener("load", async () => {
+  // カメラ列挙
+  if (
+    navigator.mediaDevices &&
+    navigator.mediaDevices.enumerateDevices &&
+    cameraSelect
+  ) {
+    try {
+      await listCameras();
+    } catch {
+      // 無視
+    }
+  }
+  setupPreviewCanvas();
+});
+
+/* ========================================
+   キャプチャループ管理（ホワイトボード / 画面共有）
    ======================================== */
 
 function restartCaptureLoop() {
@@ -1122,4 +1643,5 @@ window.addEventListener("beforeunload", () => {
     clearInterval(captureTimerId);
   }
   stopScreenCapture();
+  stopNotebookCamera();
 });

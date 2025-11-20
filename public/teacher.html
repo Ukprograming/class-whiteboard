@@ -1,14 +1,13 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>教員用ホワイトボード</title>
+  <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <link href="/style.css" rel="stylesheet" />
-  <!-- pdf.js（CDN例／既に別の読み込み方法があればそちらでOK） -->
+  <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    // pdf.js グローバル設定
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
@@ -24,6 +23,9 @@
       </button>
       <button id="teacherModeStudentView" class="tab-button">
         生徒画面確認
+      </button>
+      <button id="teacherModeNotebook" class="tab-button">
+        ノート確認
       </button>
     </div>
 
@@ -57,7 +59,7 @@
 
   <!-- メインレイアウト -->
   <div class="main-layout">
-    <!-- 共通：左サイドのホワイトボードツール -->
+    <!-- 左サイドバー：ホワイトボード用ツール -->
     <aside class="wb-sidebar" id="wbSidebar">
       <!-- サイドバーを折りたたむボタン -->
       <button id="sidebarToggle" class="sidebar-toggle" title="ツールパネルを折りたたむ">
@@ -138,7 +140,7 @@
         <div class="tool-row" style="margin-top:6px;">
           <select id="penWidthSelect">
             <option value="2">細</option>
-            <option value="3" selected>普通</option>
+            <option value="3" selected>普通</symbol>
             <option value="5">太</option>
             <option value="8">極太</option>
           </select>
@@ -162,7 +164,6 @@
         </p>
       </section>
 
-            <!-- 付箋カラーセクションのすぐ下あたりに挿入 -->
       <section class="wb-section">
         <h3>
           <span class="section-icon">📐</span>
@@ -195,10 +196,7 @@
           塗りつぶし
         </div>
         <div class="color-row">
-          <!-- 「なし」 -->
           <button class="color-swatch" data-shape-fill-color="transparent" style="--swatch-color:#ffffff;" title="塗りつぶしなし"></button>
-
-          <!-- 付箋と似た柔らかい色をいくつか -->
           <button class="color-swatch" data-shape-fill-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
           <button class="color-swatch" data-shape-fill-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
           <button class="color-swatch" data-shape-fill-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
@@ -250,7 +248,6 @@
             <span class="icon">➖</span><span class="tool-label">縮小</span>
           </button>
         </div>
-        <!-- 前面 / 後面移動ボタン -->
         <div class="tool-row">
           <button id="bringToFrontBtn" class="tool-button" title="前面へ移動">
             <span class="icon">⬆️</span><span class="tool-label">前面へ</span>
@@ -262,36 +259,85 @@
       </section>
     </aside>
 
-    <!-- 右側：ホワイトボードキャンバス & 生徒画面確認 -->
+    <!-- 右側：各ビュー -->
     <main class="wb-main">
       <!-- ホワイトボード -->
       <div id="boardContainer" class="board-container">
         <canvas id="whiteboard"></canvas>
       </div>
 
-      <!-- 生徒画面確認（タブ切り替えで表示） -->
+      <!-- 生徒画面確認 -->
       <div id="studentViewContainer" class="student-view hidden">
         <h2>生徒画面確認</h2>
-
-        <!-- 接続中の生徒人数 -->
         <p id="studentsInfo" class="students-info">
           接続中の生徒: 0人
         </p>
-
-        <!-- 生徒ごとのサムネイルタイル -->
         <div id="tileGrid" class="tile-grid">
-          <!-- JS (teacher.js) が .tile 要素をここに追加します -->
+          <!-- teacher.js が .tile を追加 -->
+        </div>
+      </div>
+
+      <!-- ノート確認ビュー -->
+      <div id="notebookViewContainer" class="notebook-view hidden">
+        <h2>ノート確認</h2>
+        <p id="notebookInfo" class="students-info">
+          ノート提出中の生徒: 0人
+        </p>
+        <div id="notebookStudentGrid" class="student-grid">
+          <!-- teacher.js がノート用タイルを追加 -->
         </div>
       </div>
     </main>
   </div>
 
-  <!-- 生徒画面の拡大表示用モーダル -->
+  <!-- 生徒画面の拡大表示用モーダル（従来の画面共有） -->
   <div id="modalBackdrop" class="modal-backdrop">
     <div class="modal">
       <button id="modalCloseBtn" class="modal-close">×</button>
       <h2 id="modalTitle" class="modal-title"></h2>
       <img id="modalImage" class="modal-image" alt="生徒画面の拡大表示" />
+    </div>
+  </div>
+
+  <!-- ノート個別フィードバック用モーダル（ノート確認アプリ統合版） -->
+  <div id="feedbackModalBackdrop" class="modal-backdrop" style="display: none;">
+    <div class="modal modal-notebook">
+      <div class="modal-header">
+        <div>
+          <span id="modalStudentLabel">生徒：</span>
+        </div>
+        <div class="modal-header-controls">
+          <label>
+            ペン色：
+            <input
+              id="penColorInput"
+              class="small-input"
+              type="color"
+              value="#ff0000"
+            />
+          </label>
+          <label>
+            ペン太さ：
+            <input
+              id="penWidthInput"
+              class="small-input"
+              type="number"
+              value="3"
+              min="1"
+              max="20"
+            />px
+          </label>
+          <button id="eraserToggleBtn" class="share-off">消しゴムOFF</button>
+          <button id="clearAnnotationBtn" class="share-off">
+            手書きクリア
+          </button>
+          <button id="shareToggleBtn" class="share-off">共有開始</button>
+          <button id="feedbackModalCloseBtn" class="close-btn">閉じる</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <canvas id="feedbackCanvas"></canvas>
+      </div>
     </div>
   </div>
 
@@ -301,7 +347,7 @@
   <!-- モジュール -->
   <script type="module" src="/js/teacher.js"></script>
 
-  <!-- ▼ 教員用・共通チャットUI（右側パネル） -->
+  <!-- チャットパネル -->
   <button id="chatToggleBtn" class="chat-toggle-btn" title="チャットを開く">
     💬
     <span id="chatNotifyDot" class="chat-notify-dot"></span>
@@ -334,7 +380,7 @@
     </footer>
   </aside>
 
-  <!-- ▼ スタンプ候補パレット（キャンバス上に重ねて表示） -->
+  <!-- スタンプ候補パレット -->
   <div id="stampPalette" class="stamp-palette stamp-palette-hidden">
     <div class="stamp-palette-inner">
       <div class="stamp-palette-header">
@@ -342,19 +388,18 @@
         <button id="stampPaletteCloseBtn" class="stamp-palette-close">×</button>
       </div>
       <div class="stamp-palette-grid">
-        <!-- 中身は JS（board-ui.js）が wb.stampPresets から作り直します -->
+        <!-- board-ui.js が wb.stampPresets から作成 -->
       </div>
     </div>
   </div>
 
-  <!-- ▼ 図形パレット（図形ツール用） -->
+  <!-- 図形パレット -->
   <div id="shapePalette" class="stamp-palette stamp-palette-hidden shape-palette">
     <div class="stamp-palette-inner shape-palette-inner">
       <div class="stamp-palette-header">
         <span>図形を選択</span>
         <button id="shapePaletteCloseBtn" class="stamp-palette-close">×</button>
       </div>
-      <!-- 中身（.shape-items）は board-ui.js 側で動的に生成 -->
       <div class="shape-items"></div>
     </div>
   </div>

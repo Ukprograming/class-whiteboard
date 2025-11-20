@@ -5,13 +5,23 @@
   <title>生徒用ホワイトボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <link href="/style.css" rel="stylesheet" />
+
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
+
+  <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- OpenCV.js（ノート提出モード用） -->
+  <script
+    async
+    src="https://docs.opencv.org/4.x/opencv.js"
+    type="text/javascript"
+  ></script>
 </head>
 <body class="app-root">
 
@@ -37,6 +47,9 @@
       <button id="studentModeScreen" class="tab-button">
         全画面共有
       </button>
+      <button id="studentModeNotebook" class="tab-button">
+        ノート提出
+      </button>
 
       <!-- ▼ ホワイトボード保存 / 読み込み（生徒自身のノート用） -->
       <button id="studentSaveBoardBtn" class="topbar-btn">
@@ -53,6 +66,7 @@
     </div>
   </header>
 
+  <!-- ▼ ホワイトボード / 画面共有 用のレイアウト -->
   <div class="main-layout">
     <!-- 共通：左サイドのホワイトボードツール -->
     <aside class="wb-sidebar" id="wbSidebar">
@@ -273,6 +287,51 @@
 
       <!-- 生徒側の画面共有は別で getDisplayMedia を使う（student.js 側で制御） -->
     </main>
+  </div>
+
+  <!-- ▼ ノート提出モード用レイアウト（A案：全画面に近いレイアウト） -->
+  <div id="notebookLayout" class="student-notebook-layout" style="display: none;">
+    <div class="student-notebook-inner">
+      <div class="student-notebook-toolbar">
+        <div class="student-notebook-toolbar-left">
+          <span class="section-title">ノート提出（カメラ撮影）</span>
+        </div>
+        <div class="student-notebook-toolbar-right">
+          <label>
+            カメラ：
+            <select id="cameraSelect" class="small-input"></select>
+          </label>
+          <label>
+            用紙サイズ：
+            <select id="paperSizeSelect" class="small-input">
+              <option value="A4">A4（210×297）</option>
+              <option value="B5">B5（182×257）</option>
+              <option value="B4">B4（257×364）</option>
+            </select>
+          </label>
+          <button id="startCameraBtn" class="topbar-btn">カメラ開始</button>
+        </div>
+      </div>
+
+      <main class="student-notebook-content">
+        <section class="video-section">
+          <div class="section-title">撮影中の映像（机上のノート）</div>
+          <video id="video" autoplay playsinline></video>
+        </section>
+
+        <section class="preview-section">
+          <div class="section-title">
+            台形補正後（送信イメージ：自動追尾＋用紙比率）
+          </div>
+          <canvas id="previewCanvas"></canvas>
+        </section>
+
+        <section class="feedback-section">
+          <div class="section-title">教員からのフィードバック</div>
+          <img id="feedbackImage" alt="フィードバック画像" />
+        </section>
+      </main>
+    </div>
   </div>
 
   <!-- socket.io -->

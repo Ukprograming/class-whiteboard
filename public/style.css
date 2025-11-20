@@ -86,7 +86,6 @@ body {
   background: #dbeafe;
 }
 
-
 .status-label {
   font-size: 0.85rem;
   color: #0f766e;
@@ -175,8 +174,6 @@ button:disabled {
   overflow-y: auto;
   overflow-x: hidden;
 }
-
-
 
 .wb-sidebar.collapsed {
   flex-basis: 52px;
@@ -414,7 +411,6 @@ button:disabled {
   border-top: 1px solid #e5e7eb;
 }
 
-
 /* ===== モーダル ===== */
 .modal-backdrop {
   position: fixed;
@@ -430,17 +426,21 @@ button:disabled {
   display: flex;
 }
 
+/* ★ ここを修正：モーダルを画面いっぱいに広げる */
 .modal {
   background: #ffffff;
-  border-radius: 18px;
+  border-radius: 0;                 /* 画面いっぱいなので角丸をなくす */
   padding: 12px 12px 16px;
-  max-width: 90vw;
-  max-height: 90vh;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.6);
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-sizing: border-box;
 }
 
 .modal-title {
@@ -449,12 +449,14 @@ button:disabled {
   color: #0f172a;
 }
 
+/* ★ ここを修正：画像が枠内に収まるように */
 .modal-image {
   max-width: 100%;
-  max-height: 72vh;
+  max-height: calc(100vh - 100px);  /* タイトルやボタン分を差し引き */
   object-fit: contain;
   border-radius: 10px;
   background: #0f172a;
+  margin: 0 auto;
 }
 
 .modal-close {
@@ -536,7 +538,6 @@ body.teacher-student-view .wb-main {
   border-color: #3b82f6;
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }
-
 
 .board-dialog-overlay {
   position: fixed;
@@ -1156,3 +1157,145 @@ body.teacher-student-view .wb-main {
 }
 
 /* ===== テキストスタイルパネルなどがあればここに追加 ===== */
+
+/* =========================================
+   生徒側ノート提出レイアウト（画面に自動フィット）
+   ========================================= */
+
+.student-notebook-layout {
+  width: 100%;
+  /* 上のトップバー分を引いた高さ（必要なら 64px を微調整してください） */
+  height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;          /* ここで画面外にはみ出さないようにする */
+}
+
+.student-notebook-inner {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;             /* flex 子要素がきちんと縮むように */
+}
+
+.student-notebook-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.student-notebook-toolbar-left .section-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.student-notebook-toolbar-right label {
+  margin-right: 6px;
+  font-size: 0.85rem;
+}
+
+/* ▼ ここが 3 つのエリア本体（左上カメラ / 左下補正後 / 右全体フィードバック） */
+.student-notebook-content {
+  flex: 1 1 auto;
+  min-height: 0;                     /* オーバーフロー防止に重要 */
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  /* 左列の上段:下段 を 3:7 にする */
+  grid-template-rows: 3fr 7fr;
+  gap: 8px;
+  padding: 4px 0;
+  box-sizing: border-box;
+}
+
+/* 左上：カメラ映像 */
+.student-notebook-content .video-section {
+  grid-column: 1 / 2;
+  grid-row:    1 / 2;
+}
+
+/* 左下：補正後プレビュー */
+.student-notebook-content .preview-section {
+  grid-column: 1 / 2;
+  grid-row:    2 / 3;
+}
+
+/* 右側全体：教員からのフィードバック */
+.student-notebook-content .feedback-section {
+  grid-column: 2 / 3;
+  grid-row:    1 / 3;
+}
+
+.student-notebook-content .video-section,
+.student-notebook-content .preview-section,
+.student-notebook-content .feedback-section {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.student-notebook-content .section-title {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+/* 実際の映像・画像部分を、残りの高さにぴったり収める */
+.student-notebook-content .video-section video,
+.student-notebook-content .preview-section canvas,
+.student-notebook-content .feedback-section img {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  object-fit: contain;        /* 枠内に収めつつ全体が見える */
+  border-radius: 6px;
+}
+
+.student-notebook-content .video-section video,
+.student-notebook-content .preview-section canvas {
+  background: #000;
+}
+
+.student-notebook-content .feedback-section img {
+  background: #fff;
+}
+
+/* 画面が狭いときは縦並びに切り替え */
+@media (max-width: 900px) {
+  .student-notebook-layout {
+    height: auto;
+  }
+
+  .student-notebook-inner {
+    height: auto;
+  }
+
+  .student-notebook-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+
+  .student-notebook-content .video-section {
+    grid-column: 1 / 2;
+    grid-row:    1 / 2;
+  }
+
+  .student-notebook-content .preview-section {
+    grid-column: 1 / 2;
+    grid-row:    2 / 3;
+  }
+
+  .student-notebook-content .feedback-section {
+    grid-column: 1 / 2;
+    grid-row:    3 / 4;
+  }
+
+  .student-notebook-content .video-section video,
+  .student-notebook-content .preview-section canvas,
+  .student-notebook-content .feedback-section img {
+    height: 260px;
+  }
+}
