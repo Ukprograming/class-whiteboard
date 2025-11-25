@@ -5,7 +5,7 @@
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
-const IMAGE_EXPORT_QUALITY  = 0.95;   // JPEG 品質（0〜1）
+const IMAGE_EXPORT_QUALITY = 0.95;   // JPEG 品質（0〜1）
 
 export class Whiteboard {
   constructor({ canvas }) {
@@ -49,7 +49,7 @@ export class Whiteboard {
     this.tool = "pen";
     this.penColor = "#000000";
     this.penWidth = 3;
-    this.highlighterColor = "rgba(255,255,0,0.35)";
+    this.highlighterColor = "rgba(250, 204, 21, 0.8)";
     this.highlighterWidth = 30;
     this.eraserWidth = 24;
 
@@ -98,8 +98,9 @@ export class Whiteboard {
     this.textEditor = this._createTextEditor();
     this.editingObj = null; // 編集中の text オブジェクト
 
-    // 外側から UI を更新するためのコールバック
+    // ★ 外部連携用コールバック
     this.onSelectionChange = null;
+    this.onToolChange = null; // (tool) => {}
 
     // ★ スタンプ関連
     this.currentStampType = null; // 例: "star-yellow"
@@ -125,16 +126,198 @@ export class Whiteboard {
     };
 
     this._attachEvents();
+    this._attachEvents();
+
+    // ★ 保留中のオブジェクト（教員からの書き込みプレビュー用）
+    this.pendingData = null; // { strokes: [], objects: [] }
+
+    // ★ 外部連携用コールバック
+    this.onAction = null; // (action) => {}
+
     this.render();
   }
 
   // ====== 公開 API ======
 
+  setTeacherMode(enabled) {
+    this.isTeacherMode = !!enabled;
+  }
+
+  // ★ 外部からのアクション適用（共同編集用）
+  applyAction(action) {
+    if (!action) return;
+
+    if (action.type === "stroke") {
+      // ストローク追加
+      if (action.stroke) {
+        // 既存チェック（重複防止）
+        // ※ IDがないので厳密には難しいが、pointsで簡易チェックするか、
+        //    今回は「相手からのアクションは全て受け入れる」とする
+        this.strokes.push(action.stroke);
+        this.render();
+      }
+    } else if (action.type === "object") {
+      // オブジェクト追加
+      if (action.object) {
+        // IDが衝突しないように調整（相手のIDを優先するか、振り直すか）
+        // ここでは「相手のIDを正」として受け入れるが、既存と被るなら上書き
+        const existingIndex = this.objects.findIndex(o => o.id === action.object.id);
+        if (existingIndex >= 0) {
+          this.objects[existingIndex] = action.object;
+        } else {
+          this.objects.push(action.object);
+        }
+        this.render();
+      }
+    } else if (action.type === "modify") {
+      // オブジェクト変更
+      if (action.object) {
+        const idx = this.objects.findIndex(o => o.id === action.object.id);
+        if (idx >= 0) {
+          this.objects[idx] = action.object;
+          this.render();
+        }
+      }
+    } else if (action.type === "delete") {
+      // オブジェクト削除
+      if (action.objectId) {
+        this.objects = this.objects.filter(o => o.id !== action.objectId);
+        this.render();
+      }
+    }
+  }
+
+  getSnapshot() {
+    return this.exportBoardData();
+  }
+
+  // ★ 画像としてエクスポート (png/jpeg)
+  async exportAsImage(format = "png") {
+    // 1. 全体を描画する一時キャンバスを作成
+    // 背景(bgCanvas) + ストローク(strokeCanvas) + オブジェクト(objects) を合成
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = this.canvas.width;
+    tempCanvas.height = this.canvas.height;
+    const ctx = tempCanvas.getContext("2d");
+
+    // 背景色（白）
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // 背景画像
+    if (this.bgCanvas.width > 0) {
+      // ズーム/パンを考慮して描画するか、そのまま描画するか
+      // ここでは「現在の見た目」ではなく「ボード全体」を出力したい場合が多いが、
+      // 簡易的に「現在のキャンバスサイズで切り抜かれた見た目」を出力する実装にする
+      // もし「無限キャンバス全体」を出力したい場合は、全オブジェクトのBoundingBoxを計算して
+      // キャンバスサイズを拡張する必要がある。今回は「現在の表示領域（または固定サイズ）」とする。
+
+      // ★ 要望: "FigJam" 風なら、コンテンツがある範囲だけをエクスポートするのが一般的だが、
+      // 実装コスト削減のため、一旦「現在のキャンバス表示内容」を画像化する。
+      // ただし、this.render() と同じロジックで描画する必要がある。
+    }
+
+    // 既存の render ロジックを再利用して、一時キャンバスに描画させるのが確実
+    // しかし render() は this.ctx (画面) に描画してしまう。
+    // そこで、renderToContext(ctx) というメソッドに分離するのがベストだが、
+    // ここでは簡易的に toDataURL を使う（背景が透明になる可能性があるため、白背景を敷いた上で合成）
+
+    // 方法:
+    // 1. 白背景を fill
+    // 2. bgCanvas を draw
+    // 3. objects を draw
+    // 4. strokeCanvas を draw
+
+    // 背景
+    if (this.bgCanvas.width > 0) {
+      // bgCanvas は原寸で保持されている。
+      // 画面上の表示は scale/offset がかかっている。
+      // exportAsImage が「スクリーンショット」ならそのまま。
+      // 「ボード全体」なら transform をリセットして描画する必要がある。
+      // ここでは「スクリーンショット（現在の見た目）」とする。
+
+      // 複雑になるため、単純に this.canvas.toDataURL() を使う。
+      // ただし、背景色が透明だと困るので、一時キャンバスに白を塗ってから合成する。
+    }
+
+    // 一旦、現在のキャンバスの内容をそのまま画像化する
+    // (背景が透明な場合、PNGなら透過、JPEGなら黒になる可能性があるため白背景合成)
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // 背景画像を描画 (render内で描画されているはずだが、this.canvas は最終結果を持っている)
+    ctx.drawImage(this.canvas, 0, 0);
+
+    return tempCanvas.toDataURL(`image/${format}`, IMAGE_EXPORT_QUALITY);
+  }
+
+  setPendingObjects(data) {
+    if (!data) {
+      this.pendingData = null;
+    } else {
+      // 受信データを復元（画像ロードなど含む）
+      this.pendingData = this._hydrateBoardData(data);
+    }
+    this.render();
+  }
+
+  mergePendingObjects() {
+    if (!this.pendingData) return;
+
+    // IDの衝突を避けるため、IDを振り直してマージ
+    // （ただし、教員側で消しゴムを使うにはIDが一致している方が都合が良い場合もあるが、
+    //   今回は「反映」＝「自分のボードに取り込む」なので、新規IDでコピーする形にする）
+    //   ※ 教員消しゴム機能は「TeacherAnnotation」フラグで判定するのでIDが変わってもOK
+
+    const { strokes, objects } = this.pendingData;
+
+    // ストロークのマージ
+    strokes.forEach(st => {
+      const newStroke = {
+        ...st,
+        points: st.points.map(p => ({ ...p })), // Deep copy points
+        isTeacherAnnotation: true // 明示的にフラグを立てる（元々立っているはずだが）
+      };
+      this.strokes.push(newStroke);
+    });
+
+    // オブジェクトのマージ
+    const idMap = {}; // 旧ID -> 新ID
+    objects.forEach(o => {
+      const newId = this.nextObjectId++;
+      idMap[o.id] = newId;
+
+      const newObj = {
+        ...o,
+        id: newId,
+        isTeacherAnnotation: true
+      };
+
+      // グループIDの更新（必要なら）
+      // 今回は簡易的に、グループIDはそのまま（衝突リスクはあるが）または新規生成
+      // ここでは単純にコピーする
+
+      this.objects.push(newObj);
+    });
+
+    this.pendingData = null;
+    this.render();
+  }
+
   setTool(tool) {
+    if (this.tool === tool) return; // 変更なしなら何もしない
     this.tool = tool;
     // テキスト編集中でツール変更されたら確定して閉じる
     if (this.editingObj) {
       this._commitTextEditor();
+    }
+    // 蛍光ペンツールに切り替えたら黄色を設定
+    if (tool === "highlighter" && !this.highlighterColor) {
+      this.setHighlighterColor("#facc15"); // Material Yellow 400
+    }
+    if (this.onToolChange) {
+      this.onToolChange(tool);
     }
   }
 
@@ -148,12 +331,12 @@ export class Whiteboard {
       const hex =
         color.length === 4
           ? "#" +
-            color[1] +
-            color[1] +
-            color[2] +
-            color[2] +
-            color[3] +
-            color[3]
+          color[1] +
+          color[1] +
+          color[2] +
+          color[2] +
+          color[3] +
+          color[3]
           : color;
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
@@ -183,7 +366,7 @@ export class Whiteboard {
 
     targets.forEach(o => {
       if (!o) return;
-      if (["line","arrow","double-arrow","triangle","rect","ellipse","tri-prism","rect-prism","cylinder","sticky"].includes(o.kind)) {
+      if (["line", "arrow", "double-arrow", "triangle", "rect", "ellipse", "tri-prism", "rect-prism", "cylinder", "sticky"].includes(o.kind)) {
         o.stroke = color;
       }
     });
@@ -199,10 +382,27 @@ export class Whiteboard {
 
     targets.forEach(o => {
       if (!o) return;
-      if (["line","arrow","double-arrow","triangle","rect","ellipse","tri-prism","rect-prism","cylinder","sticky"].includes(o.kind)) {
+      if (["line", "arrow", "double-arrow", "triangle", "rect", "ellipse", "tri-prism", "rect-prism", "cylinder", "sticky"].includes(o.kind)) {
         o.strokeWidth = width;
       }
     });
+    this.render();
+  }
+
+  // ★ 選択状態を設定（内部用）
+  _setSelected(obj) {
+    this.selectedObj = obj;
+    this.multiSelectedObjects = obj ? [obj] : [];
+    this.multiSelectedStrokes = [];
+    this.selectedStroke = null;
+    this._fireSelectionChange();
+  }
+
+  // ★ 選択変更イベントを発火
+  _fireSelectionChange() {
+    if (this.onSelectionChange && typeof this.onSelectionChange === "function") {
+      this.onSelectionChange();
+    }
     this.render();
   }
 
@@ -278,6 +478,29 @@ export class Whiteboard {
         reject(err);
       };
       img.src = url;
+    });
+  }
+
+  // ★ 背景画像を更新（パン・ズーム状態を維持するか選択可）
+  async setBackgroundImage(dataUrl, maintainTransform = true) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        this.bgCanvas.width = img.width;
+        this.bgCanvas.height = img.height;
+        this.bgCtx.clearRect(0, 0, img.width, img.height);
+        this.bgCtx.drawImage(img, 0, 0);
+
+        if (!maintainTransform) {
+          this.scale = 1;
+          this.offsetX = (this.canvas.width - img.width) / 2;
+          this.offsetY = (this.canvas.height - img.height) / 2;
+        }
+        this.render();
+        resolve();
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
     });
   }
 
@@ -701,7 +924,7 @@ export class Whiteboard {
 
     targets.forEach(o => {
       if (!o) return;
-      if (["sticky","rect","ellipse","triangle","tri-prism","rect-prism","cylinder"].includes(o.kind)) {
+      if (["sticky", "rect", "ellipse", "triangle", "tri-prism", "rect-prism", "cylinder"].includes(o.kind)) {
         o.fill = color;
         if (o.kind === "sticky") {
           o.stroke = color;
@@ -753,7 +976,8 @@ export class Whiteboard {
       width: st.width || this.penWidth,
       points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
       groupId: st.groupId || null,
-      locked: !!st.locked
+      locked: !!st.locked,
+      isTeacherAnnotation: !!st.isTeacherAnnotation
     }));
 
     const objects = this.objects.map(o => {
@@ -765,7 +989,8 @@ export class Whiteboard {
         width: o.width,
         height: o.height,
         groupId: o.groupId || null,
-        locked: !!o.locked
+        locked: !!o.locked,
+        isTeacherAnnotation: !!o.isTeacherAnnotation
       };
 
       if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
@@ -857,16 +1082,45 @@ export class Whiteboard {
     this.offsetY = data.offsetY != null ? data.offsetY : 0;
     this.nextObjectId = data.nextObjectId != null ? data.nextObjectId : 1;
 
-    this.strokes = (data.strokes || []).map(st => ({
+    const hydrated = this._hydrateBoardData(data);
+    this.strokes = hydrated.strokes;
+    this.objects = hydrated.objects;
+
+    // 背景復元
+    if (data.background && data.background.dataUrl) {
+      const bgImg = new Image();
+      bgImg.onload = () => {
+        this.bgCanvas.width = data.background.width || bgImg.width;
+        this.bgCanvas.height = data.background.height || bgImg.height;
+        this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
+        this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
+        this.render();
+      };
+      bgImg.src = data.background.dataUrl;
+    } else {
+      // 背景なし
+      this.bgCanvas.width = 0;
+      this.bgCanvas.height = 0;
+    }
+
+    this.history = [];
+    this._setSelected(null);
+    this.render();
+  }
+
+  // データ復元ヘルパー
+  _hydrateBoardData(data) {
+    const strokes = (data.strokes || []).map(st => ({
       type: st.type || "pen",
       color: st.color || this.penColor,
       width: st.width || this.penWidth,
       points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
       groupId: st.groupId || null,
-      locked: !!st.locked
+      locked: !!st.locked,
+      isTeacherAnnotation: !!st.isTeacherAnnotation
     }));
 
-    this.objects = (data.objects || []).map(o => {
+    const objects = (data.objects || []).map(o => {
       const obj = {
         id: o.id,
         kind: o.kind,
@@ -875,7 +1129,8 @@ export class Whiteboard {
         width: o.width,
         height: o.height,
         groupId: o.groupId || null,
-        locked: !!o.locked
+        locked: !!o.locked,
+        isTeacherAnnotation: !!o.isTeacherAnnotation
       };
 
       if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
@@ -932,26 +1187,7 @@ export class Whiteboard {
       return obj;
     });
 
-    // 背景復元
-    if (data.background && data.background.dataUrl) {
-      const bgImg = new Image();
-      bgImg.onload = () => {
-        this.bgCanvas.width = data.background.width || bgImg.width;
-        this.bgCanvas.height = data.background.height || bgImg.height;
-        this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
-        this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
-        this.render();
-      };
-      bgImg.src = data.background.dataUrl;
-    } else {
-      // 背景なし
-      this.bgCanvas.width = 0;
-      this.bgCanvas.height = 0;
-    }
-
-    this.history = [];
-    this._setSelected(null);
-    this.render();
+    return { strokes, objects };
   }
 
   // ====== 内部ユーティリティ ======
@@ -981,89 +1217,91 @@ export class Whiteboard {
   }
 
   _addStroke(stroke) {
+    if (this.isTeacherMode) {
+      stroke.isTeacherAnnotation = true;
+    }
     this.strokes.push(stroke);
     this.history.push({ kind: "stroke", stroke });
   }
 
   _addObject(obj) {
+    if (this.isTeacherMode) {
+      obj.isTeacherAnnotation = true;
+    }
     this.objects.push(obj);
     this.history.push({ kind: "object", id: obj.id });
     this._setSelected(obj);
   }
 
-  _setSelected(obj) {
-    this.selectedObj = obj || null;
-    this.multiSelectedObjects = obj ? [obj] : [];
-    this.selectedStroke = null;
-    this.multiSelectedStrokes = [];
-    this._fireSelectionChange();
+  _deleteStroke(stroke) {
+    const idx = this.strokes.indexOf(stroke);
+    if (idx !== -1) {
+      this.strokes.splice(idx, 1);
+      this.history.push({ kind: "delete-stroke", stroke, index: idx });
+    }
+    const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
+    const size = preset.baseSize || 80;
+    const half = size / 2;
+
+    const id = this.nextObjectId++;
+    const obj = {
+      id,
+      kind: "stamp",
+      stampKey: key,
+      x: wx - half,
+      y: wy - half,
+      width: size,
+      height: size,
+      locked: false
+    };
+
+    this._addObject(obj);
+    this.render();
   }
 
-  _setSelectedStroke(stroke, additive = false) {
-    if (additive) {
-      if (!stroke) return;
-      if (!this.multiSelectedStrokes.includes(stroke)) {
-        this.multiSelectedStrokes.push(stroke);
+  _hitTestObject(wx, wy) {
+    for (let i = this.objects.length - 1; i >= 0; i--) {
+      const o = this.objects[i];
+      const { x, y, width, height } = this._normalizeRect(o);
+      if (wx >= x && wx <= x + width && wy >= y && wy <= y + height) {
+        return o;
       }
-      this.selectedStroke = this.multiSelectedStrokes[0] || null;
-    } else {
-      this.selectedObj = null;
-      this.multiSelectedObjects = [];
-      this.multiSelectedStrokes = stroke ? [stroke] : [];
-      this.selectedStroke = stroke || null;
     }
-    this._fireSelectionChange();
+    return null;
   }
 
-  _fireSelectionChange() {
-    if (!this.onSelectionChange) return;
+  _hitTestStroke(wx, wy) {
+    const threshold = 6 / this.scale;
+    const th2 = threshold * threshold;
 
-    // 何も選択されていない
-    if (!this.selectedObj) {
-      this.onSelectionChange(null);
-      return;
+    for (let i = this.strokes.length - 1; i >= 0; i--) {
+      const stroke = this.strokes[i];
+      const pts = stroke.points;
+      if (!pts || pts.length === 0) continue;
+
+      for (let j = 0; j < pts.length; j++) {
+        const dx = pts[j].x - wx;
+        const dy = pts[j].y - wy;
+        if (dx * dx + dy * dy <= th2) {
+          return stroke;
+        }
+      }
     }
+    return null;
+  }
 
-    const o = this.selectedObj;
-
-    // --- テキスト／リンク ---
-    if (o.kind === "text" || o.kind === "link") {
-      this.onSelectionChange({
-        kind: "text",
-        fontSize: o.fontSize || 16,
-        fontFamily: o.fontFamily || "system-ui",
-        bold: !!o.bold
-      });
-      return;
+  _hitTestResizeHandle(sx, sy) {
+    for (const h of this.handleRects) {
+      if (
+        sx >= h.x &&
+        sx <= h.x + h.size &&
+        sy >= h.y &&
+        sy <= h.y + h.size
+      ) {
+        return h.name;
+      }
     }
-
-    // --- 図形・付箋・線・スタンプなど ---
-    const shapeKinds = [
-      "rect",
-      "ellipse",
-      "triangle",
-      "tri-prism",
-      "rect-prism",
-      "cylinder",
-      "line",
-      "arrow",
-      "double-arrow",
-      "sticky",
-      "stamp"
-    ];
-
-    if (shapeKinds.includes(o.kind)) {
-      this.onSelectionChange({
-        kind: o.kind,
-        stroke: o.stroke || "#111827",
-        fill: o.fill !== undefined ? o.fill : "transparent",
-        strokeWidth: o.strokeWidth != null ? o.strokeWidth : 2
-      });
-      return;
-    }
-
-    // その他（特に何も渡さない）
-    this.onSelectionChange({ kind: o.kind });
+    return null;
   }
 
   _createTextEditor() {
@@ -1093,7 +1331,8 @@ export class Whiteboard {
         e.preventDefault();
         this._cancelTextEditor();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      // Shift+Enter で改行、Enterのみで確定
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         this._commitTextEditor();
       }
@@ -1139,6 +1378,10 @@ export class Whiteboard {
   _commitTextEditor() {
     if (!this.editingObj) return;
     this.editingObj.text = this.textEditor.value;
+    // ★ テキスト変更通知
+    if (this.onAction) {
+      this.onAction({ type: "modify", object: this.editingObj });
+    }
     this.editingObj = null;
     this.textEditor.style.display = "none";
     this.render();
@@ -1179,10 +1422,14 @@ export class Whiteboard {
       fontFamily: "system-ui",
       bold: false,
       fill: kind === "sticky" ? "#FEF3C7" : "transparent",
-      stroke: kind === "sticky" ? "#FBBF24" : "transparent",
+      stroke: kind === "sticky" ? "#FBBF24" : this.penColor,
       strokeWidth: 2
     };
     this._addObject(obj);
+    // ★ テキストオブジェクト作成通知
+    if (this.onAction) {
+      this.onAction({ type: "object", object: obj });
+    }
     this.render();
     this._openTextEditorForObject(obj);
   }
@@ -1199,7 +1446,7 @@ export class Whiteboard {
       height: 0,
       stroke: this.penColor,
       strokeWidth: this.penWidth || 2,
-      fill: ["rect","ellipse","triangle","tri-prism","rect-prism","cylinder"].includes(kind)
+      fill: ["rect", "ellipse", "triangle", "tri-prism", "rect-prism", "cylinder"].includes(kind)
         ? "transparent"
         : "transparent"
     };
@@ -1266,6 +1513,11 @@ export class Whiteboard {
         h => !(h.kind === "object" && h.id === this.shapeDraft.id)
       );
       this._setSelected(null);
+    } else {
+      // ★ 図形確定通知
+      if (this.onAction) {
+        this.onAction({ type: "object", object: this.shapeDraft });
+      }
     }
     this.isDrawingShape = false;
     this.shapeDraft = null;
@@ -1292,6 +1544,10 @@ export class Whiteboard {
     };
 
     this._addObject(obj);
+    // ★ スタンプ作成通知
+    if (this.onAction) {
+      this.onAction({ type: "object", object: obj });
+    }
     this.render();
   }
 
@@ -1321,20 +1577,6 @@ export class Whiteboard {
         if (dx * dx + dy * dy <= th2) {
           return stroke;
         }
-      }
-    }
-    return null;
-  }
-
-  _hitTestResizeHandle(sx, sy) {
-    for (const h of this.handleRects) {
-      if (
-        sx >= h.x &&
-        sx <= h.x + h.size &&
-        sy >= h.y &&
-        sy <= h.y + h.size
-      ) {
-        return h.name;
       }
     }
     return null;
@@ -1407,6 +1649,13 @@ export class Whiteboard {
 
       // 手書きツール
       if (this.tool === "pen" || this.tool === "highlighter" || this.tool === "eraser") {
+        // ★ 教員用消しゴム（オブジェクト消去モード）
+        if (this.tool === "eraser" && this.isTeacherMode) {
+          this.isErasingTeacher = true;
+          // ストローク描画はしない
+          return;
+        }
+
         this.isDrawingStroke = true;
         let color = this.penColor;
         let width = this.penWidth;
@@ -1422,7 +1671,8 @@ export class Whiteboard {
           type,
           color,
           width,
-          points: [{ x: wx, y: wy }]
+          points: [{ x: wx, y: wy }],
+          isTeacherAnnotation: !!this.isTeacherMode // ★ 教員モードならフラグを付ける
         };
         this._addStroke(this.currentStroke);
         this.render();
@@ -1652,9 +1902,40 @@ export class Whiteboard {
         return;
       }
 
+      // ★ 教員用消しゴム（ドラッグ中）
+      if (this.isErasingTeacher) {
+        e.preventDefault();
+        const { wx, wy } = getPos(e);
+
+        // ストロークのヒットテスト＆削除
+        const hitStroke = this._hitTestStroke(wx, wy);
+        if (hitStroke && hitStroke.isTeacherAnnotation) {
+          this._deleteStroke(hitStroke);
+          this.render();
+        }
+
+        // オブジェクトのヒットテスト＆削除
+        const hitObj = this._hitTestObject(wx, wy);
+        if (hitObj && hitObj.isTeacherAnnotation) {
+          this._deleteObject(hitObj);
+          this.render();
+        }
+        return;
+      }
+
       if (this.isDrawingStroke && this.currentStroke) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
+
+        // ★ ストロークの滑らかさ向上：距離が一定以上の場合のみ点を追加
+        const points = this.currentStroke.points;
+        if (points.length > 0) {
+          const lastPt = points[points.length - 1];
+          const dist = Math.hypot(wx - lastPt.x, wy - lastPt.y);
+          // 距離が小さすぎる場合はスキップ（滑らかな曲線になる）
+          if (dist < 2) return;
+        }
+
         this.currentStroke.points.push({ x: wx, y: wy });
         this.render();
         return;
@@ -1849,6 +2130,10 @@ export class Whiteboard {
 
       this.isPanning = false;
       this.isDrawingStroke = false;
+      // ★ ストローク完了通知
+      if (this.currentStroke && this.onAction) {
+        this.onAction({ type: "stroke", stroke: this.currentStroke });
+      }
       this.currentStroke = null;
 
       if (this.isDrawingShape) {
@@ -1856,10 +2141,18 @@ export class Whiteboard {
       }
 
       if (this.isDraggingObj || this.isResizingObj) {
+        // ★ 変更通知
+        if (this.onAction && this.selectedObj) {
+          this.onAction({ type: "modify", object: this.selectedObj });
+        }
         this.isDraggingObj = false;
         this.isResizingObj = false;
         this.resizeHandle = null;
         this.dragStart = null;
+      }
+
+      if (this.isErasingTeacher) {
+        this.isErasingTeacher = false;
       }
 
       if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
@@ -1967,9 +2260,6 @@ export class Whiteboard {
   }
 
   _wrapTextLines(text, maxWidth, fontSize, fontFamily, bold) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.font = `${bold ? "bold" : "normal"} ${fontSize}px ${fontFamily}`;
     const lines = [];
     let current = "";
     for (const ch of text) {
@@ -2032,36 +2322,8 @@ export class Whiteboard {
       this.offsetY * dpr
     );
 
-    for (const stroke of this.strokes) {
-      const pts = stroke.points;
-      if (!pts || pts.length === 0) continue;
-
-      if (stroke.type === "eraser") {
-        sctx.globalCompositeOperation = "destination-out";
-        sctx.strokeStyle = "#000000";
-        sctx.lineWidth = stroke.width;
-        sctx.globalAlpha = 1;
-      } else if (stroke.type === "highlighter") {
-        sctx.globalCompositeOperation = "source-over";
-        sctx.strokeStyle = stroke.color;
-        sctx.lineWidth = stroke.width;
-        sctx.globalAlpha = 0.35;
-      } else {
-        sctx.globalCompositeOperation = "source-over";
-        sctx.strokeStyle = stroke.color;
-        sctx.lineWidth = stroke.width;
-        sctx.globalAlpha = 1;
-      }
-
-      sctx.lineCap = "round";
-      sctx.lineJoin = "round";
-      sctx.beginPath();
-      sctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) {
-        sctx.lineTo(pts[i].x, pts[i].y);
-      }
-      sctx.stroke();
-    }
+    // Draw existing strokes
+    this._renderStrokes(sctx, this.strokes);
 
     sctx.globalAlpha = 1;
     sctx.globalCompositeOperation = "source-over";
@@ -2109,7 +2371,84 @@ export class Whiteboard {
     }
 
     this.handleRects = [];
-    for (const obj of this.objects) {
+
+    // Draw objects
+    this._renderObjects(ctx, this.objects);
+
+    // ★ Pending Data (Teacher Annotations Preview)
+    if (this.pendingData) {
+      ctx.save();
+      ctx.globalAlpha = 0.5; // 半透明で表示
+      // ストロークもメインキャンバスに描画（プレビュー用）
+      this._renderStrokes(ctx, this.pendingData.strokes);
+      this._renderObjects(ctx, this.pendingData.objects);
+      ctx.restore();
+    }
+
+    // ★ Overlays (Box Selection, Highlights)
+    this._renderOverlays(ctx);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(this.strokeCanvas, 0, 0);
+  }
+
+  _renderStrokes(ctx, strokes) {
+    if (!strokes) return;
+    for (const stroke of strokes) {
+      const pts = stroke.points;
+      if (!pts || pts.length === 0) continue;
+
+      if (stroke.type === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = stroke.width;
+        ctx.globalAlpha = 1;
+      } else if (stroke.type === "highlighter") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.globalAlpha = 0.35;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+
+      if (pts.length < 3) {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
+      } else {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        let i;
+        for (i = 1; i < pts.length - 2; i++) {
+          const xc = (pts[i].x + pts[i + 1].x) / 2;
+          const yc = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+        // 残りの点を描画
+        ctx.quadraticCurveTo(
+          pts[i].x,
+          pts[i].y,
+          pts[i + 1].x,
+          pts[i + 1].y
+        );
+      }
+      ctx.stroke();
+    }
+  }
+
+  _renderObjects(ctx, objects) {
+    if (!objects) return;
+    for (const obj of objects) {
       const { x, y, width, height } = this._normalizeRect(obj);
       const isSelected =
         this.multiSelectedObjects &&
@@ -2142,348 +2481,289 @@ export class Whiteboard {
         ctx.lineTo(x2, y2);
         ctx.stroke();
 
-        const drawArrowHead = (px, py, angle) => {
-          const headLen = 12 / this.scale;
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(
-            px - headLen * Math.cos(angle - Math.PI / 6),
-            py - headLen * Math.sin(angle - Math.PI / 6)
-          );
-          ctx.moveTo(px, py);
-          ctx.lineTo(
-            px - headLen * Math.cos(angle + Math.PI / 6),
-            py - headLen * Math.sin(angle + Math.PI / 6)
-          );
-          ctx.stroke();
-        };
-
-        const angle = Math.atan2(y2 - y1, x2 - x1);
-
+        // 矢印の先端描画
         if (kind === "arrow" || kind === "double-arrow") {
-          drawArrowHead(x2, y2, angle);
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const headLen = 10 / this.scale;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(
+            x2 - headLen * Math.cos(angle - Math.PI / 6),
+            y2 - headLen * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            x2 - headLen * Math.cos(angle + Math.PI / 6),
+            y2 - headLen * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.lineTo(x2, y2);
+          ctx.fillStyle = strokeColor;
+          ctx.fill();
         }
         if (kind === "double-arrow") {
-          drawArrowHead(x1, y1, angle + Math.PI);
+          const angle = Math.atan2(y1 - y2, x1 - x2);
+          const headLen = 10 / this.scale;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(
+            x1 - headLen * Math.cos(angle - Math.PI / 6),
+            y1 - headLen * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            x1 - headLen * Math.cos(angle + Math.PI / 6),
+            y1 - headLen * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.lineTo(x1, y1);
+          ctx.fillStyle = strokeColor;
+          ctx.fill();
         }
-
         ctx.restore();
       }
 
-      // 四角形 / 付箋
-      else if (kind === "rect" || kind === "sticky") {
-        if (fillColor !== "transparent") {
-          ctx.fillStyle = fillColor;
-          ctx.fillRect(x, y, width, height);
-        }
+      // 四角形
+      else if (kind === "rect") {
+        ctx.save();
+        ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
-        ctx.strokeRect(
-          x + 0.5 / this.scale,
-          y + 0.5 / this.scale,
-          width,
-          height
-        );
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeRect(x, y, width, height);
+        ctx.restore();
       }
 
-      // 円（楕円）
-      else if (kind === "ellipse") {
-        const cx = x + width / 2;
-        const cy = y + height / 2;
-        const rx = width / 2;
-        const ry = height / 2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
-        if (fillColor !== "透明" && fillColor !== "transparent") {
-          ctx.fillStyle = fillColor;
-          ctx.fill();
-        }
+      // 円 (楕円)
+      else if (kind === "circle") {
+        ctx.save();
+        ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
+        ctx.beginPath();
+        ctx.ellipse(
+          x + width / 2,
+          y + height / 2,
+          Math.abs(width) / 2,
+          Math.abs(height) / 2,
+          0,
+          0,
+          2 * Math.PI
+        );
+        ctx.fill();
         ctx.stroke();
+        ctx.restore();
       }
 
       // 三角形
       else if (kind === "triangle") {
-        const pts = obj.points && obj.points.length === 3
-          ? obj.points
-          : [
-              { x, y: y + height },
-              { x: x + width, y: y + height },
-              { x: x + width / 2, y }
-            ];
-
         ctx.save();
-        if (fillColor && fillColor !== "transparent") {
-          ctx.fillStyle = fillColor;
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          ctx.lineTo(pts[1].x, pts[1].y);
-          ctx.lineTo(pts[2].x, pts[2].y);
-          ctx.closePath();
-          ctx.fill();
-        }
-
+        ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        ctx.lineTo(pts[1].x, pts[1].y);
-        ctx.lineTo(pts[2].x, pts[2].y);
+        ctx.moveTo(x + width / 2, y);
+        ctx.lineTo(x, y + height);
+        ctx.lineTo(x + width, y + height);
         ctx.closePath();
+        ctx.fill();
         ctx.stroke();
         ctx.restore();
       }
 
-      // 三角柱 / 直方体 / 円柱（簡易 3D 表現）
-      else if (kind === "tri-prism" || kind === "rect-prism" || kind === "cylinder") {
-        const depth = obj.depth || Math.max(Math.abs(width), Math.abs(height)) * 0.2;
-        const dx = depth * 0.5;
-        const dy = -depth * 0.5;
-
+      // 星形 (5点)
+      else if (kind === "star") {
         ctx.save();
-        ctx.lineWidth = strokeWidth / this.scale;
+        ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
+        const outerRadius = Math.min(Math.abs(width), Math.abs(height)) / 2;
+        const innerRadius = outerRadius / 2.5;
+        const spikes = 5;
+        let rot = (Math.PI / 2) * 3;
+        let step = Math.PI / spikes;
 
-        if (kind === "rect-prism") {
-          // 前面の四角形
-          if (fillColor && fillColor !== "transparent") {
-            ctx.fillStyle = fillColor;
-            ctx.fillRect(x, y, width, height);
-          }
-          ctx.strokeRect(x, y, width, height);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - outerRadius);
+        for (let i = 0; i < spikes; i++) {
+          let tx = cx + Math.cos(rot) * outerRadius;
+          let ty = cy + Math.sin(rot) * outerRadius;
+          ctx.lineTo(tx, ty);
+          rot += step;
 
-          // 奥の四角形
-          ctx.strokeRect(x + dx, y + dy, width, height);
-
-          // 辺を結ぶ
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + dx, y + dy);
-          ctx.moveTo(x + width, y);
-          ctx.lineTo(x + width + dx, y + dy);
-          ctx.moveTo(x, y + height);
-          ctx.lineTo(x + dx, y + dy + height);
-          ctx.moveTo(x + width, y + height);
-          ctx.lineTo(x + width + dx, y + dy + height);
-          ctx.stroke();
-        } else if (kind === "tri-prism") {
-          const pts = [
-            { x: x + width / 2, y },
-            { x, y: y + height },
-            { x: x + width, y: y + height }
-          ];
-          const backPts = pts.map(p => ({ x: p.x + dx, y: p.y + dy }));
-
-          if (fillColor && fillColor !== "transparent") {
-            ctx.fillStyle = fillColor;
-            ctx.beginPath();
-            ctx.moveTo(pts[0].x, pts[0].y);
-            ctx.lineTo(pts[1].x, pts[1].y);
-            ctx.lineTo(pts[2].x, pts[2].y);
-            ctx.closePath();
-            ctx.fill();
-          }
-
-          // 前面
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          ctx.lineTo(pts[1].x, pts[1].y);
-          ctx.lineTo(pts[2].x, pts[2].y);
-          ctx.closePath();
-          ctx.stroke();
-
-          // 奥
-          ctx.beginPath();
-          ctx.moveTo(backPts[0].x, backPts[0].y);
-          ctx.lineTo(backPts[1].x, backPts[1].y);
-          ctx.lineTo(backPts[2].x, backPts[2].y);
-          ctx.closePath();
-          ctx.stroke();
-
-          // 辺を結ぶ
-          for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.moveTo(pts[i].x, pts[i].y);
-            ctx.lineTo(backPts[i].x, backPts[i].y);
-            ctx.stroke();
-          }
-        } else if (kind === "cylinder") {
-          const rx = width / 2;
-          const ry = Math.abs(height) * 0.2;
-          const cx = x + rx;
-          const topY = y;
-          const bottomY = y + height;
-
-          // 塗り
-          if (fillColor && fillColor !== "transparent") {
-            ctx.fillStyle = fillColor;
-            ctx.fillRect(x, topY, width, height);
-          }
-
-          // 側面
-          ctx.beginPath();
-          ctx.moveTo(x, topY);
-          ctx.lineTo(x, bottomY);
-          ctx.moveTo(x + width, topY);
-          ctx.lineTo(x + width, bottomY);
-          ctx.stroke();
-
-          // 上の楕円
-          ctx.beginPath();
-          ctx.ellipse(cx, topY, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
-          ctx.stroke();
-
-          // 下の楕円
-          ctx.beginPath();
-          ctx.ellipse(cx, bottomY, Math.abs(rx), Math.abs(ry), 0, 0, Math.PI * 2);
-          ctx.stroke();
+          tx = cx + Math.cos(rot) * innerRadius;
+          ty = cy + Math.sin(rot) * innerRadius;
+          ctx.lineTo(tx, ty);
+          rot += step;
         }
-
+        ctx.lineTo(cx, cy - outerRadius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
         ctx.restore();
       }
 
-      // ★ スタンプ描画
-      if (kind === "stamp") {
-        this._drawStamp(obj, x, y, width, height);
+      // ★ スタンプ
+      else if (kind === "stamp") {
+        const key = obj.stampKey || "star-yellow";
+        const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
+        const emoji = preset ? (preset.emoji || "★") : "★";
+        ctx.save();
+        ctx.font = `${width}px serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(emoji, x + width / 2, y + height / 2);
+        ctx.restore();
       }
 
-      // テキスト / 付箋 / リンク
-      if (kind === "text" || kind === "sticky" || kind === "link") {
+      // ★ テキスト / 付箋 / リンク
+      else if (kind === "text" || kind === "sticky" || kind === "link") {
+        ctx.save();
+
+        // 付箋の背景
+        if (kind === "sticky") {
+          ctx.fillStyle = fillColor; // 背景色
+          ctx.strokeStyle = strokeColor; // 枠色
+          ctx.lineWidth = 1 / this.scale;
+          // 影
+          ctx.shadowColor = "rgba(0,0,0,0.15)";
+          ctx.shadowBlur = 6;
+          ctx.shadowOffsetY = 3;
+          ctx.fillRect(x, y, width, height);
+          ctx.shadowColor = "transparent";
+          ctx.strokeRect(x, y, width, height);
+        }
+
+        // テキスト描画
         const fontSize = obj.fontSize || 16;
         const fontFamily = obj.fontFamily || "system-ui";
-        const bold = obj.bold ? "bold" : "normal";
-        const padding = 6 / this.scale;
-        const availableWidth = width - padding * 2;
-
-        const text = obj.text || "";
-        const lines = this._wrapTextLines(
-          text,
-          availableWidth,
-          fontSize,
-          fontFamily,
-          bold
-        );
-
-        ctx.fillStyle = kind === "link" ? "#2563eb" : "#111827";
-        ctx.font = `${bold} ${fontSize / this.scale}px ${fontFamily}`;
+        const bold = obj.bold ? "bold " : "";
+        ctx.font = `${bold}${fontSize / this.scale}px ${fontFamily}`;
+        ctx.textAlign = "left";
         ctx.textBaseline = "top";
+        ctx.fillStyle = kind === "sticky" ? "#111827" : (obj.stroke !== "transparent" ? obj.stroke : "#111827");
 
+        // リンクの場合は青色＆下線
+        if (kind === "link") {
+          ctx.fillStyle = "#2563eb";
+        }
+
+        const padding = 8 / this.scale;
+        const lineHeight = 1.4;
+        const lines = (obj.text || "").split("\n");
         let ty = y + padding;
-        const lineHeight = (fontSize * 1.4) / this.scale;
-        for (const line of lines) {
-          const tx = x + padding;
-          ctx.fillText(line, tx, ty);
 
-          if (kind === "link") {
-            const textWidth = ctx.measureText(line).width;
-            ctx.beginPath();
-            ctx.moveTo(tx, ty + lineHeight - 4 / this.scale);
-            ctx.lineTo(tx + textWidth, ty + lineHeight - 4 / this.scale);
-            ctx.lineWidth = 1.5 / this.scale;
-            ctx.strokeStyle = "#2563eb";
-            ctx.stroke();
-          }
-
-          ty += lineHeight;
-        }
-      }
-
-      // ロック中のマーク
-      if (obj.locked) {
-        ctx.save();
-        ctx.strokeStyle = "rgba(148,163,184,0.9)";
-        ctx.lineWidth = 1 / this.scale;
-        ctx.setLineDash([4 / this.scale, 3 / this.scale]);
+        // クリップ
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + width, y + height);
-        ctx.stroke();
+        ctx.rect(x, y, width, height);
+        ctx.clip();
+
+        for (const line of lines) {
+          ctx.fillText(line, x + padding, ty);
+          ty += (fontSize / this.scale) * lineHeight;
+        }
+
+        // リンクの下線
+        if (kind === "link") {
+          const tw = ctx.measureText(obj.text || "").width;
+          ctx.beginPath();
+          ctx.strokeStyle = "#2563eb";
+          ctx.lineWidth = 1 / this.scale;
+          ctx.moveTo(x + padding, ty - (fontSize / this.scale) * 0.2);
+          ctx.lineTo(x + padding + tw, ty - (fontSize / this.scale) * 0.2);
+          ctx.stroke();
+        }
+
         ctx.restore();
       }
 
-      const isSingleSelected =
-        isSelected && this.multiSelectedObjects.length === 1;
+      // 選択枠の描画
+      if (this.tool === "select") {
+        if (this.selectedObject === obj) {
+          // リサイズハンドル
+          if (this.isResizing && this.resizeHandle) {
+            // ドラッグ中はシンプルに枠だけ
+            ctx.save();
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = 1.5 / this.scale;
+            ctx.strokeRect(x, y, width, height);
 
-      if (isSingleSelected) {
-        // ★ 三角形は頂点にハンドルを出す
-        if (kind === "triangle" && obj.points && obj.points.length === 3) {
-          ctx.save();
-          ctx.strokeStyle = "#3b82f6";
-          ctx.lineWidth = 1.5 / this.scale;
-          ctx.setLineDash([6 / this.scale, 3 / this.scale]);
-          ctx.strokeRect(x, y, width, height);
-          ctx.setLineDash([]);
+            const handleSize = 10 / this.scale;
+            const corners = [
+              { name: "nw", cx: x, y: y },
+              { name: "ne", cx: x + width, y: y },
+              { name: "se", cx: x + width, y: y + height },
+              { name: "sw", cx: x, y: y + height }
+            ];
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 1 / this.scale;
 
-          const handleSize = 10 / this.scale;
-          ctx.fillStyle = "#ffffff";
-          ctx.strokeStyle = "#2563eb";
-          ctx.lineWidth = 1 / this.scale;
+            obj.points.forEach((pt, idx) => {
+              const hx = pt.x - handleSize / 2;
+              const hy = pt.y - handleSize / 2;
+              ctx.fillRect(hx, hy, handleSize, handleSize);
+              ctx.strokeRect(hx, hy, handleSize, handleSize);
 
-          obj.points.forEach((pt, idx) => {
-            const hx = pt.x - handleSize / 2;
-            const hy = pt.y - handleSize / 2;
-            ctx.fillRect(hx, hy, handleSize, handleSize);
-            ctx.strokeRect(hx, hy, handleSize, handleSize);
-
-            const s1 = this._worldToScreen(hx, hy);
-            const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
-            this.handleRects.push({
-              name: "p" + idx,
-              x: s1.x,
-              y: s1.y,
-              size: s2.x - s1.x
+              const s1 = this._worldToScreen(hx, hy);
+              const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
+              this.handleRects.push({
+                name: "p" + idx,
+                x: s1.x,
+                y: s1.y,
+                size: s2.x - s1.x
+              });
             });
-          });
 
-          ctx.restore();
-        } else {
-          // 通常オブジェクトの選択枠 + 4 隅ハンドル
-          ctx.save();
-          ctx.strokeStyle = "#3b82f6";
-          ctx.lineWidth = 1.5 / this.scale;
-          ctx.setLineDash([6 / this.scale, 3 / this.scale]);
-          ctx.strokeRect(x, y, width, height);
-          ctx.setLineDash([]);
+            ctx.restore();
+          } else {
+            // 通常オブジェクトの選択枠 + 4 隅ハンドル
+            ctx.save();
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = 1.5 / this.scale;
+            ctx.setLineDash([6 / this.scale, 3 / this.scale]);
+            ctx.strokeRect(x, y, width, height);
+            ctx.setLineDash([]);
 
-          const handleSize = 10 / this.scale;
-          const corners = [
-            { name: "nw", cx: x, y: y },
-            { name: "ne", cx: x + width, y: y },
-            { name: "se", cx: x + width, y: y + height },
-            { name: "sw", cx: x, y: y + height }
-          ];
-          ctx.fillStyle = "#ffffff";
-          ctx.strokeStyle = "#2563eb";
-          ctx.lineWidth = 1 / this.scale;
-          for (const c of corners) {
-            const hx = c.cx - handleSize / 2;
-            const hy = c.y - handleSize / 2;
-            ctx.fillRect(hx, hy, handleSize, handleSize);
-            ctx.strokeRect(hx, hy, handleSize, handleSize);
+            const handleSize = 10 / this.scale;
+            const corners = [
+              { name: "nw", cx: x, y: y },
+              { name: "ne", cx: x + width, y: y },
+              { name: "se", cx: x + width, y: y + height },
+              { name: "sw", cx: x, y: y + height }
+            ];
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 1 / this.scale;
+            for (const c of corners) {
+              const hx = c.cx - handleSize / 2;
+              const hy = c.y - handleSize / 2;
+              ctx.fillRect(hx, hy, handleSize, handleSize);
+              ctx.strokeRect(hx, hy, handleSize, handleSize);
 
-            const s1 = this._worldToScreen(hx, hy);
-            const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
-            this.handleRects.push({
-              name: c.name,
-              x: s1.x,
-              y: s1.y,
-              size: s2.x - s1.x
-            });
+              const s1 = this._worldToScreen(hx, hy);
+              const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
+              this.handleRects.push({
+                name: c.name,
+                x: s1.x,
+                y: s1.y,
+                size: s2.x - s1.x
+              });
+            }
+            ctx.restore();
           }
+        } else if (isSelected) {
+          ctx.save();
+          ctx.strokeStyle = "#3b82f6";
+          ctx.lineWidth = 1.2 / this.scale;
+          ctx.setLineDash([4 / this.scale, 2 / this.scale]);
+          ctx.strokeRect(x, y, width, height);
+          ctx.setLineDash([]);
           ctx.restore();
         }
-      } else if (isSelected) {
-        ctx.save();
-        ctx.strokeStyle = "#3b82f6";
-        ctx.lineWidth = 1.2 / this.scale;
-        ctx.setLineDash([4 / this.scale, 2 / this.scale]);
-        ctx.strokeRect(x, y, width, height);
-        ctx.setLineDash([]);
-        ctx.restore();
       }
     }
+  }
 
+  _renderOverlays(ctx) {
     // ボックス選択の描画
     if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
       const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);
@@ -2533,10 +2813,5 @@ export class Whiteboard {
       ctx.setLineDash([]);
       ctx.restore();
     }
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(this.strokeCanvas, 0, 0);
   }
 }

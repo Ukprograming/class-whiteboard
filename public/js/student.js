@@ -15,15 +15,10 @@ const studentLoadBoardBtn = document.getElementById("studentLoadBoardBtn");
 const socket = io();
 
 // ==== DOM 要素（新 ID 優先、なければ旧 ID を使う） ====
-const classCodeInput =
-  document.getElementById("studentClassCodeInput") ||
-  document.getElementById("classCodeInput");
-const nicknameInput =
-  document.getElementById("studentNicknameInput") ||
-  document.getElementById("nicknameInput");
-const joinBtn =
-  document.getElementById("studentJoinBtn") ||
-  document.getElementById("joinBtn");
+// ==== DOM 要素（新 ID 優先、なければ旧 ID を使う） ====
+// const classCodeInput = ... // 削除
+// const nicknameInput = ... // 削除
+// const joinBtn = ... // 削除
 
 const statusLabel = document.getElementById("studentStatus") || null;
 
@@ -48,8 +43,8 @@ const studentSidePanel = document.getElementById("studentSidePanel");
 const studentSideToggle = document.getElementById("studentSideToggle");
 const studentPanelOpen = document.getElementById("studentPanelOpen");
 
-// PNG 保存ボタン
-const savePngBtn = document.getElementById("savePngBtn");
+// PNG 保存ボタン (board-ui.js で exportPngBtn として処理されるため、ここは削除またはコメントアウト)
+// const savePngBtn = document.getElementById("savePngBtn");
 
 // ========= チャット UI 要素（生徒） =========
 const chatToggleBtn = document.getElementById("chatToggleBtn");
@@ -59,6 +54,14 @@ const chatCloseBtn = document.getElementById("chatCloseBtn");
 const chatMessagesEl = document.getElementById("chatMessages");
 const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
+
+// ★ 教員からの書き込み受け入れバー
+const annotationAcceptBar = document.getElementById("annotationAcceptBar");
+const acceptAnnotationBtn = document.getElementById("acceptAnnotationBtn");
+const discardAnnotationBtn = document.getElementById("discardAnnotationBtn");
+
+let monitorIntervalId = null;
+let pendingAnnotationData = null;
 
 // チャット状態
 let chatPanelOpen = false;
@@ -115,22 +118,195 @@ function resizeCanvasToContainer() {
   whiteboard.render();
 }
 
-if (studentSideToggle && studentSidePanel) {
-  studentSideToggle.addEventListener("click", () => {
-    studentSidePanel.classList.toggle("collapsed");
-    setTimeout(() => {
-      resizeCanvasToContainer();
-    }, 260);
+// (Duplicate declaration removed)
+
+/* ========================================
+   生徒用 ホワイトボード保存 / 読み込み
+   Explorer 風ダイアログ
+   ======================================== */
+
+// ... (API ヘルパーなどは変更なし) ...
+
+// ... (モーダル生成などは変更なし) ...
+
+/* ========================================
+   PNG 保存
+   ======================================== */
+
+// board-ui.js で exportPngBtn として実装済みのため削除
+// if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
+//   savePngBtn.addEventListener("click", () => {
+//     const dataUrl = whiteboard.exportPngDataUrl();
+//     const a = document.createElement("a");
+//     a.href = dataUrl;
+//     a.download = `whiteboard-${new Date()
+//       .toISOString()
+//       .replace(/[:.]/g, "-")}.png`;
+//     a.click();
+//   });
+// }
+
+/* ========================================
+   クラス参加
+   ======================================== */
+
+// ========= クラス参加フォーム =========
+const studentLoginForm = document.getElementById("studentLoginForm");
+const studentLoginOverlay = document.getElementById("studentLoginOverlay");
+const loginClassCodeInput = document.getElementById("loginClassCode");
+const loginNicknameInput = document.getElementById("loginNickname");
+
+if (studentLoginForm) {
+  studentLoginForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = loginClassCodeInput.value.trim();
+    const name = loginNicknameInput.value.trim();
+
+    if (!code || !name) {
+      alert("クラスコードとニックネームを入力してください。");
+      return;
+    }
+
+    currentClassCode = code;
+    nickname = name;
+
+    // サーバーへ参加リクエスト
+    socket.emit("join-class", { classCode: code, nickname: name });
   });
 }
 
-if (studentPanelOpen && studentSidePanel) {
-  studentPanelOpen.addEventListener("click", () => {
-    studentSidePanel.classList.remove("collapsed");
-    setTimeout(() => {
-      resizeCanvasToContainer();
-    }, 260);
+// 参加成功
+socket.on("join-success", (payload) => {
+  if (studentLoginOverlay) {
+    studentLoginOverlay.classList.add("hidden");
+  }
+  if (statusLabel) {
+    statusLabel.textContent = `クラス: ${payload.classCode} / ${payload.nickname}`;
+  }
+  // 既存ボードデータの読み込みなどがあればここで行う
+  // socket.emit("request-board-state", ...);
+});
+
+// 参加エラー
+socket.on("join-error", (msg) => {
+  alert("参加エラー: " + msg);
+  currentClassCode = null;
+  nickname = null;
+});
+
+/* ========================================
+   チャット (修正版)
+   ======================================== */
+
+if (chatToggleBtn && chatPanel) {
+  chatToggleBtn.addEventListener("click", () => {
+    chatPanelOpen = !chatPanelOpen;
+    if (chatPanelOpen) {
+      chatPanel.classList.remove("collapsed");
+      chatNotifyDot.style.display = "none";
+      chatUnreadCount = 0;
+      scrollToBottom();
+    } else {
+      chatPanel.classList.add("collapsed");
+    }
   });
+}
+
+if (chatCloseBtn && chatPanel) {
+  chatCloseBtn.addEventListener("click", () => {
+    chatPanelOpen = false;
+    chatPanel.classList.add("collapsed");
+  });
+}
+
+function scrollToBottom() {
+  if (chatMessagesEl) {
+    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  }
+}
+
+if (chatSendBtn && chatInput) {
+  chatSendBtn.addEventListener("click", sendChatMessage);
+  chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) {
+      sendChatMessage();
+    }
+  });
+}
+
+function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  if (!currentClassCode) return;
+
+  // 自分の履歴に追加
+  const msgObj = {
+    from: "me",
+    nickname: "自分",
+    text,
+    timestamp: Date.now()
+  };
+  chatMessages.push(msgObj);
+
+  renderChatMessages();
+
+  socket.emit("student-send-chat", {
+    classCode: currentClassCode,
+    nickname,
+    text
+  });
+
+  chatInput.value = "";
+}
+
+socket.on("chat-message", payload => {
+  // 教員からメッセージ受信
+  const { from, nickname, text, timestamp } = payload; // from='teacher'
+
+  chatMessages.push({
+    from: "them",
+    nickname,
+    text,
+    timestamp
+  });
+
+  if (!chatPanelOpen) {
+    chatUnreadCount++;
+    chatNotifyDot.style.display = "block";
+  }
+
+  renderChatMessages();
+});
+
+function renderChatMessages() {
+  if (!chatMessagesEl) return;
+  chatMessagesEl.innerHTML = "";
+
+  chatMessages.forEach(msg => {
+    const div = document.createElement("div");
+    div.className =
+      msg.from === "me" ? "chat-message my-message" : "chat-message other-message";
+
+    const name = document.createElement("div");
+    name.className = "chat-name";
+    name.textContent = msg.nickname;
+
+    const body = document.createElement("div");
+    body.className = "chat-body";
+    body.textContent = msg.text;
+
+    const time = document.createElement("div");
+    time.className = "chat-time";
+    time.textContent = new Date(msg.timestamp).toLocaleTimeString();
+
+    div.appendChild(name);
+    div.appendChild(body);
+    div.appendChild(time);
+
+    chatMessagesEl.appendChild(div);
+  });
+
+  scrollToBottom();
 }
 
 /* ========================================
@@ -620,52 +796,31 @@ if (studentLoadBoardBtn) {
    PNG 保存
    ======================================== */
 
-if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
-  savePngBtn.addEventListener("click", () => {
-    const dataUrl = whiteboard.exportPngDataUrl();
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `whiteboard-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.png`;
-    a.click();
-  });
-}
+// board-ui.js で exportPngBtn として実装済みのため削除
+// if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
+//   savePngBtn.addEventListener("click", () => {
+//     const dataUrl = whiteboard.exportPngDataUrl();
+//     const a = document.createElement("a");
+//     a.href = dataUrl;
+//     a.download = `whiteboard-${new Date()
+//       .toISOString()
+//       .replace(/[:.]/g, "-")}.png`;
+//     a.click();
+//   });
+// }
 
 /* ========================================
    クラス参加
    ======================================== */
 
-if (joinBtn && classCodeInput && nicknameInput) {
-  joinBtn.addEventListener("click", () => {
-    const code = classCodeInput.value.trim();
-    const nick = nicknameInput.value.trim();
-    if (!code || !nick) {
-      alert("クラスコードとニックネームを入力してください。");
-      return;
-    }
-    currentClassCode = code;
-    nickname = nick;
+/* ========================================
+   クラス参加（ログインオーバーレイ）
+   ======================================== */
 
-    // ホワイトボード側の参加
-    socket.emit("join-student", { classCode: code, nickname: nick });
+// 旧ロジック削除済み
+// 参加処理は上部の studentLoginForm.addEventListener で行われます
 
-    // ノート提出側の参加（生徒IDはニックネームをそのまま利用）
-    joinedNotebookClassCode = currentClassCode;
-    notebookStudentId = nickname;
-    socket.emit("joinAsStudent", {
-      classCode: joinedNotebookClassCode,
-      studentId: notebookStudentId
-    });
 
-    if (headerClassCode) headerClassCode.textContent = code;
-    if (headerNickname) headerNickname.textContent = nick;
-    // ツールバーが2行にならないよう、statusLabel には表示しない
-
-    restartCaptureLoop();
-    sendWhiteboardThumbnail();
-  });
-}
 
 // ノート提出用のクラス情報
 let joinedNotebookClassCode = null;
@@ -699,16 +854,34 @@ function updateModeUI() {
   }
 
   // レイアウト切り替え
-  if (mainLayoutEl && notebookLayoutEl) {
-    if (viewMode === "notebook") {
-      mainLayoutEl.style.display = "none";
+  // レイアウト切り替え
+  const boardContainer = document.getElementById("boardContainer");
+  const sidebar = document.getElementById("wbSidebar");
+  const bottomTools = document.querySelector(".floating-bottom-right");
+  const contextMenu = document.getElementById("contextMenu");
+
+  if (viewMode === "notebook") {
+    if (boardContainer) boardContainer.classList.add("hidden");
+    if (sidebar) sidebar.classList.add("hidden");
+    if (bottomTools) bottomTools.classList.add("hidden");
+    if (contextMenu) contextMenu.classList.add("hidden");
+
+    if (notebookLayoutEl) {
+      notebookLayoutEl.classList.remove("hidden");
       notebookLayoutEl.style.display = "flex";
-    } else {
-      mainLayoutEl.style.display = "";
-      notebookLayoutEl.style.display = "none";
-      // ホワイトボードレイアウトに戻ったときはキャンバスサイズを調整
-      resizeCanvasToContainer();
     }
+  } else {
+    if (boardContainer) boardContainer.classList.remove("hidden");
+    if (sidebar) sidebar.classList.remove("hidden");
+    if (bottomTools) bottomTools.classList.remove("hidden");
+    // contextMenuはツール選択状態によるのでここでは操作しない
+
+    if (notebookLayoutEl) {
+      notebookLayoutEl.classList.add("hidden");
+      notebookLayoutEl.style.display = "none";
+    }
+    // ホワイトボードレイアウトに戻ったときはキャンバスサイズを調整
+    resizeCanvasToContainer();
   }
 
   // チャット入力の有効/無効（ホワイトボードモードのときのみ）
@@ -1278,8 +1451,8 @@ if (startCameraBtn) {
       const constraints = {
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
-          width:  { ideal: 1920 }, 
-          height: { ideal: 1080 }, 
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           facingMode: "environment"
         },
         audio: false
@@ -1645,3 +1818,151 @@ window.addEventListener("beforeunload", () => {
   stopScreenCapture();
   stopNotebookCamera();
 });
+// ========= 生徒画面モニタリング（高機能版）関連 =========
+
+let currentTeacherSocketId = null;
+
+
+// ★ 教員が共同編集セッションに参加
+socket.on("teacher-joined-session", ({ teacherSocketId }) => {
+  if (!whiteboard) return;
+  // 現在のボード状態を全送信（背景含む）
+  const boardData = whiteboard.exportBoardData();
+  socket.emit("student-board-state", {
+    targetTeacherSocketId: teacherSocketId,
+    boardData
+  });
+});
+
+// ★ 教員からのホワイトボード操作受信
+socket.on("teacher-whiteboard-action", ({ action }) => {
+  if (!whiteboard) return;
+  whiteboard.applyAction(action);
+});
+
+// ★ ホワイトボード操作の送信フック設定
+if (whiteboard) {
+  whiteboard.onAction = (action) => {
+    // 教員が監視中の場合のみ送信
+    if (currentTeacherSocketId) {
+      socket.emit("student-whiteboard-action", {
+        targetTeacherSocketId: currentTeacherSocketId,
+        action
+      });
+    }
+  };
+}
+
+// ★ モニタリング開始通知（既存の処理に teacherSocketId 保存を追加）
+socket.on("start-monitoring", ({ teacherSocketId }) => {
+  console.log("Monitoring started by", teacherSocketId);
+  currentTeacherSocketId = teacherSocketId;
+
+  // 既存のサムネイル送信ループ
+  if (monitorIntervalId) clearInterval(monitorIntervalId);
+
+  // 初回即時送信
+  sendScreenUpdate(teacherSocketId);
+
+  monitorIntervalId = setInterval(() => {
+    sendScreenUpdate(teacherSocketId);
+  }, 3000); // 頻度を落とす（3秒）
+});
+
+// ★ モニタリング終了通知
+socket.on("stop-monitoring", () => {
+  console.log("Monitoring stopped");
+  currentTeacherSocketId = null;
+  if (monitorIntervalId) {
+    clearInterval(monitorIntervalId);
+    monitorIntervalId = null;
+  }
+});
+
+function sendScreenUpdate(teacherSocketId) {
+  if (!currentClassCode) return;
+
+  let dataUrl;
+  let viewport;
+  let boardData = null; // ★ 追加：ホワイトボードの実データ
+
+  if (captureMode === "screen") {
+    // 画面共有モード：video要素からキャプチャ
+    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
+
+    const vw = screenVideo.videoWidth;
+    const vh = screenVideo.videoHeight;
+    if (!vw || !vh) return;
+
+    const off = document.createElement("canvas");
+    // パフォーマンスのためサイズ制限
+    const maxWidth = 1280;
+    const scale = Math.min(1, maxWidth / vw);
+    off.width = vw * scale;
+    off.height = vh * scale;
+
+    const ctx = off.getContext("2d");
+    ctx.drawImage(screenVideo, 0, 0, off.width, off.height);
+    dataUrl = off.toDataURL("image/jpeg", 0.6);
+
+    // 画面共有時はビューポートリセット（全体表示）
+    viewport = { scale: 1, offsetX: 0, offsetY: 0 };
+  } else {
+    // ホワイトボードモード
+    if (!whiteboard) return;
+    dataUrl = whiteboard.exportPngDataUrl();
+
+    viewport = {
+      scale: whiteboard.scale,
+      offsetX: whiteboard.offsetX,
+      offsetY: whiteboard.offsetY
+    };
+
+    // ★ ホワイトボードの実データ（ストローク＋オブジェクト）を取得
+    // ただし、教員のアノテーションは除外（教員側で別途管理）
+    const allData = whiteboard.getSnapshot();
+    boardData = {
+      ...allData,
+      strokes: allData.strokes.filter(s => !s.isTeacherAnnotation),
+      objects: allData.objects.filter(o => !o.isTeacherAnnotation)
+    };
+  }
+
+  socket.emit("student-screen-update", {
+    classCode: currentClassCode,
+    teacherSocketId,
+    dataUrl,
+    viewport,
+    mode: captureMode,
+    boardData // ★ 追加：実データも送信
+  });
+}
+
+// ★ 教員からの書き込み受信（即時反映）
+socket.on("teacher-annotation-update", ({ classCode, targetSocketId, annotationData }) => {
+  if (targetSocketId && targetSocketId !== socket.id) return;
+
+  // 即座に反映
+  whiteboard.setPendingObjects(annotationData);
+  whiteboard.mergePendingObjects();
+
+  // 反映後、すぐに画面更新を教員に送り返す
+  if (currentTeacherSocketId) {
+    setTimeout(() => {
+      sendScreenUpdate(currentTeacherSocketId);
+    }, 100);
+  }
+});
+
+// ★ 破棄ボタン
+if (discardAnnotationBtn) {
+  discardAnnotationBtn.addEventListener("click", () => {
+    if (whiteboard) {
+      whiteboard.setPendingObjects(null); // プレビュー消去
+    }
+    if (annotationAcceptBar) {
+      annotationAcceptBar.classList.add("hidden");
+    }
+    pendingAnnotationData = null;
+  });
+}

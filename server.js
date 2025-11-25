@@ -70,10 +70,14 @@ app.get("/teacher.html", (req, res) => {
 
 // ログイン処理
 app.post("/teacher/login", (req, res) => {
-  const { password } = req.body;
+  const { password, classCode } = req.body;
   if (password === TEACHER_PASSWORD) {
     // 認証成功 → セッションにフラグを立てる
     req.session.isTeacher = true;
+    // クラスコードもセッションに保存（あれば）
+    if (classCode) {
+      req.session.classCode = classCode;
+    }
     return res.redirect("/teacher");
   } else {
     // 認証失敗
@@ -81,6 +85,18 @@ app.post("/teacher/login", (req, res) => {
       <h2>パスワードが違います</h2>
       <p><a href="/teacher-login">戻る</a></p>
     `);
+  }
+});
+
+// セッション情報取得（クライアント側でクラスコードを知るため）
+app.get("/api/teacher/session", (req, res) => {
+  if (req.session && req.session.isTeacher) {
+    res.json({
+      ok: true,
+      classCode: req.session.classCode || null
+    });
+  } else {
+    res.status(401).json({ ok: false, message: "Unauthorized" });
   }
 });
 
@@ -285,9 +301,52 @@ io.on("connection", socket => {
   });
 
   /* =========================
-     ノート確認用 イベント
+     リアルタイム共同編集（1対1）
      ========================= */
 
+  // 教員 → 生徒：モニタリング開始（共同編集セッション開始）
+  socket.on("start-monitoring-student", ({ classCode, targetSocketId }) => {
+    // 生徒に「教員が参加した」ことを通知
+    io.to(targetSocketId).emit("teacher-joined-session", {
+      teacherSocketId: socket.id
+    });
+    // 生徒に「モニタリング開始」を通知（サムネイル送信頻度変更など）
+    io.to(targetSocketId).emit("start-monitoring", {
+      teacherSocketId: socket.id
+    });
+  });
+
+  // 教員 → 生徒：モニタリング終了
+  socket.on("stop-monitoring-student", ({ classCode, targetSocketId }) => {
+    io.to(targetSocketId).emit("stop-monitoring", {});
+  });
+
+  // 生徒 → 教員：ボードの全状態（初期同期用）
+  socket.on("student-board-state", ({ targetTeacherSocketId, boardData }) => {
+    io.to(targetTeacherSocketId).emit("student-board-state", {
+      studentSocketId: socket.id,
+      boardData
+    });
+  });
+
+  // 教員 → 生徒：ホワイトボード操作（リアルタイム）
+  socket.on("teacher-whiteboard-action", ({ targetSocketId, action }) => {
+    io.to(targetSocketId).emit("teacher-whiteboard-action", {
+      action
+    });
+  });
+
+  // 生徒 → 教員：ホワイトボード操作（リアルタイム）
+  socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action }) => {
+    io.to(targetTeacherSocketId).emit("student-whiteboard-action", {
+      studentSocketId: socket.id,
+      action
+    });
+  });
+
+  /* =========================
+     ノート点検アプリ統合部分
+     ========================= */
   // 生徒: ノート確認クラスに参加
   socket.on("joinAsStudent", ({ classCode, studentId }) => {
     if (!classCode || !studentId) return;

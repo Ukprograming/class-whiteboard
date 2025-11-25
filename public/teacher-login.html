@@ -1,21 +1,29 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8" />
   <title>教員用ホワイトボード ログイン</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="/style.css" rel="stylesheet" />
 </head>
+
 <body class="app-root">
-  <div class="login-container" style="max-width: 400px; margin: 40px auto; padding: 24px; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+  <div class="login-container"
+    style="max-width: 400px; margin: 40px auto; padding: 24px; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
     <h1 style="font-size: 20px; margin-bottom: 16px;">教員用ホワイトボード ログイン</h1>
     <form method="POST" action="/teacher/login">
       <label style="display:block; margin-bottom: 12px;">
         パスワード：
         <input type="password" name="password" required style="width:100%; padding:8px; margin-top:4px;" />
       </label>
+      <label style="display:block; margin-bottom: 12px;">
+        クラスコード：
+        <input type="text" name="classCode" placeholder="例: ABC123" style="width:100%; padding:8px; margin-top:4px;" />
+      </label>
       <button type="submit" style="padding:8px 16px;">ログイン</button>
     </form>
   </div>
 </body>
+
 </html>

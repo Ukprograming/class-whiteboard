@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>教員用ホワイトボード＋ノート確認</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link href="/style.css" rel="stylesheet" />
+  <!-- pdf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+
+<body class="app-root">
+
+  <!-- 上部ツールバー（教員用） -->
+  <header class="topbar topbar-teacher">
+    <div class="topbar-left">
+      <button id="teacherModeWhiteboard" class="tab-button active">
+        ホワイトボード
+      </button>
+      <button id="teacherModeStudentView" class="tab-button">
+        生徒画面確認
+      </button>
+      <button id="teacherModeNotebook" class="tab-button">
+        ノート確認
+      </button>
+    </div>
+
+    <div class="topbar-center">
+      <label>
+        クラスコード：
+        <input id="teacherClassCodeInput" type="text" placeholder="例: ABC123" />
+      </label>
+      <button id="teacherStartClassBtn">開始</button>
+      <span id="teacherStatus" class="status-label"></span>
+    </div>
+
+    <div class="topbar-right">
+      <!-- ホワイトボード保存 / 読み込み：Explorer風モーダルを開く -->
+      <div class="save-load-group">
+        <div class="save-load-row">
+          <button id="teacherOpenSaveDialogBtn" class="topbar-btn">
+            💾 保存…
+          </button>
+          <button id="teacherOpenLoadDialogBtn" class="topbar-btn">
+            📂 開く…
+          </button>
+          <!-- PDF 出力ボタン -->
+          <button id="exportPdfBtn" class="topbar-btn">
+            📄 PDF出力
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインレイアウト -->
+  <div class="main-layout">
+    <!-- 左サイドバー：ホワイトボード用ツール -->
+    <aside class="wb-sidebar" id="wbSidebar">
+      <!-- サイドバーを折りたたむボタン -->
+      <button id="sidebarToggle" class="sidebar-toggle" title="ツールパネルを折りたたむ">
+        <span class="chevron">⮜</span>
+      </button>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">🧰</span>
+          <span class="section-text">ツール</span>
+        </h3>
+        <div class="tool-row">
+          <button data-tool="select" class="tool-button" title="選択">
+            <span class="icon">🖱️</span><span class="tool-label">選択</span>
+          </button>
+          <button data-tool="pen" class="tool-button" title="ペン">
+            <span class="icon">✏️</span><span class="tool-label">ペン</span>
+          </button>
+          <button data-tool="highlighter" class="tool-button" title="蛍光ペン">
+            <span class="icon">🖍️</span><span class="tool-label">蛍光</span>
+          </button>
+          <button data-tool="eraser" class="tool-button" title="消しゴム">
+            <span class="icon">🧽</span><span class="tool-label">消し</span>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button data-tool="text" class="tool-button" title="テキスト">
+            <span class="icon">🔤</span><span class="tool-label">テキスト</span>
+          </button>
+          <button data-tool="sticky" class="tool-button" title="付箋">
+            <span class="icon">📝</span><span class="tool-label">付箋</span>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button data-tool="shape" class="tool-button" title="図形">
+            <span class="icon">⬚</span><span class="tool-label">図形</span>
+          </button>
+          <button data-tool="stamp" class="tool-button" title="スタンプ">
+            <span class="icon">⭐</span><span class="tool-label">スタンプ</span>
+          </button>
+          <button id="deleteBtn" class="tool-button" type="button" title="削除">
+            <span class="icon">🗑️</span><span class="tool-label">削除</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">📄</span>
+          <span class="section-text">ファイル</span>
+        </h3>
+        <label class="file-button">
+          <span class="icon">📎</span>
+          <span class="label-text">PDF読み込み</span>
+          <input id="pdfInput" type="file" accept="application/pdf" hidden />
+        </label>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">🎨</span>
+          <span class="section-text">ペン設定</span>
+        </h3>
+        <div class="color-row">
+          <!-- 初期カラーパレット 10色 -->
+          <button class="color-swatch active" data-pen-color="#111827" style="--swatch-color:#111827;"></button>
+          <button class="color-swatch" data-pen-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+          <button class="color-swatch" data-pen-color="#f97316" style="--swatch-color:#f97316;"></button>
+          <button class="color-swatch" data-pen-color="#facc15" style="--swatch-color:#facc15;"></button>
+          <button class="color-swatch" data-pen-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+          <button class="color-swatch" data-pen-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+          <button class="color-swatch" data-pen-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+          <button class="color-swatch" data-pen-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+          <button class="color-swatch" data-pen-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+          <button class="color-swatch" data-pen-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+        </div>
+
+        <div class="tool-row" style="margin-top:6px;">
+          <select id="penWidthSelect">
+            <option value="2">細</option>
+            <option value="3" selected>普通</option>
+            <option value="5">太</option>
+            <option value="8">極太</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">📌</span>
+          <span class="section-text">付箋カラー</span>
+        </h3>
+        <div class="color-row">
+          <button class="color-swatch" data-sticky-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+          <button class="color-swatch" data-sticky-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+          <button class="color-swatch" data-sticky-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+          <button class="color-swatch" data-sticky-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+          <button class="color-swatch" data-sticky-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+        </div>
+        <p style="margin:6px 0 0; font-size:0.75rem; color:#94a3b8;">
+          付箋を選択してから色をクリックすると変更されます
+        </p>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">📐</span>
+          <span class="section-text">図形スタイル</span>
+        </h3>
+
+        <p style="margin:0 0 4px; font-size:0.75rem; color:#94a3b8;">
+          図形や付箋を選択してから変更します
+        </p>
+
+        <!-- 線の色 -->
+        <div style="margin-top:4px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          線の色
+        </div>
+        <div class="color-row">
+          <button class="color-swatch" data-shape-stroke-color="#111827" style="--swatch-color:#111827;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#f97316" style="--swatch-color:#f97316;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#facc15" style="--swatch-color:#facc15;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+          <button class="color-swatch" data-shape-stroke-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+        </div>
+
+        <!-- 塗りつぶし色 -->
+        <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          塗りつぶし
+        </div>
+        <div class="color-row">
+          <button class="color-swatch" data-shape-fill-color="transparent" style="--swatch-color:#ffffff;"
+            title="塗りつぶしなし"></button>
+          <button class="color-swatch" data-shape-fill-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+          <button class="color-swatch" data-shape-fill-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+          <button class="color-swatch" data-shape-fill-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+          <button class="color-swatch" data-shape-fill-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+          <button class="color-swatch" data-shape-fill-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+        </div>
+
+        <!-- 線の太さ -->
+        <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+          線の太さ
+        </div>
+        <div class="tool-row">
+          <select id="shapeStrokeWidthSelect">
+            <option value="1">極細</option>
+            <option value="2">細</option>
+            <option value="3" selected>普通</option>
+            <option value="5">太</option>
+            <option value="8">極太</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="wb-section">
+        <h3>
+          <span class="section-icon">✏️</span>
+          <span class="section-text">編集</span>
+        </h3>
+        <div class="tool-row">
+          <button id="undoBtn" class="tool-button">
+            <span class="icon">↩️</span><span class="tool-label">元に戻す</span>
+          </button>
+          <button id="clearBtn" class="tool-button">
+            <span class="icon">🗑️</span><span class="tool-label">全消去</span>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button id="groupBtn" class="tool-button">
+            <span class="icon">🧩</span><span class="tool-label">グループ化</span>
+          </button>
+          <button id="lockBtn" class="tool-button">
+            <span class="icon">🔒</span><span class="tool-label">ロック</span>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button id="zoomInBtn" class="tool-button">
+            <span class="icon">➕</span><span class="tool-label">拡大</span>
+          </button>
+          <button id="zoomOutBtn" class="tool-button">
+            <span class="icon">➖</span><span class="tool-label">縮小</span>
+          </button>
+        </div>
+        <div class="tool-row">
+          <button id="bringToFrontBtn" class="tool-button" title="前面へ移動">
+            <span class="icon">⬆️</span><span class="tool-label">前面へ</span>
+          </button>
+          <button id="sendToBackBtn" class="tool-button" title="背面へ移動">
+            <span class="icon">⬇️</span><span class="tool-label">背面へ</span>
+          </button>
+        </div>
+      </section>
+    </aside>
+
+    <!-- 右側：各ビュー -->
+    <main class="wb-main">
+      <!-- ホワイトボード -->
+      <div id="boardContainer" class="board-container">
+        <canvas id="whiteboard"></canvas>
+      </div>
+
+      <!-- 生徒画面確認 -->
+      <div id="studentViewContainer" class="student-view hidden">
+        <h2>生徒画面確認</h2>
+        <p id="studentsInfo" class="students-info">
+          接続中の生徒: 0人
+        </p>
+        <div id="tileGrid" class="tile-grid">
+          <!-- teacher.js が .tile を追加 -->
+        </div>
+      </div>
+
+      <!-- ノート確認ビュー -->
+      <div id="notebookViewContainer" class="notebook-view hidden">
+        <h2>ノート確認</h2>
+        <p id="notebookInfo" class="students-info">
+          ノート提出中の生徒: 0人
+        </p>
+        <div id="notebookStudentGrid" class="student-grid">
+          <!-- teacher.js がノート用タイルを追加 -->
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ノート個別フィードバック用モーダル（ノート確認アプリ統合版） -->
+  <div id="feedbackModalBackdrop" class="modal-backdrop" style="display: none;">
+    <div class="modal modal-notebook">
+      <div class="modal-header">
+        <div>
+          <span id="modalStudentLabel">生徒：</span>
+        </div>
+        <div class="modal-header-controls">
+          <label>
+            ペン色：
+            <input id="penColorInput" class="small-input" type="color" value="#ff0000" />
+          </label>
+          <label>
+            ペン太さ：
+            <input id="penWidthInput" class="small-input" type="number" value="3" min="1" max="20" />px
+          </label>
+          <button id="eraserToggleBtn" class="share-off">消しゴムOFF</button>
+          <button id="clearAnnotationBtn" class="share-off">
+            手書きクリア
+            </label>
+            </section>
+
+            <section class="wb-section">
+              <h3>
+                <span class="section-icon">🎨</span>
+                <span class="section-text">ペン設定</span>
+              </h3>
+              <div class="color-row">
+                <!-- 初期カラーパレット 10色 -->
+                <button class="color-swatch active" data-pen-color="#111827" style="--swatch-color:#111827;"></button>
+                <button class="color-swatch" data-pen-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+                <button class="color-swatch" data-pen-color="#f97316" style="--swatch-color:#f97316;"></button>
+                <button class="color-swatch" data-pen-color="#facc15" style="--swatch-color:#facc15;"></button>
+                <button class="color-swatch" data-pen-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+                <button class="color-swatch" data-pen-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+                <button class="color-swatch" data-pen-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+                <button class="color-swatch" data-pen-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+                <button class="color-swatch" data-pen-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+                <button class="color-swatch" data-pen-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+              </div>
+
+              <div class="tool-row" style="margin-top:6px;">
+                <select id="penWidthSelect">
+                  <option value="2">細</option>
+                  <option value="3" selected>普通</option>
+                  <option value="5">太</option>
+                  <option value="8">極太</option>
+                </select>
+              </div>
+            </section>
+
+            <section class="wb-section">
+              <h3>
+                <span class="section-icon">📌</span>
+                <span class="section-text">付箋カラー</span>
+              </h3>
+              <div class="color-row">
+                <button class="color-swatch" data-sticky-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+                <button class="color-swatch" data-sticky-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+                <button class="color-swatch" data-sticky-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+                <button class="color-swatch" data-sticky-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+                <button class="color-swatch" data-sticky-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+              </div>
+              <p style="margin:6px 0 0; font-size:0.75rem; color:#94a3b8;">
+                付箋を選択してから色をクリックすると変更されます
+              </p>
+            </section>
+
+            <section class="wb-section">
+              <h3>
+                <span class="section-icon">📐</span>
+                <span class="section-text">図形スタイル</span>
+              </h3>
+
+              <p style="margin:0 0 4px; font-size:0.75rem; color:#94a3b8;">
+                図形や付箋を選択してから変更します
+              </p>
+
+              <!-- 線の色 -->
+              <div style="margin-top:4px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+                線の色
+              </div>
+              <div class="color-row">
+                <button class="color-swatch" data-shape-stroke-color="#111827" style="--swatch-color:#111827;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#ef4444" style="--swatch-color:#ef4444;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#f97316" style="--swatch-color:#f97316;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#facc15" style="--swatch-color:#facc15;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#22c55e" style="--swatch-color:#22c55e;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#0ea5e9" style="--swatch-color:#0ea5e9;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#6366f1" style="--swatch-color:#6366f1;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#a855f7" style="--swatch-color:#a855f7;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#ec4899" style="--swatch-color:#ec4899;"></button>
+                <button class="color-swatch" data-shape-stroke-color="#6b7280" style="--swatch-color:#6b7280;"></button>
+              </div>
+
+              <!-- 塗りつぶし色 -->
+              <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+                塗りつぶし
+              </div>
+              <div class="color-row">
+                <button class="color-swatch" data-shape-fill-color="transparent" style="--swatch-color:#ffffff;"
+                  title="塗りつぶしなし"></button>
+                <button class="color-swatch" data-shape-fill-color="#FEF3C7" style="--swatch-color:#FEF3C7;"></button>
+                <button class="color-swatch" data-shape-fill-color="#E0F2FE" style="--swatch-color:#E0F2FE;"></button>
+                <button class="color-swatch" data-shape-fill-color="#DCFCE7" style="--swatch-color:#DCFCE7;"></button>
+                <button class="color-swatch" data-shape-fill-color="#FCE7F3" style="--swatch-color:#FCE7F3;"></button>
+                <button class="color-swatch" data-shape-fill-color="#FDE68A" style="--swatch-color:#FDE68A;"></button>
+              </div>
+
+              <!-- 線の太さ -->
+              <div style="margin-top:8px; margin-bottom:2px; font-size:0.75rem; color:#64748b;">
+                線の太さ
+              </div>
+              <div class="tool-row">
+                <select id="shapeStrokeWidthSelect">
+                  <option value="1">極細</option>
+                  <option value="2">細</option>
+                  <option value="3" selected>普通</option>
+                  <option value="5">太</option>
+                  <option value="8">極太</option>
+                </select>
+              </div>
+            </section>
+
+            <section class="wb-section">
+              <h3>
+                <span class="section-icon">✏️</span>
+                <span class="section-text">編集</span>
+              </h3>
+              <div class="tool-row">
+                <button id="undoBtn" class="tool-button">
+                  <span class="icon">↩️</span><span class="tool-label">元に戻す</span>
+                </button>
+                <button id="clearBtn" class="tool-button">
+                  <span class="icon">🗑️</span><span class="tool-label">全消去</span>
+                </button>
+              </div>
+              <div class="tool-row">
+                <button id="groupBtn" class="tool-button">
+                  <span class="icon">🧩</span><span class="tool-label">グループ化</span>
+                </button>
+                <button id="lockBtn" class="tool-button">
+                  <span class="icon">🔒</span><span class="tool-label">ロック</span>
+                </button>
+              </div>
+              <div class="tool-row">
+                <button id="zoomInBtn" class="tool-button">
+                  <span class="icon">➕</span><span class="tool-label">拡大</span>
+                </button>
+                <button id="zoomOutBtn" class="tool-button">
+                  <span class="icon">➖</span><span class="tool-label">縮小</span>
+                </button>
+              </div>
+              <div class="tool-row">
+                <button id="bringToFrontBtn" class="tool-button" title="前面へ移動">
+                  <span class="icon">⬆️</span><span class="tool-label">前面へ</span>
+                </button>
+                <button id="sendToBackBtn" class="tool-button" title="背面へ移動">
+                  <span class="icon">⬇️</span><span class="tool-label">背面へ</span>
+                </button>
+              </div>
+            </section>
+            </aside>
+
+            <!-- 右側：各ビュー -->
+            <main class="wb-main">
+              <!-- ホワイトボード -->
+              <div id="boardContainer" class="board-container">
+                <canvas id="whiteboard"></canvas>
+              </div>
+
+              <!-- 生徒画面確認 -->
+              <div id="studentViewContainer" class="student-view hidden">
+                <h2>生徒画面確認</h2>
+                <p id="studentsInfo" class="students-info">
+                  接続中の生徒: 0人
+                </p>
+                <div id="tileGrid" class="tile-grid">
+                  <!-- teacher.js が .tile を追加 -->
+                </div>
+              </div>
+
+              <!-- ノート確認ビュー -->
+              <div id="notebookViewContainer" class="notebook-view hidden">
+                <h2>ノート確認</h2>
+                <p id="notebookInfo" class="students-info">
+                  ノート提出中の生徒: 0人
+                </p>
+                <div id="notebookStudentGrid" class="student-grid">
+                  <!-- teacher.js がノート用タイルを追加 -->
+                </div>
+              </div>
+            </main>
+        </div>
+
+        <!-- ノート個別フィードバック用モーダル（ノート確認アプリ統合版） -->
+        <div id="feedbackModalBackdrop" class="modal-backdrop" style="display: none;">
+          <div class="modal modal-notebook">
+            <div class="modal-header">
+              <div>
+                <span id="modalStudentLabel">生徒：</span>
+              </div>
+              <div class="modal-header-controls">
+                <label>
+                  ペン色：
+                  <input id="penColorInput" class="small-input" type="color" value="#ff0000" />
+                </label>
+                <label>
+                  ペン太さ：
+                  <input id="penWidthInput" class="small-input" type="number" value="3" min="1" max="20" />px
+                </label>
+                <button id="eraserToggleBtn" class="share-off">消しゴムOFF</button>
+                <button id="clearAnnotationBtn" class="share-off">
+                  手書きクリア
+                </button>
+                <button id="shareToggleBtn" class="share-off">共有開始</button>
+                <button id="feedbackModalCloseBtn" class="close-btn">閉じる</button>
+              </div>
+            </div>
+            <div class="modal-body">
+              <canvas id="feedbackCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 生徒画面の拡大表示用モーダル（高機能版：パン・ズーム・書き込み対応） -->
+        <div id="modalBackdrop" class="modal-backdrop">
+          <div class="modal modal-notebook"
+            style="width: 90%; height: 90%; max-width: none; display: flex; flex-direction: column;">
+            <!-- ★ キャンバスを全画面表示 -->
+            <div class="modal-body" style="position: relative; overflow: hidden; background: #f1f5f9; flex: 1;">
+              <div id="modalBoardContainer" style="width: 100%; height: 100%;">
+                <canvas id="modalCanvas"></canvas>
+              </div>
+
+              <!-- ★ ツールバーをキャンバスの上にオーバーレイ -->
+              <div
+                style="position: absolute; top: 0; left: 0; right: 0; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 10;">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                  <span id="modalTitle" class="modal-title" style="font-weight: 600; font-size: 16px;">生徒画面</span>
+                  <!-- ツールバー -->
+                  <div class="tool-row" style="display: inline-flex; gap: 8px;">
+                    <button id="modalToolSelect" class="tool-button active" title="選択/パン">
+                      <span class="icon">🖱️</span>
+                    </button>
+                    <button id="modalToolPen" class="tool-button" title="ペン">
+                      <span class="icon">✏️</span>
+                    </button>
+                    <button id="modalToolEraser" class="tool-button" title="消しゴム">
+                      <span class="icon">🧽</span>
+                    </button>
+                    <label style="display: inline-flex; align-items: center; gap: 4px;">
+                      色:
+                      <input id="modalPenColor" type="color" value="#ff0000" />
+                    </label>
+                  </div>
+                </div>
+                <button id="modalCloseBtn" class="close-btn">閉じる</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- socket.io -->
+        <script src="/socket.io/socket.io.js"></script>
+
+        <!-- モジュール -->
+        <script type="module" src="/js/teacher.js"></script>
+
+        <!-- チャットパネル -->
+        <button id="chatToggleBtn" class="chat-toggle-btn" title="チャットを開く">
+          💬
+          <span id="chatNotifyDot" class="chat-notify-dot"></span>
+        </button>
+
+        <aside id="chatPanel" class="chat-panel collapsed">
+          <header class="chat-panel-header">
+            <h3 class="chat-title">クラスチャット</h3>
+            <div id="chatTargetArea" class="chat-target-area">
+              <label>
+                宛先：
+                <select id="chatTargetSelect">
+                  <option value="">生徒を選択</option>
+                </select>
+              </label>
+            </div>
+            <button id="chatCloseBtn" class="chat-close-btn">×</button>
+          </header>
+
+          <div id="chatMessages" class="chat-messages"></div>
+
+          <footer class="chat-input-area">
+            <input id="chatInput" type="text" placeholder="メッセージを入力" autocomplete="off" />
+            <button id="chatSendBtn">送信</button>
+          </footer>
+        </aside>
+
+        <!-- スタンプ候補パレット -->
+        <div id="stampPalette" class="stamp-palette stamp-palette-hidden">
+          <div class="stamp-palette-inner">
+            <div class="stamp-palette-header">
+              <span>スタンプを選択</span>
+              <button id="stampPaletteCloseBtn" class="stamp-palette-close">×</button>
+            </div>
+            <div class="stamp-palette-grid">
+              <!-- board-ui.js が wb.stampPresets から作成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 図形パレット -->
+        <div id="shapePalette" class="stamp-palette stamp-palette-hidden shape-palette">
+          <div class="stamp-palette-inner shape-palette-inner">
+            <div class="stamp-palette-header">
+              <span>図形を選択</span>
+              <button id="shapePaletteCloseBtn" class="stamp-palette-close">×</button>
+            </div>
+            <div class="shape-items"></div>
+          </div>
+        </div>
+</body>
+
+</html>

@@ -569,6 +569,10 @@ socket.on("teacher-class-started", payload => {
 function setTeacherViewMode(mode) {
   if (!boardContainer || !studentViewContainer || !notebookViewContainer) return;
 
+  const sidebar = document.getElementById("wbSidebar");
+  const bottomTools = document.querySelector(".floating-bottom-right");
+  const contextMenu = document.getElementById("contextMenu");
+
   const show = (el) => {
     if (!el) return;
     el.classList.remove("hidden");
@@ -593,6 +597,10 @@ function setTeacherViewMode(mode) {
 
     // サイドバーを表示（通常モード）
     document.body.classList.remove("teacher-student-view");
+
+    // ツールバーを表示
+    if (sidebar) show(sidebar);
+    if (bottomTools) show(bottomTools);
   } else if (mode === "student") {
     // 生徒画面タイルを表示
     hide(boardContainer);
@@ -605,6 +613,11 @@ function setTeacherViewMode(mode) {
 
     // サイドバーを隠して右側を広く
     document.body.classList.add("teacher-student-view");
+
+    // ツールバーを隠す
+    if (sidebar) hide(sidebar);
+    if (bottomTools) hide(bottomTools);
+    if (contextMenu) hide(contextMenu);
   } else if (mode === "notebook") {
     // ノート確認ビューを表示
     hide(boardContainer);
@@ -617,6 +630,11 @@ function setTeacherViewMode(mode) {
 
     // サイドバーを隠して右側を広く（必要に応じて）
     document.body.classList.add("teacher-student-view");
+
+    // ツールバーを隠す
+    if (sidebar) hide(sidebar);
+    if (bottomTools) hide(bottomTools);
+    if (contextMenu) hide(contextMenu);
   }
 }
 

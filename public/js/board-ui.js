@@ -793,5 +793,43 @@ export function initBoardUI() {
     saveCanvasAsPdf(off);
   }
 
+  // ========= サイドバー折りたたみ =========
+  const sidebarToggle = document.getElementById("sidebarToggle");
+  const sidebar = document.getElementById("wbSidebar");
+
+  if (sidebarToggle && sidebar) {
+    sidebarToggle.addEventListener("click", () => {
+      sidebar.classList.toggle("collapsed");
+
+      // アイコンの向きを変える
+      const icon = sidebarToggle.querySelector(".material-symbols-rounded");
+      if (icon) {
+        icon.textContent = sidebar.classList.contains("collapsed") ? "chevron_right" : "chevron_left";
+      }
+    });
+  }
+
+  // ========= ファイルメニュー =========
+  const fileMenuBtn = document.getElementById("fileMenuBtn");
+  const fileMenuDropdown = document.getElementById("fileMenuDropdown");
+
+  if (fileMenuBtn && fileMenuDropdown) {
+    fileMenuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fileMenuDropdown.classList.toggle("hidden");
+    });
+
+    // メニュー外をクリックしたら閉じる
+    document.addEventListener("click", (e) => {
+      if (!fileMenuBtn.contains(e.target) && !fileMenuDropdown.contains(e.target)) {
+        fileMenuDropdown.classList.add("hidden");
+      }
+    });
+  }
+
+  // ========= キャンバスリサイズの初期化 =========
+  resizeCanvasToContainer();
+  window.addEventListener("resize", resizeCanvasToContainer);
+
   return wb;
 }
