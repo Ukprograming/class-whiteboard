@@ -10,6 +10,7 @@ const BOARD_API_BASE = "/api/board";
 // 生徒用 保存 / 読み込みボタン（HTML で用意しておく）
 const studentSaveBoardBtn = document.getElementById("studentSaveBoardBtn");
 const studentLoadBoardBtn = document.getElementById("studentLoadBoardBtn");
+const studentOverwriteSaveBtn = document.getElementById("studentOverwriteSaveBtn");
 
 // ========= socket.io =========
 const socket = io();
@@ -79,7 +80,7 @@ let currentClassCode = null;
 let nickname = null;
 
 let captureTimerId = null;
-const CAPTURE_INTERVAL_MS = 5000;
+const CAPTURE_INTERVAL_MS = 3000;
 
 // キャプチャモード：'whiteboard' or 'screen'
 let captureMode = "whiteboard";
@@ -91,12 +92,20 @@ let currentStream = null; // ノート提出用カメラの MediaStream
 let screenStream = null;
 let screenVideo = null;
 
+// ★チャットを許可する画面モード
+const CHAT_ENABLED_MODES = ["whiteboard", "screen", "notebook"];
+
 // ========= Explorer風 モーダル用の状態（生徒用） =========
 let boardDialogOverlay = null;          // オーバーレイ要素
 let boardDialogMode = "save";           // "save" or "load"
 let boardDialogSelectedFolder = "";     // 選択中フォルダ（自分の役割フォルダ内のサブフォルダパス）
 let boardDialogSelectedFileId = null;   // 選択中ファイルID
 let lastUsedFolderPath = "";            // 直近に使ったフォルダを記憶
+// 今開いているボードの Drive ファイルID（なければ null）
+let currentBoardFileId = null;
+// 今開いているボードのファイル名（拡張子なし）
+let currentBoardFileName = "";
+
 
 // ========= 左パネル折りたたみ（旧 UI 用） =========
 function resizeCanvasToContainer() {
@@ -118,33 +127,7 @@ function resizeCanvasToContainer() {
   whiteboard.render();
 }
 
-// (Duplicate declaration removed)
 
-/* ========================================
-   生徒用 ホワイトボード保存 / 読み込み
-   Explorer 風ダイアログ
-   ======================================== */
-
-// ... (API ヘルパーなどは変更なし) ...
-
-// ... (モーダル生成などは変更なし) ...
-
-/* ========================================
-   PNG 保存
-   ======================================== */
-
-// board-ui.js で exportPngBtn として実装済みのため削除
-// if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
-//   savePngBtn.addEventListener("click", () => {
-//     const dataUrl = whiteboard.exportPngDataUrl();
-//     const a = document.createElement("a");
-//     a.href = dataUrl;
-//     a.download = `whiteboard-${new Date()
-//       .toISOString()
-//       .replace(/[:.]/g, "-")}.png`;
-//     a.click();
-//   });
-// }
 
 /* ========================================
    クラス参加
@@ -183,9 +166,19 @@ socket.on("join-success", (payload) => {
   if (statusLabel) {
     statusLabel.textContent = `クラス: ${payload.classCode} / ${payload.nickname}`;
   }
+
+  // ★ ノート提出用のクラス情報もここでセット
+  joinedNotebookClassCode = payload.classCode;
+  notebookStudentId = payload.nickname;
+
+  // ★ クラス参加後に現在モード（初期値: whiteboard）をサーバーに通知
+  updateModeUI();
+
   // 既存ボードデータの読み込みなどがあればここで行う
   // socket.emit("request-board-state", ...);
 });
+
+
 
 // 参加エラー
 socket.on("join-error", (msg) => {
@@ -193,121 +186,6 @@ socket.on("join-error", (msg) => {
   currentClassCode = null;
   nickname = null;
 });
-
-/* ========================================
-   チャット (修正版)
-   ======================================== */
-
-if (chatToggleBtn && chatPanel) {
-  chatToggleBtn.addEventListener("click", () => {
-    chatPanelOpen = !chatPanelOpen;
-    if (chatPanelOpen) {
-      chatPanel.classList.remove("collapsed");
-      chatNotifyDot.style.display = "none";
-      chatUnreadCount = 0;
-      scrollToBottom();
-    } else {
-      chatPanel.classList.add("collapsed");
-    }
-  });
-}
-
-if (chatCloseBtn && chatPanel) {
-  chatCloseBtn.addEventListener("click", () => {
-    chatPanelOpen = false;
-    chatPanel.classList.add("collapsed");
-  });
-}
-
-function scrollToBottom() {
-  if (chatMessagesEl) {
-    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-  }
-}
-
-if (chatSendBtn && chatInput) {
-  chatSendBtn.addEventListener("click", sendChatMessage);
-  chatInput.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.isComposing) {
-      sendChatMessage();
-    }
-  });
-}
-
-function sendChatMessage() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-  if (!currentClassCode) return;
-
-  // 自分の履歴に追加
-  const msgObj = {
-    from: "me",
-    nickname: "自分",
-    text,
-    timestamp: Date.now()
-  };
-  chatMessages.push(msgObj);
-
-  renderChatMessages();
-
-  socket.emit("student-send-chat", {
-    classCode: currentClassCode,
-    nickname,
-    text
-  });
-
-  chatInput.value = "";
-}
-
-socket.on("chat-message", payload => {
-  // 教員からメッセージ受信
-  const { from, nickname, text, timestamp } = payload; // from='teacher'
-
-  chatMessages.push({
-    from: "them",
-    nickname,
-    text,
-    timestamp
-  });
-
-  if (!chatPanelOpen) {
-    chatUnreadCount++;
-    chatNotifyDot.style.display = "block";
-  }
-
-  renderChatMessages();
-});
-
-function renderChatMessages() {
-  if (!chatMessagesEl) return;
-  chatMessagesEl.innerHTML = "";
-
-  chatMessages.forEach(msg => {
-    const div = document.createElement("div");
-    div.className =
-      msg.from === "me" ? "chat-message my-message" : "chat-message other-message";
-
-    const name = document.createElement("div");
-    name.className = "chat-name";
-    name.textContent = msg.nickname;
-
-    const body = document.createElement("div");
-    body.className = "chat-body";
-    body.textContent = msg.text;
-
-    const time = document.createElement("div");
-    time.className = "chat-time";
-    time.textContent = new Date(msg.timestamp).toLocaleTimeString();
-
-    div.appendChild(name);
-    div.appendChild(body);
-    div.appendChild(time);
-
-    chatMessagesEl.appendChild(div);
-  });
-
-  scrollToBottom();
-}
 
 /* ========================================
    生徒用 ホワイトボード保存 / 読み込み
@@ -609,18 +487,32 @@ async function reloadFileList(folderPath) {
         ? `${file.fileName}（${dateStr}）`
         : file.fileName;
 
+      // クリックしたときの選択処理
       li.addEventListener("click", () => {
-        Array.from(fileListEl.querySelectorAll(".board-dialog-file-item")).forEach(el =>
-          el.classList.remove("selected")
-        );
-        li.classList.add("selected");
+        Array.from(
+          fileListEl.querySelectorAll(".board-dialog-file-item")
+        ).forEach(el => el.classList.remove("selected"));
 
+        li.classList.add("selected");
         boardDialogSelectedFileId = file.fileId;
 
         if (boardDialogMode === "save" && fileNameInput) {
           fileNameInput.value = file.fileName;
         }
       });
+
+      // ★ 追加：保存モードのとき、「現在開いているファイル」を自動で選択
+      if (
+        boardDialogMode === "save" &&
+        currentBoardFileId &&
+        file.fileId === currentBoardFileId
+      ) {
+        li.classList.add("selected");
+        boardDialogSelectedFileId = file.fileId;
+        if (fileNameInput) {
+          fileNameInput.value = file.fileName;
+        }
+      }
 
       fileListEl.appendChild(li);
     });
@@ -630,6 +522,7 @@ async function reloadFileList(folderPath) {
     fileListEl.innerHTML = `<li>ファイル一覧の取得に失敗しました</li>`;
   }
 }
+
 
 function selectFolder(folderPath) {
   boardDialogSelectedFolder = folderPath || "";
@@ -659,7 +552,7 @@ function selectFolder(folderPath) {
 
 // ---- 保存 / 読み込みの実処理 ----
 
-async function studentSaveBoardInternal(folderPath, fileName) {
+async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してから保存してください。");
     return;
@@ -690,6 +583,11 @@ async function studentSaveBoardInternal(folderPath, fileName) {
     boardData
   };
 
+  // ★ 上書き対象ファイルIDがある場合は付与
+  if (overwriteFileId) {
+    payload.fileId = overwriteFileId;
+  }
+
   try {
     const res = await fetch(`${BOARD_API_BASE}/save`, {
       method: "POST",
@@ -697,14 +595,52 @@ async function studentSaveBoardInternal(folderPath, fileName) {
       body: JSON.stringify(payload)
     });
 
-    const json = await res.json().catch(() => ({}));
-    alert(json.message || "ホワイトボードを保存しました。");
+    const text = await res.text();
+    let json = {};
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.warn("[studentSaveBoardInternal] response is not JSON", text);
+    }
+
+    if (!res.ok || json.ok === false) {
+      alert(
+        (json && json.message) ||
+        `ホワイトボードの保存に失敗しました。（status=${res.status}）`
+      );
+      return;
+    }
+
+    const mode = json.mode || (overwriteFileId ? "update" : "create");
+
+    // ★ 今保存したファイル情報を覚えておく（上書き保存ボタン用）
+    if (json.fileId) {
+      currentBoardFileId = json.fileId;
+    } else if (overwriteFileId) {
+      currentBoardFileId = overwriteFileId;
+    }
+
+    if (json.fileName) {
+      currentBoardFileName = json.fileName.replace(/\.json$/i, "");
+    } else {
+      currentBoardFileName = finalFileName;
+    }
+
+    lastUsedFolderPath = (folderPath || "").trim();
+
+    alert(
+      json.message ||
+      (mode === "update"
+        ? "ホワイトボードを上書き保存しました。"
+        : "ホワイトボードを保存しました。")
+    );
     closeBoardDialog();
   } catch (err) {
     console.error(err);
     alert("ホワイトボードの保存に失敗しました。");
   }
 }
+
 
 async function studentLoadBoardInternal(folderPath, fileId) {
   if (!currentClassCode || !nickname) {
@@ -734,7 +670,16 @@ async function studentLoadBoardInternal(folderPath, fileId) {
       })
     });
 
-    const json = await res.json();
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.error("student loadBoard JSON parse error:", e, text);
+      alert("GAS からの応答の解析に失敗しました。");
+      return;
+    }
+
     if (!json.ok) {
       alert(json.message || "ホワイトボードの読み込みに失敗しました。");
       return;
@@ -746,6 +691,16 @@ async function studentLoadBoardInternal(folderPath, fileId) {
     }
 
     whiteboard.importBoardData(json.boardData);
+
+    // ★ 今開いているファイル情報を更新
+    currentBoardFileId = json.fileId || fileId || null;
+    if (json.fileName) {
+      currentBoardFileName = json.fileName.replace(/\.json$/i, "");
+    } else {
+      currentBoardFileName = "";
+    }
+    lastUsedFolderPath = (folderPath || "").trim();
+
     alert("ホワイトボードを読み込みました。");
     closeBoardDialog();
   } catch (err) {
@@ -753,6 +708,7 @@ async function studentLoadBoardInternal(folderPath, fileId) {
     alert("ホワイトボードの読み込み中にエラーが発生しました。");
   }
 }
+
 
 // ---- モーダル内ボタンのハンドラ ----
 
@@ -767,8 +723,10 @@ function onClickSaveConfirm() {
 
   const fileName = fileNameInput ? fileNameInput.value.trim() : "";
 
-  studentSaveBoardInternal(folderPath, fileName);
+  // ★ 既存ファイルを選んでいれば boardDialogSelectedFileId が入っているので、それを渡す
+  studentSaveBoardInternal(folderPath, fileName, boardDialogSelectedFileId);
 }
+
 
 function onClickLoadConfirm() {
   if (!boardDialogSelectedFileId) {
@@ -791,36 +749,31 @@ if (studentLoadBoardBtn) {
     openBoardDialog("load");
   });
 }
+if (studentOverwriteSaveBtn) {
+  studentOverwriteSaveBtn.addEventListener("click", () => {
+    console.log("[Student OverwriteSave] clicked", {
+      currentBoardFileId,
+      currentBoardFileName,
+      lastUsedFolderPath
+    });
 
-/* ========================================
-   PNG 保存
-   ======================================== */
+    // まだ一度も保存していない / 読み込んでいない場合
+    if (!currentBoardFileId || !currentBoardFileName) {
+      alert(
+        "まだ保存されていないボードです。「保存」からファイル名を付けて保存してください。"
+      );
+      openBoardDialog("save");
+      return;
+    }
 
-// board-ui.js で exportPngBtn として実装済みのため削除
-// if (savePngBtn && whiteboard && typeof whiteboard.exportPngDataUrl === "function") {
-//   savePngBtn.addEventListener("click", () => {
-//     const dataUrl = whiteboard.exportPngDataUrl();
-//     const a = document.createElement("a");
-//     a.href = dataUrl;
-//     a.download = `whiteboard-${new Date()
-//       .toISOString()
-//       .replace(/[:.]/g, "-")}.png`;
-//     a.click();
-//   });
-// }
-
-/* ========================================
-   クラス参加
-   ======================================== */
-
-/* ========================================
-   クラス参加（ログインオーバーレイ）
-   ======================================== */
-
-// 旧ロジック削除済み
-// 参加処理は上部の studentLoginForm.addEventListener で行われます
-
-
+    // 今開いているファイルに対して上書き保存
+    studentSaveBoardInternal(
+      lastUsedFolderPath || "",
+      currentBoardFileName,
+      currentBoardFileId
+    );
+  });
+}
 
 // ノート提出用のクラス情報
 let joinedNotebookClassCode = null;
@@ -854,7 +807,6 @@ function updateModeUI() {
   }
 
   // レイアウト切り替え
-  // レイアウト切り替え
   const boardContainer = document.getElementById("boardContainer");
   const sidebar = document.getElementById("wbSidebar");
   const bottomTools = document.querySelector(".floating-bottom-right");
@@ -884,21 +836,34 @@ function updateModeUI() {
     resizeCanvasToContainer();
   }
 
-  // チャット入力の有効/無効（ホワイトボードモードのときのみ）
+  // チャット入力の有効/無効（特定のモードでのみ有効）
   if (chatInput && chatSendBtn) {
-    const disabled = viewMode !== "whiteboard";
-    chatInput.disabled = disabled;
-    chatSendBtn.disabled = disabled;
-    chatInput.placeholder = disabled
-      ? "ホワイトボード共有中のみ送信できます"
-      : "メッセージを入力";
+    const canChat = CHAT_ENABLED_MODES.includes(viewMode);
+
+    chatInput.disabled = !canChat;
+    chatSendBtn.disabled = !canChat;
+    chatInput.placeholder = canChat
+      ? "メッセージを入力"
+      : "この画面ではチャットは使えません";
   }
+
+
 
   // ノート提出モード以外ではカメラ停止（通信量を抑える）
   if (viewMode !== "notebook") {
     stopNotebookCamera();
   }
+
+  // ★ 現在の表示モードをサーバーに通知
+  //   viewMode: "whiteboard" | "screen" | "notebook"
+  if (currentClassCode && nickname) {
+    socket.emit("student-mode-change", {
+      classCode: currentClassCode,
+      mode: viewMode
+    });
+  }
 }
+
 
 function stopScreenCapture() {
   if (screenStream) {
@@ -1018,14 +983,30 @@ updateModeUI();
    チャット：共通関数（生徒）
    ======================================== */
 
+// 🔴 通知ドット制御関数を追加
+function showStudentChatNotifyDot() {
+  if (!chatNotifyDot) return;
+  // Tailwind の hidden を使っている場合に対応
+  chatNotifyDot.classList.remove("hidden");
+  chatNotifyDot.style.display = "block";
+}
+
+function hideStudentChatNotifyDot() {
+  if (!chatNotifyDot) return;
+  chatNotifyDot.classList.add("hidden");
+  chatNotifyDot.style.display = "none";
+}
+
 function setChatPanelOpen(open) {
   chatPanelOpen = open;
   if (!chatPanel || !chatToggleBtn) return;
 
   chatPanel.classList.toggle("collapsed", !open);
   if (open) {
+    // 開いたら未読リセット ＆ 通知ドット消す
     chatUnreadCount = 0;
     chatToggleBtn.classList.remove("has-unread");
+    hideStudentChatNotifyDot();
   }
 }
 
@@ -1097,11 +1078,13 @@ function studentSendChat() {
     alert("クラスに参加してからチャットを送信してください。");
     return;
   }
-  // 条件: ホワイトボード表示状態のときのみチャット可能
-  if (viewMode !== "whiteboard") {
-    alert("ホワイトボード共有モードのときのみチャットできます。");
+
+  // ★条件: 特定の表示モードのときのみチャット可能
+  if (!CHAT_ENABLED_MODES.includes(viewMode)) {
+    alert("この画面ではチャットを送信できません。");
     return;
   }
+
   if (!chatInput) return;
 
   const text = chatInput.value.trim();
@@ -1133,6 +1116,7 @@ if (chatSendBtn && chatInput) {
     }
   });
 }
+
 
 /* ========================================
    サムネイル送信（ホワイトボード / 画面共有）
@@ -1342,12 +1326,19 @@ socket.on("chat-message", payload => {
   } else if (chatToggleBtn) {
     chatUnreadCount += 1;
     chatToggleBtn.classList.add("has-unread");
+    // ★ ここを追加：通知ドット点灯
+    showStudentChatNotifyDot();
   }
 });
-
 /* ========================================
    ノート提出（カメラ / 台形補正）関連
    ======================================== */
+
+// ===== 必要なグローバル変数（このブロックより前で宣言しておくこと） =====
+// let joinedNotebookClassCode = null; // ノート提出用クラスコード
+// let notebookStudentId = null;       // ノート提出用の生徒ID（ニックネームなど）
+// let currentStream = null;           // ノート提出用カメラの MediaStream
+// let captureIntervalIdNotebook = null; // ノート画像送信用の setInterval ID
 
 // UI 要素
 const cameraSelect = document.getElementById("cameraSelect");
@@ -1357,6 +1348,62 @@ const videoEl = document.getElementById("video");
 const previewCanvas = document.getElementById("previewCanvas");
 const previewCtx = previewCanvas ? previewCanvas.getContext("2d") : null;
 const feedbackImage = document.getElementById("feedbackImage");
+const feedbackViewport = document.getElementById("feedbackViewport");
+const feedbackResetBtn = document.getElementById("feedbackResetBtn");
+const feedbackZoomLabel = document.getElementById("feedbackZoomLabel");
+
+// ズーム・パン状態
+let fbScale = 1;
+let fbOffsetX = 0;
+let fbOffsetY = 0;
+let fbIsDragging = false;
+let fbLastX = 0;
+let fbLastY = 0;
+
+// 画像の元サイズを保持
+let fbImgWidth = 0;
+let fbImgHeight = 0;
+
+function updateFeedbackTransform() {
+  if (!feedbackImage) return;
+  feedbackImage.style.transform =
+    `translate(${fbOffsetX}px, ${fbOffsetY}px) scale(${fbScale})`;
+
+  if (feedbackZoomLabel) {
+    feedbackZoomLabel.textContent = `${Math.round(fbScale * 100)}%`;
+  }
+}
+
+// 画像をビューポート中央に、できるだけ大きくフィットさせる
+function centerFeedbackImage() {
+  if (!feedbackViewport || !fbImgWidth || !fbImgHeight) return;
+
+  const vw = feedbackViewport.clientWidth;
+  const vh = feedbackViewport.clientHeight;
+
+  if (!vw || !vh) return;
+
+  // ビューポートに収まる最大倍率
+  const fitScale = Math.min(vw / fbImgWidth, vh / fbImgHeight);
+
+  // ちょっとだけ大きめにしたいなら *1.1 など（ここでは等倍で）
+  fbScale = Math.max(0.5, Math.min(fitScale, 5));
+
+  // 中央に来るようにオフセットを計算
+  fbOffsetX = (vw - fbImgWidth * fbScale) / 2;
+  fbOffsetY = (vh - fbImgHeight * fbScale) / 2;
+
+  updateFeedbackTransform();
+}
+
+
+function resetFeedbackView() {
+  fbScale = 1;
+  fbOffsetX = 0;
+  fbOffsetY = 0;
+  updateFeedbackTransform();
+}
+
 
 // ★ 拡大表示中のみ高画質送信モード（教員側からの指示で切り替え）
 let highQualityMode = false;
@@ -1379,7 +1426,7 @@ const srcCtx = srcCanvas.getContext("2d");
 let selectedCorners = []; // [{nx, ny}, ...] nx,ny: 0〜1
 let cornersLocked = false; // 4点揃ったら true
 
-// OpenCVロード確認
+// OpenCVロード確認（プレビューキャンバスがある場合のみ）
 if (previewCanvas && previewCtx) {
   const opencvCheckInterval = setInterval(() => {
     if (typeof cv !== "undefined" && cv.Mat) {
@@ -1394,8 +1441,7 @@ if (previewCanvas && previewCtx) {
 socket.on("setHighQualityMode", ({ enabled }) => {
   highQualityMode = !!enabled;
   console.log("High quality mode:", highQualityMode);
-
-  // ★ 解像度を切り替え
+  // 解像度を切り替え
   setupPreviewCanvas();
 });
 
@@ -1412,7 +1458,7 @@ async function listCameras() {
   if (!cameraSelect) return;
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === "videoinput");
+    const videoDevices = devices.filter((d) => d.kind === "videoinput");
     cameraSelect.innerHTML = "";
     videoDevices.forEach((device, index) => {
       const option = document.createElement("option");
@@ -1434,14 +1480,15 @@ if (startCameraBtn) {
       return;
     }
 
+    // ノート提出クラスに参加しているか？
     if (!joinedNotebookClassCode || !notebookStudentId) {
-      alert("クラスに参加してからカメラを開始してください。");
+      alert("クラスに参加してからノート提出モードを開始してください。");
       return;
     }
 
     // 既存ストリーム停止
     if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
+      currentStream.getTracks().forEach((t) => t.stop());
       currentStream = null;
     }
 
@@ -1457,21 +1504,25 @@ if (startCameraBtn) {
         },
         audio: false
       };
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       currentStream = stream;
+
       if (videoEl) {
         videoEl.srcObject = stream;
-
         videoEl.onloadedmetadata = () => {
           videoEl.play();
+          console.log("Notebook camera started:", {
+            width: videoEl.videoWidth,
+            height: videoEl.videoHeight
+          });
           setupPreviewCanvas();
         };
       }
 
+      // ノート画像送信ループ開始（3秒おき）
       if (captureIntervalIdNotebook) clearInterval(captureIntervalIdNotebook);
       captureIntervalIdNotebook = setInterval(captureAndSendImage, 3000);
-
-      // ここでもツールバーの statusLabel には何も表示しない
     } catch (e) {
       console.error(e);
       alert("カメラの起動に失敗しました");
@@ -1488,7 +1539,7 @@ function getCurrentPaperAspect() {
 function setupPreviewCanvas() {
   if (!previewCanvas || !previewCtx) return;
 
-  // ★ 高画質モードのときだけ、内部解像度を 2倍にする
+  // 高画質モードのときだけ、内部解像度を 2倍にする
   const baseWidth = highQualityMode ? 1280 : 640;
 
   const aspect = getCurrentPaperAspect();
@@ -1499,7 +1550,11 @@ function setupPreviewCanvas() {
   previewCanvas.height = targetHeight;
 
   // 角を変えたときは再描画
-  drawCorrectedFrameToPreview();
+  try {
+    drawCorrectedFrameToPreview();
+  } catch (e) {
+    console.error("drawCorrectedFrameToPreview error in setupPreviewCanvas", e);
+  }
 }
 
 // ====== 四隅クリック関連 ======
@@ -1593,7 +1648,7 @@ function getOrderedCornersFromClicks() {
 
 // キャンバス上に四隅のガイドを描画（生徒向けの目安）
 function drawCornerOverlay() {
-  // ★ 補正完了後（cornersLocked） はガイドを非表示にする
+  // 補正完了後（cornersLocked） はガイドを非表示にする
   if (!previewCanvas || !previewCtx) return;
   if (selectedCorners.length === 0 || cornersLocked) return;
 
@@ -1618,7 +1673,7 @@ function drawCornerOverlay() {
 
   // 4点すべてあるときは輪郭も描く（1→2→3→4→1 の順）
   if (selectedCorners.length === 4) {
-    const pts = selectedCorners.map(p => ({
+    const pts = selectedCorners.map((p) => ({
       x: p.nx * w,
       y: p.ny * h
     }));
@@ -1729,7 +1784,7 @@ function drawCorrectedFrameToPreview() {
   }
 }
 
-// 画像送信
+// 画像送信（ノート提出タイル用の静止画）
 function captureAndSendImage() {
   if (
     !currentStream ||
@@ -1744,9 +1799,14 @@ function captureAndSendImage() {
   if (!width || !height) return;
 
   // 台形補正 → previewCanvas に描画
-  drawCorrectedFrameToPreview();
+  try {
+    drawCorrectedFrameToPreview();
+  } catch (e) {
+    console.error("drawCorrectedFrameToPreview error in captureAndSendImage", e);
+    return;
+  }
 
-  // ★ 高画質モード中のみ PNG、それ以外は JPEG(0.5)
+  // 高画質モード中のみ PNG、それ以外は JPEG(0.5)
   let dataUrl;
   if (highQualityMode) {
     dataUrl = previewCanvas.toDataURL("image/png");
@@ -1761,12 +1821,87 @@ function captureAndSendImage() {
   });
 }
 
-// 教員からのフィードバック画像受信
+// 教員からのフィードバック画像受信（パン＆ズーム付きビューアに表示）
+// 先生 → 生徒へ「添削済み画像」を受信（中央・自動フィット拡大）
+// 教員からのフィードバック画像受信（中央フィット＋パン＆ズーム）
 socket.on("teacherSharedImage", ({ imageData }) => {
-  if (feedbackImage) {
+  if (!feedbackImage || !imageData) return;
+
+  const img = new Image();
+  img.onload = () => {
+    fbImgWidth = img.width;
+    fbImgHeight = img.height;
+
+    // 元サイズを明示しておく（transform はこれを基準にスケール）
+    feedbackImage.style.width = `${fbImgWidth}px`;
+    feedbackImage.style.height = `${fbImgHeight}px`;
+
     feedbackImage.src = imageData;
-  }
+
+    // 中央フィット
+    centerFeedbackImage();
+  };
+  img.src = imageData;
 });
+
+
+
+// ===== フィードバックビューアの操作 =====
+if (feedbackViewport) {
+  // ホイールでズーム
+  feedbackViewport.addEventListener("wheel", (e) => {
+    if (!feedbackImage || !feedbackImage.src) return;
+
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    fbScale *= zoomFactor;
+
+    // ズームの上限/下限（お好みで調整）
+    fbScale = Math.max(0.5, Math.min(fbScale, 5));
+
+    updateFeedbackTransform();
+  });
+
+  // ドラッグでパン
+  feedbackViewport.addEventListener("mousedown", (e) => {
+    if (!feedbackImage || !feedbackImage.src) return;
+    if (e.button !== 0) return; // 左クリックのみ
+
+    fbIsDragging = true;
+    fbLastX = e.clientX;
+    fbLastY = e.clientY;
+    feedbackImage.style.cursor = "grabbing";
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!fbIsDragging) return;
+
+    const dx = e.clientX - fbLastX;
+    const dy = e.clientY - fbLastY;
+    fbLastX = e.clientX;
+    fbLastY = e.clientY;
+
+    fbOffsetX += dx;
+    fbOffsetY += dy;
+    updateFeedbackTransform();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (fbIsDragging) {
+      fbIsDragging = false;
+      feedbackImage.style.cursor = "grab";
+    }
+  });
+}
+
+// リセットボタン
+if (feedbackResetBtn) {
+  feedbackResetBtn.addEventListener("click", () => {
+    centerFeedbackImage();
+  });
+}
+
+
 
 // ノート提出用カメラ停止
 function stopNotebookCamera() {
@@ -1775,7 +1910,7 @@ function stopNotebookCamera() {
     captureIntervalIdNotebook = null;
   }
   if (currentStream) {
-    currentStream.getTracks().forEach(t => t.stop());
+    currentStream.getTracks().forEach((t) => t.stop());
     currentStream = null;
   }
 }
@@ -1790,12 +1925,16 @@ window.addEventListener("load", async () => {
   ) {
     try {
       await listCameras();
-    } catch {
-      // 無視
+    } catch (e) {
+      console.warn("listCameras failed:", e);
     }
   }
   setupPreviewCanvas();
 });
+
+// beforeunload はファイル末尾付近で
+// stopNotebookCamera() が呼ばれているので、そちらに任せる
+
 
 /* ========================================
    キャプチャループ管理（ホワイトボード / 画面共有）
@@ -1811,6 +1950,22 @@ function restartCaptureLoop() {
   }, CAPTURE_INTERVAL_MS);
 }
 
+// 教員が「生徒画面確認モード」に入った
+socket.on("student-view-start", () => {
+  if (!currentClassCode || !nickname) return;
+  restartCaptureLoop();
+  sendWhiteboardThumbnail(); // 最初の1枚をすぐ送る
+});
+
+// 教員が生徒画面から離れた
+socket.on("student-view-stop", () => {
+  if (captureTimerId) {
+    clearInterval(captureTimerId);
+    captureTimerId = null;
+  }
+});
+
+
 window.addEventListener("beforeunload", () => {
   if (captureTimerId) {
     clearInterval(captureTimerId);
@@ -1821,6 +1976,8 @@ window.addEventListener("beforeunload", () => {
 // ========= 生徒画面モニタリング（高機能版）関連 =========
 
 let currentTeacherSocketId = null;
+let hasSentInitialBoardData = false;
+let forceNextBoardSync = false;
 
 
 // ★ 教員が共同編集セッションに参加
@@ -1845,6 +2002,13 @@ if (whiteboard) {
   whiteboard.onAction = (action) => {
     // 教員が監視中の場合のみ送信
     if (currentTeacherSocketId) {
+      // ★ refresh アクション（PDF読込や全消去など）の場合は、
+      //    差分ではなく次回の sendScreenUpdate で全データを送るようにフラグを立てる
+      if (action.type === "refresh") {
+        forceNextBoardSync = true;
+        return;
+      }
+
       socket.emit("student-whiteboard-action", {
         targetTeacherSocketId: currentTeacherSocketId,
         action
@@ -1857,6 +2021,17 @@ if (whiteboard) {
 socket.on("start-monitoring", ({ teacherSocketId }) => {
   console.log("Monitoring started by", teacherSocketId);
   currentTeacherSocketId = teacherSocketId;
+  hasSentInitialBoardData = false; // モニタリング開始時にリセット
+  forceNextBoardSync = false;
+
+  // ★ 共同編集開始時に、現在のボード状態を教員に送る
+  if (whiteboard) {
+    const boardData = whiteboard.exportBoardData();
+    socket.emit("student-board-state", {
+      targetTeacherSocketId: teacherSocketId,
+      boardData
+    });
+  }
 
   // 既存のサムネイル送信ループ
   if (monitorIntervalId) clearInterval(monitorIntervalId);
@@ -1884,10 +2059,11 @@ function sendScreenUpdate(teacherSocketId) {
 
   let dataUrl;
   let viewport;
-  let boardData = null; // ★ 追加：ホワイトボードの実データ
+  let boardData = null; // ★ ホワイトボードの実データ（必要に応じて）
 
-  if (captureMode === "screen") {
-    // 画面共有モード：video要素からキャプチャ
+  // ★ モードは viewMode で分岐する
+  if (viewMode === "screen") {
+    // === 画面共有モード：video 要素からキャプチャ ===
     if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
 
     const vw = screenVideo.videoWidth;
@@ -1907,8 +2083,26 @@ function sendScreenUpdate(teacherSocketId) {
 
     // 画面共有時はビューポートリセット（全体表示）
     viewport = { scale: 1, offsetX: 0, offsetY: 0 };
+
+  } else if (viewMode === "notebook") {
+    // === ノート提出モード：台形補正後のノート画像を送る ===
+    if (!previewCanvas || !previewCanvas.width || !previewCanvas.height) return;
+
+    // 最新フレームを previewCanvas に描画（カメラが止まっている場合は何もしない）
+    try {
+      drawCorrectedFrameToPreview();
+    } catch (e) {
+      console.error("drawCorrectedFrameToPreview error in sendScreenUpdate", e);
+    }
+
+    // ここでは中画質 JPEG で送信（高画質が必要な場合は別途 studentImageUpdate / PNG を使用）
+    dataUrl = previewCanvas.toDataURL("image/jpeg", 0.7);
+
+    // ノート画像なのでビューポートは固定
+    viewport = { scale: 1, offsetX: 0, offsetY: 0 };
+
   } else {
-    // ホワイトボードモード
+    // === ホワイトボードモード（viewMode === "whiteboard" 他） ===
     if (!whiteboard) return;
     dataUrl = whiteboard.exportPngDataUrl();
 
@@ -1920,12 +2114,22 @@ function sendScreenUpdate(teacherSocketId) {
 
     // ★ ホワイトボードの実データ（ストローク＋オブジェクト）を取得
     // ただし、教員のアノテーションは除外（教員側で別途管理）
-    const allData = whiteboard.getSnapshot();
-    boardData = {
-      ...allData,
-      strokes: allData.strokes.filter(s => !s.isTeacherAnnotation),
-      objects: allData.objects.filter(o => !o.isTeacherAnnotation)
-    };
+    // ★ 変更：初回送信済み かつ 強制同期フラグが立っていない場合は、boardData を送らない（nullにする）
+    const shouldSendBoardData = !hasSentInitialBoardData || forceNextBoardSync;
+
+    if (shouldSendBoardData) {
+      const allData = whiteboard.getSnapshot();
+      boardData = {
+        ...allData,
+        strokes: allData.strokes.filter(s => !s.isTeacherAnnotation),
+        objects: allData.objects.filter(o => !o.isTeacherAnnotation)
+      };
+      // 送信したらフラグ更新
+      hasSentInitialBoardData = true;
+      forceNextBoardSync = false;
+    } else {
+      boardData = null;
+    }
   }
 
   socket.emit("student-screen-update", {
@@ -1933,36 +2137,12 @@ function sendScreenUpdate(teacherSocketId) {
     teacherSocketId,
     dataUrl,
     viewport,
-    mode: captureMode,
-    boardData // ★ 追加：実データも送信
+    // ★ 教員側には viewMode をモードとして渡す
+    //   "whiteboard" | "screen" | "notebook"
+    mode: viewMode,
+    boardData, // ★ ホワイトボードモードのときのみ有効（差分更新時は null）
+    isSync: !!boardData // ★ 受け取り側で「全データ同期」かどうかを判断するためのフラグ
   });
 }
 
-// ★ 教員からの書き込み受信（即時反映）
-socket.on("teacher-annotation-update", ({ classCode, targetSocketId, annotationData }) => {
-  if (targetSocketId && targetSocketId !== socket.id) return;
 
-  // 即座に反映
-  whiteboard.setPendingObjects(annotationData);
-  whiteboard.mergePendingObjects();
-
-  // 反映後、すぐに画面更新を教員に送り返す
-  if (currentTeacherSocketId) {
-    setTimeout(() => {
-      sendScreenUpdate(currentTeacherSocketId);
-    }, 100);
-  }
-});
-
-// ★ 破棄ボタン
-if (discardAnnotationBtn) {
-  discardAnnotationBtn.addEventListener("click", () => {
-    if (whiteboard) {
-      whiteboard.setPendingObjects(null); // プレビュー消去
-    }
-    if (annotationAcceptBar) {
-      annotationAcceptBar.classList.add("hidden");
-    }
-    pendingAnnotationData = null;
-  });
-}

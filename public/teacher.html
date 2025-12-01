@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 
 <head>
@@ -59,10 +59,12 @@
         </button>
         <div id="fileMenuDropdown" class="dropdown-content">
           <button id="teacherOpenSaveDialogBtn"><span class="material-symbols-rounded">save</span> 保存...</button>
+          <button id="teacherOverwriteSaveBtn" class="topbar-btn">上書き保存</button>
           <button id="teacherOpenLoadDialogBtn"><span class="material-symbols-rounded">folder_open</span> 開く...</button>
           <hr>
           <button id="exportPdfBtn"><span class="material-symbols-rounded">picture_as_pdf</span> PDF出力</button>
           <button id="exportPngBtn"><span class="material-symbols-rounded">image</span> PNG出力</button>
+          <button id="leaveClassBtn">退室</button>
         </div>
       </div>
     </div>
@@ -289,35 +291,47 @@
   </div>
 
   <!-- 生徒画面拡大モーダル -->
-  <div id="modalBackdrop" class="modal-backdrop">
-    <div class="modal modal-notebook full-modal">
-      <div class="modal-body-full">
-        <div id="modalBoardContainer" style="width: 100%; height: 100%;">
-          <canvas id="modalCanvas"></canvas>
-        </div>
-        <div class="modal-overlay-toolbar">
-          <div class="left-tools">
-            <span id="modalTitle" class="modal-title">生徒画面</span>
-            <div class="tool-row">
-              <button id="modalToolSelect" class="tool-btn active"><span
-                  class="material-symbols-rounded">arrow_selector_tool</span></button>
-              <button id="modalToolPen" class="tool-btn"><span class="material-symbols-rounded">edit</span></button>
-              <button id="modalToolEraser" class="tool-btn"><span
-                  class="material-symbols-rounded">ink_eraser</span></button>
-              <input id="modalPenColor" type="color" value="#ff0000" />
-            </div>
+  <div id="studentModalBackdrop" class="student-modal-backdrop">
+    <div class="student-modal-frame">
+      <!-- ★ ここにタイトルバーを移動 -->
+      <div class="modal-header-overlay">
+        <div id="studentModalTitle" class="modal-title">生徒の画面</div>
+        <button id="modalShareToStudentBtn" class="share-btn">
+          生徒に送信
+        </button>
+        <button id="studentModalCloseBtn" class="icon-btn">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+
+      <!-- 左のツールサイドバー -->
+      <div id="studentModalSidebar" class="modal-sidebar">
+        <div class="sidebar-content">
+          <!-- ツールボタン -->
+          <!-- ★ 移動ボタンは不要なので削除済み -->
+          <button id="modalToolPen" class="wb-btn" data-tool="pen">ペン</button>
+          <button id="modalToolHighlighter" class="wb-btn" data-tool="highlighter">蛍光ペン</button>
+          <button id="modalToolEraser" class="wb-btn" data-tool="eraser">消しゴム</button>
+
+          <div class="setting-row">
+            <span class="label">色</span>
+            <input id="modalPenColor" type="color" value="#111827" />
           </div>
-          <button id="modalCloseBtn" class="icon-btn"><span class="material-symbols-rounded">close</span></button>
         </div>
+      </div>
+
+      <!-- 右側：ホワイトボード表示エリア -->
+      <div id="studentModalBoardContainer" class="modal-board-container">
+        <canvas id="studentModalCanvas"></canvas>
       </div>
     </div>
   </div>
+
 
   <!-- socket.io -->
   <script src="/socket.io/socket.io.js"></script>
   <!-- モジュール -->
   <script type="module" src="/js/teacher.js"></script>
-
 </body>
 
 </html>

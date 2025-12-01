@@ -1,551 +1,1416 @@
-/* ===== 基本リセット ===== */
-*,
-*::before,
-*::after {
+/* Reset & Base */
+* {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 html,
 body {
-  margin: 0;
-  padding: 0;
+  width: 100%;
   height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  color: #0f172a;
-  background: radial-gradient(circle at top left, #e0f2fe, #f9fafb);
-}
-
-/* ===== アプリ全体 ===== */
 .app-root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #f3f4f6;
 }
 
-/* ===== トップバー ===== */
-.topbar {
-  flex: 0 0 auto;
+/* Full Screen Canvas */
+.board-container {
+  position: fixed;
+  inset: 0;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.board-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* Floating Topbar */
+.floating-topbar {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  height: 56px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
-  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.08);
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  padding: 0 16px;
+  z-index: 100;
+  gap: 16px;
 }
 
 .topbar-left,
-.topbar-center,
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.topbar label {
-  font-size: 0.9rem;
-  color: #475569;
-  display: inline-flex;
-  align-items: center;
+.topbar-center {
+  flex: 0 0 auto;
+}
+
+/* Mode Switcher - Horizontal Layout */
+.mode-switcher {
+  display: flex;
+  flex-direction: row;
   gap: 4px;
+  background: #f3f4f6;
+  padding: 4px;
+  border-radius: 10px;
 }
 
-.topbar input[type="text"] {
-  border-radius: 999px;
-  border: 1px solid #cbd5f5;
-  padding: 6px 10px;
-  font-size: 0.9rem;
-  outline: none;
-  min-width: 120px;
-}
-
-.topbar input[type="text"]:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
-}
-
-.topbar-btn {
-  margin-left: 8px;
-  padding: 4px 10px;
-  font-size: 0.85rem;
-  border-radius: 4px;
-  border: 1px solid #cbd5f5;
-  background: #e5edff;
-  color: #1e3a8a;
-  cursor: pointer;
-}
-.topbar-btn:hover {
-  background: #dbeafe;
-}
-
-.status-label {
-  font-size: 0.85rem;
-  color: #0f766e;
-}
-
-/* タブボタン（ホワイトボード / 生徒画面など） */
-.tab-button {
-  border-radius: 999px;
+.mode-btn {
+  width: 40px;
+  height: 40px;
   border: none;
-  padding: 6px 12px;
-  font-size: 0.9rem;
-  cursor: pointer;
   background: transparent;
-  color: #64748b;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: background 0.15s, color 0.15s;
-}
-
-.tab-button.active {
-  background: #2563eb;
-  color: #ffffff;
-}
-
-.tab-button:hover {
-  background: rgba(148, 163, 184, 0.2);
-}
-
-/* 共通ボタン */
-button {
-  font-family: inherit;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* 小さめのアクションボタン */
-.topbar button:not(.tab-button) {
-  border-radius: 999px;
-  border: none;
-  padding: 6px 12px;
-  font-size: 0.9rem;
+  border-radius: 8px;
   cursor: pointer;
-  background: #2563eb;
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.25);
-  transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
-}
-
-.topbar button:not(.tab-button):hover {
-  background: #1d4ed8;
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
-  transform: translateY(-1px);
-}
-
-/* ===== メインレイアウト ===== */
-.main-layout {
-  flex: 1 1 auto;
-  display: flex;
-  min-height: 0;
-  /* トップバーの高さぶんを引いた値（だいたい 56px 前後）
-     必要なら 52px や 60px に微調整してOKです */
-  height: calc(100vh - 56px);
-}
-
-.wb-sidebar {
-  position: relative;
-  flex: 0 0 260px;
-  max-width: 260px;
-  background: rgba(255, 255, 255, 0.96);
-  border-right: 1px solid rgba(148, 163, 184, 0.4);
-  padding: 10px 10px 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: 4px 0 12px rgba(15, 23, 42, 0.04);
-  transition: max-width 0.25s ease, flex-basis 0.25s ease, padding 0.25s ease;
-
-  /* ★ ここを追加：中身が増えたら中でスクロール */
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.wb-sidebar.collapsed {
-  flex-basis: 52px;
-  max-width: 52px;
-  padding-right: 6px;
-}
-
-/* サイドバー折りたたみボタン */
-.sidebar-toggle {
-  position: absolute;
-  top: 50%;
-  right: -12px;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 48px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.6);
-  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
-  transition: background 0.15s, transform 0.25s;
-  z-index: 5;
+  transition: background 0.2s;
+  color: #6b7280;
 }
 
-.sidebar-toggle:hover {
-  background: #eff6ff;
+.mode-btn:hover {
+  background: #e5e7eb;
 }
 
-.sidebar-toggle .chevron {
-  font-size: 0.9rem;
-  color: #64748b;
-  transition: transform 0.25s;
+.mode-btn.active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.wb-sidebar.collapsed + .sidebar-toggle,
-.wb-sidebar.collapsed .sidebar-toggle {
-  /* if placed inside, this rule will still apply */
-}
-
-.wb-sidebar.collapsed .sidebar-toggle .chevron {
-  transform: rotate(180deg);
-}
-
-/* サイドバー内セクション */
-.wb-section {
-  padding: 8px 6px;
+/* Floating Sidebar */
+.floating-sidebar {
+  position: fixed;
+  left: 16px;
+  top: 88px;
+  bottom: 16px;
+  width: 64px;
+  background: #ffffff;
   border-radius: 12px;
-  background: rgba(248, 250, 252, 0.9);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
 }
 
-.wb-section h3 {
-  margin: 0 0 6px;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #94a3b8;
+.floating-sidebar.collapsed {
+  transform: translateX(-80px);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-btn {
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: #374151;
+  position: relative;
+}
+
+.tool-btn:hover {
+  background: #f3f4f6;
+}
+
+.tool-btn.active {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.tool-btn .material-symbols-rounded {
+  font-size: 24px;
+}
+
+
+.zoom-controls {
+  align-items: center;
+  gap: 8px;
+}
+
+/* Icon Buttons */
+.icon-btn,
+.icon-btn-text {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: #374151;
+}
+
+.icon-btn-text {
+  width: auto;
+  padding: 0 12px;
   gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
-.wb-section h3 .section-icon {
-  font-size: 1rem;
+.icon-btn:hover,
+.icon-btn-text:hover {
+  background: #f3f4f6;
 }
 
-/* 折りたたみ時に文字だけ隠す */
-.wb-sidebar.collapsed h3 span.section-text,
-.wb-sidebar.collapsed .tool-label,
-.wb-sidebar.collapsed .file-button span.label-text {
-  display: none;
+.icon-btn .material-symbols-rounded,
+.icon-btn-text .material-symbols-rounded {
+  font-size: 20px;
 }
 
-/* ツールボタン群 */
-.tool-row {
+.icon-btn-sm {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: #6b7280;
+}
+
+.icon-btn-sm:hover {
+  background: #f3f4f6;
+}
+
+.icon-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.icon-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.divider-vertical {
+  width: 1px;
+  height: 24px;
+  background: #e5e7eb;
+}
+
+/* Color Palette */
+.color-palette {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.tool-button {
-  flex: 1 1 48%;
-  min-width: 0;
+.color-palette.mini {
+  gap: 4px;
+}
+
+.color-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--c);
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.2s;
+}
+
+.color-palette.mini .color-dot {
+  width: 24px;
+  height: 24px;
+}
+
+.color-dot:hover {
+  transform: scale(1.1);
+}
+
+.color-dot.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* Width Slider */
+.width-slider {
+  display: flex;
+  align-items: center;
+}
+
+.simple-select {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+/* Dropdown */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  padding: 6px;
+  min-width: 200px;
+  display: none;
+  z-index: 1000;
+}
+
+.dropdown-content.show {
+  display: block;
+}
+
+.dropdown-content button {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+  transition: background 0.2s;
+}
+
+.dropdown-content button:hover {
+  background: #f3f4f6;
+}
+
+.dropdown-content hr {
+  margin: 6px 0;
+  border: none;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Chat Panel */
+.chat-panel {
+  position: fixed;
+  right: 0;
+  top: 88px;
+  bottom: 0;
+  width: 360px;
+  background: #ffffff;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.08);
+  border-left: 1px solid #e5e7eb;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
+}
+
+.chat-panel.collapsed {
+  transform: translateX(100%);
+}
+
+.chat-panel-header {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.chat-target-area {
+  padding: 12px 16px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.chat-target-area--student {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 80%;
+}
+
+.chat-message.from-me {
+  align-self: flex-end;
+}
+
+.chat-message.from-them {
+  align-self: flex-start;
+}
+
+.chat-message-header {
+  font-size: 11px;
+  color: #9ca3af;
+  padding: 0 8px;
+}
+
+.chat-message-bubble {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.from-me .chat-message-bubble {
+  background: #2563eb;
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.from-them .chat-message-bubble {
+  background: #f3f4f6;
+  color: #111827;
+  border-bottom-left-radius: 4px;
+}
+
+.chat-input-area {
+  padding: 12px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input-area input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  font-size: 14px;
+  outline: none;
+}
+
+.chat-input-area input:focus {
+  border-color: #2563eb;
+}
+
+.chat-notify-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  background: #ef4444;
+  border-radius: 50%;
+  display: none;
+}
+
+.chat-notify-dot.show {
+  display: block;
+}
+
+.chat-unread-summary {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  background-color: #f3f4f6;
+  /* 薄いグレー */
+  border-radius: 4px;
+}
+
+
+/* Student View */
+.student-view,
+.notebook-view {
+  position: fixed;
+  inset: 0;
+  background: #f3f4f6;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: 88px 16px 16px 16px;
+}
+
+.view-header {
+  margin-bottom: 20px;
+}
+
+.view-header h2 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.students-info {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.tile-grid,
+.student-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.tile {
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #2563eb;
+}
+
+.tile img,
+.tile canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #e5e7eb;
+}
+
+.tile .meta {
+  margin-top: 8px;
+  font-weight: 600;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* Floating Palettes */
+.floating-palette {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  border: 1px solid #e5e7eb;
+  z-index: 7000;
+  min-width: 260px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.floating-palette.hidden {
+  display: none;
+}
+
+.palette-header {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.stamp-palette-grid,
+.shape-items {
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.stamp-palette-grid {
+  grid-template-columns: repeat(6, minmax(40px, 1fr));
+}
+
+.stamp-item {
+  width: 44px;
+  height: 44px;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
-  padding: 6px 8px;
-  background: #ffffff;
-  font-size: 0.78rem;
-  display: inline-flex;
+  background: #fff;
+  font-size: 24px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   cursor: pointer;
-  color: #4b5563;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s,
-    transform 0.05s, color 0.15s;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
 
-.tool-button .icon {
-  font-size: 0.9rem;
+.stamp-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-.tool-button:hover {
+.stamp-item.active {
   background: #eff6ff;
-  border-color: #bfdbfe;
-  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.18);
-  transform: translateY(-1px);
+  border-color: #2563eb;
 }
 
-.tool-button.active,
-.tool-button.primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: #ffffff;
-  border-color: transparent;
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
+.shape-items {
+  display: flex;
+  flex-wrap: wrap;
 }
 
-/* ファイルボタン */
-.file-button {
+.shape-item {
+  min-width: 90px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: #f9fafb;
-  border: 1px dashed #cbd5f5;
-  color: #475569;
-  font-size: 0.8rem;
   cursor: pointer;
-  width: 100%;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.2s, box-shadow 0.2s;
 }
 
-.file-button:hover {
+.shape-item:hover {
+  background: #eef2ff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.shape-item.active {
   background: #eff6ff;
-  border-color: #60a5fa;
-  color: #1d4ed8;
+  border-color: #2563eb;
+  color: #2563eb;
 }
 
-/* ===== 右側：ホワイトボードエリア ===== */
-.wb-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 10px 12px 10px 10px;
+.shape-icon {
+  font-size: 18px;
 }
 
-.board-container,
-.student-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  padding: 8px;
-  position: relative;
-  overflow: hidden;
+.shape-label {
+  font-size: 12px;
 }
 
-.board-container canvas,
-.student-view canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-/* 生徒ビューの表示/非表示 */
-.student-view.hidden {
-  display: none;
-}
-
-/* ===== 生徒タイルグリッド（teacher用） ===== */
-.students-info {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 0.9rem;
-  color: #475569;
-}
-
-/* タイル全体を詰めて表示 */
-.tile-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;                    /* ← 横・縦のすき間を統一して狭くする */
-  align-items: start;          /* ← 高さを揃えず上寄せ */
-  justify-items: center;       /* ← タイルを中央寄せ */
-  width: 100%;
-  padding: 8px 0;
-  box-sizing: border-box;
-}
-
-/* 各タイルのカード設定 */
-.tile {
-  background: #f9fafb;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  max-width: 260px;            /* タイルが細くなりすぎないよう制限 */
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-
-.tile:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-/* 画像部分 */
-.tile img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;        /* ← サムネイル比率固定で整列感UP */
-  object-fit: cover;
-  background: #e5e7eb;
-}
-
-/* 名前部分 */
-.tile .meta {
-  padding: 6px 8px;
-  text-align: center;
-  font-size: 0.9rem;
-  background: #f8fafc;
-  border-top: 1px solid #e5e7eb;
-}
-
-/* ===== モーダル ===== */
+/* Modal */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2000;
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 50;
 }
 
 .modal-backdrop.show {
   display: flex;
 }
 
-/* ★ ここを修正：モーダルを画面いっぱいに広げる */
 .modal {
-  background: #ffffff;
-  border-radius: 0;                 /* 画面いっぱいなので角丸をなくす */
-  padding: 12px 12px 16px;
-  width: 100vw;
-  height: 100vh;
-  max-width: 100vw;
-  max-height: 100vh;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.6);
-  position: relative;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.modal.full-modal {
+  width: 95vw;
+  height: 95vh;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.modal-body-full {
+  flex: 1;
+  position: relative;
+  background: #e5e7eb;
+}
+
+.modal-overlay-toolbar {
+  position: absolute;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  box-sizing: border-box;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.stamp-item {
+  aspect-ratio: 1;
+  font-size: 24px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stamp-item:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.tool-row {
+  display: flex;
+  gap: 4px;
 }
 
 .modal-title {
-  margin: 0 32px 4px 0;
-  font-size: 0.95rem;
-  color: #0f172a;
+  font-weight: 600;
+  font-size: 14px;
 }
 
-/* ★ ここを修正：画像が枠内に収まるように */
-.modal-image {
-  max-width: 100%;
-  max-height: calc(100vh - 100px);  /* タイトルやボタン分を差し引き */
-  object-fit: contain;
-  border-radius: 10px;
-  background: #0f172a;
-  margin: 0 auto;
+/* Hidden utility class */
+.hidden {
+  display: none !important;
 }
 
-.modal-close {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  border-radius: 999px;
-  border: none;
-  width: 28px;
-  height: 28px;
-  background: rgba(15, 23, 42, 0.08);
-  display: inline-flex;
+/* Zoom level display */
+#zoomLevel {
+  min-width: 50px;
+  text-align: center;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* Student Login Overlay */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  font-size: 1rem;
+  z-index: 10000;
 }
 
-/* ホワイトボードコンテナを隠すためのクラス */
-.board-container.hidden {
-  display: none;
-}
-
-/* 教員が「生徒画面確認」モードのときはサイドバーを非表示にして
-   右側エリア（生徒タイル）を画面いっぱいに広げる */
-body.teacher-student-view .wb-sidebar {
-  display: none;
-}
-
-body.teacher-student-view .wb-main {
-  padding: 10px 16px;
-}
-
-/* カラーパレット */
-.color-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.color-swatch {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  border: 2px solid rgba(148, 163, 184, 0.7);
-  background: var(--swatch-color);
-  cursor: pointer;
-  padding: 0;
-  outline: none;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
-  transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
-}
-
-.color-swatch:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 6px rgba(15, 23, 42, 0.25);
-}
-
-.color-swatch.active {
-  box-shadow: 0 0 0 2px #2563eb;
-  border-color: #ffffff;
-}
-
-/* ペン太さセレクト & 図形の線幅セレクト */
-#penWidthSelect,
-#shapeStrokeWidthSelect {
-  width: 100%;
-  border-radius: 999px;
-  border: 1px solid #cbd5f5;
-  padding: 4px 8px;
-  font-size: 0.8rem;
-  outline: none;
+.login-box {
   background: #ffffff;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  min-width: 400px;
+  max-width: 90vw;
 }
 
-#penWidthSelect:focus,
-#shapeStrokeWidthSelect:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+.login-box h2 {
+  margin: 0 0 24px 0;
+  font-size: 24px;
+  color: #111827;
+  text-align: center;
 }
+
+.login-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-box label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.login-box input {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.login-box input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.login-box button[type="submit"] {
+  padding: 14px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.modal.full-modal {
+  width: 95vw;
+  height: 95vh;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.modal-body-full {
+  flex: 1;
+  position: relative;
+  background: #e5e7eb;
+}
+
+.modal-overlay-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Stamp Palette Items */
+.stamp-items {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.stamp-item {
+  aspect-ratio: 1;
+  font-size: 24px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stamp-item:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.stamp-item.active {
+  background: #dbeafe;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+
+.left-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tool-row {
+  display: flex;
+  gap: 4px;
+}
+
+.modal-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Hidden utility class */
+.hidden {
+  display: none !important;
+}
+
+/* Zoom level display */
+#zoomLevel {
+  min-width: 50px;
+  text-align: center;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* Student Login Overlay */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.login-box {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  min-width: 400px;
+  max-width: 90vw;
+}
+
+.login-box h2 {
+  margin: 0 0 24px 0;
+  font-size: 24px;
+  color: #111827;
+  text-align: center;
+}
+
+.login-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-box label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.login-box input {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.login-box input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.login-box button[type="submit"] {
+  padding: 14px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.login-box button[type="submit"]:hover {
+  background: #1d4ed8;
+}
+
+/* ========================================
+   Context Menu (Bottom Center)
+   ======================================== */
+.context-menu {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 100;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+}
+
+.context-menu.hidden {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(20px);
+}
+
+.context-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.context-section.hidden {
+  display: none;
+}
+
+.color-palette {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.color-palette.mini {
+  gap: 4px;
+}
+
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background-color: var(--c);
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.color-dot:hover {
+  transform: scale(1.1);
+}
+
+.color-dot.active {
+  border-color: #2563eb;
+  transform: scale(1.1);
+}
+
+.width-slider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.simple-select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  font-size: 14px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-row .label {
+  font-size: 12px;
+  color: #6b7280;
+  width: 24px;
+}
+
+/* ========================================
+   Full Screen Utility
+   ======================================== */
+.full-screen {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ========================================
+   Sidebar Toggle Button
+   ======================================== */
+.sidebar-toggle-btn {
+  position: absolute;
+  right: -12px;
+  top: 16px;
+  width: 24px;
+  height: 48px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0 8px 8px 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+  transition: all 0.3s ease;
+}
+
+.sidebar-toggle-btn:hover {
+  background: #f9fafb;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+}
+
+.sidebar-toggle-btn .material-symbols-rounded {
+  font-size: 18px;
+  color: #6b7280;
+  transition: transform 0.3s ease;
+}
+
+.floating-sidebar.collapsed .sidebar-toggle-btn .material-symbols-rounded {
+  transform: rotate(180deg);
+}
+
+/* Sidebar が閉じている時は toggle button を左に移動 */
+.floating-sidebar.collapsed .sidebar-toggle-btn {
+  right: auto;
+  left: calc(100% - 12px);
+}
+
+/* ========================================
+   Dropdown Menu
+   ======================================== */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 200px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dropdown-content.hidden {
+  display: none;
+}
+
+.dropdown-content button {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+  transition: background 0.2s;
+  text-align: left;
+}
+
+.dropdown-content button:hover {
+  background: #f3f4f6;
+}
+
+.dropdown-content button .material-symbols-rounded {
+  font-size: 18px;
+  color: #6b7280;
+}
+
+.dropdown-content hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 4px 0;
+}
+
+/* ==========================================
+   Modal Sidebar (for student whiteboard modal)
+   ========================================== */
+
+.modal-sidebar {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: 64px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
+}
+
+.modal-sidebar.collapsed {
+  transform: translateX(-80px);
+}
+
+.modal-sidebar .sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-sidebar .sidebar-toggle-btn {
+  width: 100%;
+  height: 40px;
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: #6b7280;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.modal-sidebar .sidebar-toggle-btn:hover {
+  background: #f3f4f6;
+}
+
+.modal-sidebar.collapsed .sidebar-toggle-btn .material-symbols-rounded {
+  transform: rotate(180deg);
+}
+
+.modal-sidebar .context-menu {
+  position: absolute;
+  left: 76px;
+  top: 0;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  padding: 12px;
+  min-width: 180px;
+  z-index: 150;
+}
+
+.modal-sidebar .context-menu.hidden {
+  display: none;
+}
+
+.modal-sidebar .context-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-sidebar .context-section.hidden {
+  display: none;
+}
+
+.modal-sidebar .setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-sidebar .setting-row .label {
+  font-size: 12px;
+  color: #6b7280;
+  min-width: 24px;
+}
+
+.modal-board-container {
+  position: absolute;
+  left: 96px;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: left 0.3s ease;
+}
+
+.modal-sidebar.collapsed~.modal-board-container {
+  left: 16px;
+}
+
+/* 生徒画面モーダル左側の「移動」ボタンを非表示にする */
+#modalToolPan {
+  display: none !important;
+}
+
+.modal-board-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.modal-header-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+  pointer-events: auto;
+  z-index: 200;
+}
+
+.modal-header-overlay .modal-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #111827;
+}
+
+.modal-header-overlay .icon-btn {
+  pointer-events: auto;
+}
+
+/* 生徒画面拡大モーダル全体のオーバーレイ */
+.student-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  /* 初期は非表示 */
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.student-modal-backdrop.show {
+  display: flex !important;
+  /* .show が付いたら必ず表示 */
+}
+
+.student-modal-frame {
+  position: relative;
+  width: 96%;
+  height: 90%;
+  max-width: 1280px;
+  max-height: 720px;
+  background: #f3f4f6;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+/* 「移動」ボタンをモーダルのサイドバーから非表示にする */
+#modalToolPan {
+  display: none !important;
+}
+
+/* ===== ホワイトボード保存/読み込みダイアログ ===== */
 
 .board-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: rgba(0, 0, 0, 0.4);
   display: none;
-  align-items: center;
+  /* .show で flex にする */
   justify-content: center;
+  align-items: center;
   z-index: 9999;
 }
 
@@ -554,23 +1419,25 @@ body.teacher-student-view .wb-main {
 }
 
 .board-dialog {
-  background: #fff;
+  background: #ffffff;
   border-radius: 8px;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
-  width: 760px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  width: 900px;
   max-width: 95vw;
-  max-height: 90vh;
+  max-height: 80vh;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
 }
 
 .board-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid #e5e7eb;
   font-weight: 600;
+  font-size: 16px;
 }
 
 .board-dialog-close {
@@ -582,720 +1449,268 @@ body.teacher-student-view .wb-main {
 
 .board-dialog-body {
   display: flex;
+  gap: 16px;
+  flex: 1 1 auto;
   min-height: 260px;
-  max-height: 420px;
 }
 
 .board-dialog-left,
 .board-dialog-right {
-  flex: 1;
-  border-right: 1px solid #e5e7eb;
-  padding: 8px 10px;
-  overflow-y: auto;
-}
-
-.board-dialog-right {
-  border-right: none;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .board-dialog-left h3,
 .board-dialog-right h3 {
-  margin: 0 0 4px;
+  margin: 0 0 4px 0;
   font-size: 14px;
-  color: #4b5563;
+  font-weight: 600;
 }
 
 .board-dialog-list {
+  flex: 1 1 auto;
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #f9fafb;
+  overflow-y: auto;
+  min-height: 220px;
 }
 
 .board-dialog-list li {
   padding: 4px 6px;
-  font-size: 13px;
-  cursor: pointer;
   border-radius: 4px;
+  cursor: default;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.board-dialog-folder-item,
+.board-dialog-file-item {
+  cursor: pointer;
+}
+
+.board-dialog-folder-item:hover,
+.board-dialog-file-item:hover {
+  background: #e5e7eb;
 }
 
 .board-dialog-folder-item.selected,
 .board-dialog-file-item.selected {
-  background-color: #e5f0ff;
-}
-
-.board-dialog-list li:hover {
-  background-color: #f3f4f6;
+  background: #2563eb;
+  color: #ffffff;
 }
 
 .board-dialog-file-empty {
-  color: #9ca3af;
-  cursor: default;
+  color: #6b7280;
 }
 
 .board-dialog-footer {
-  padding: 8px 12px;
-  border-top: 1px solid #e5e7eb;
   display: flex;
-  gap: 12px;
-  align-items: center;
   justify-content: space-between;
-  font-size: 13px;
+  gap: 16px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+#boardDialogSaveArea,
+#boardDialogLoadArea {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .board-dialog-field {
   display: flex;
-  flex-direction: column;
-  font-size: 12px;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .board-dialog-field input {
-  font-size: 13px;
-  padding: 3px 6px;
-}
-
-#boardDialogSaveArea {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-#boardDialogLoadArea {
-  display: none;
-  gap: 12px;
-  align-items: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  min-width: 220px;
 }
 
 .board-dialog-hint {
   color: #6b7280;
-}
-
-/* =========================
-   チャットパネル（右側固定）
-   ========================= */
-
-.chat-toggle-btn {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 9000;
-  width: 42px;
-  height: 42px;
-  border-radius: 999px 0 0 999px;
-  border: none;
-  background: #111827;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.4);
-}
-
-.chat-toggle-btn:hover {
-  filter: brightness(1.05);
-}
-
-.chat-toggle-btn.has-unread {
-  animation: chat-pulse 1s ease-in-out infinite alternate;
-}
-
-@keyframes chat-pulse {
-  from {
-    box-shadow: 0 0 0 rgba(239, 68, 68, 0.4);
-  }
-  to {
-    box-shadow: 0 0 12px rgba(239, 68, 68, 0.8);
-  }
-}
-
-.chat-notify-dot {
-  display: none;
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: #ef4444;
-}
-
-.chat-toggle-btn.has-unread .chat-notify-dot {
-  display: block;
-}
-
-.chat-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;                       /* ← ここで画面下端まで伸ばす */
-  width: 320px;
-  max-width: 80vw;
-  max-height: 100%;                /* iOS の 100vh 問題を避けるため念のため追加 */
-  background: #ffffff;
-  box-shadow: -4px 0 16px rgba(15, 23, 42, 0.25);
-  display: flex;
-  flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.25s ease;
-  z-index: 8999;
-}
-
-.chat-panel:not(.collapsed) {
-  transform: translateX(0);
-}
-
-.chat-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
-}
-
-.chat-title {
-  flex: 1;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.chat-target-area {
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.chat-target-area select {
-  font-size: 12px;
-  padding: 2px 4px;
-}
-
-.chat-target-area--student {
-  color: #6b7280;
-}
-
-.chat-close-btn {
-  border: none;
-  background: transparent;
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.chat-messages {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 8px 12px 12px;
-}
-
-/* 1件分 */
-.chat-message-row {
-  margin-bottom: 6px;
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-message-meta {
-  font-size: 11px;
-  color: #6b7280;
-  margin-bottom: 2px;
-}
-
-.chat-message-bubble {
-  display: inline-block;
-  padding: 6px 8px;
-  border-radius: 10px;
-  max-width: 100%;
-  word-wrap: break-word;
-}
-
-.chat-message--me .chat-message-bubble {
-  background: #2563eb;
-  color: #fff;
-  align-self: flex-end;
-}
-
-.chat-message--them .chat-message-bubble {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-}
-
-/* ★ 入力欄：safe-area 分だけ下に余白を足す */
-.chat-input-area {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));  /* ← 追加 */
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
-}
-
-.chat-input-area input {
-  flex: 1;
   font-size: 13px;
-  padding: 4px 6px;
 }
 
-.chat-input-area button {
-  font-size: 13px;
-  padding: 4px 10px;
-}
-
-/* 小さい画面のとき少し幅を絞る */
-@media (max-width: 640px) {
-  .chat-panel {
-    width: 260px;
-  }
-}
-
-/* =========================
-   スタンプパレット
-   ========================= */
-
-.stamp-palette {
-  position: fixed;
-  inset: 0;
-  z-index: 7000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none; /* hidden時のクリック貫通用 */
-}
-
-.stamp-palette-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.stamp-palette:not(.stamp-palette-hidden) {
-  pointer-events: auto;
-}
-
-.stamp-palette-inner {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
-  padding: 10px;
-  min-width: 260px;
-  max-width: 360px;
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #e5e7eb;
-}
-
-.stamp-palette-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.stamp-palette-close {
-  border: none;
-  background: transparent;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.stamp-palette-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
-  overflow-y: auto;
-  padding: 4px 0 2px;
-}
-
-.stamp-item{
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0,0,0,.05);
-  font-size: 22px;
-  line-height: 36px;
-  text-align: center;
-  cursor: pointer;
-  transition: transform .06s ease, box-shadow .1s ease;
-}
-
-.stamp-item:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0,0,0,.08);
-}
-
-.stamp-item:active{
-  transform: translateY(0);
-  box-shadow: none;
-}
-
-.stamp-item.stamp-item-active {
-  background: #2563eb;
-  color: #ffffff;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.8);
-}
-
-.stamp-items{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
-  gap: 8px;
-  padding: 8px 12px 12px;
-  max-height: 280px;          /* パレットからはみ出すときにスクロール */
-  overflow: auto;
-}
-
-/* =========================
-   図形パレット
-   ========================= */
-
-.shape-palette {
-  position: fixed;
-  inset: 0;
-  z-index: 7000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none; /* hidden時のクリック貫通用 */
-}
-
-.shape-palette-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.shape-palette:not(.shape-palette-hidden) {
-  pointer-events: auto;
-}
-
-.shape-palette-inner {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
-  padding: 10px;
-  min-width: 260px;
-  max-width: 420px;
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #e5e7eb;
-}
-
-.shape-palette-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.shape-palette-close {
-  border: none;
-  background: transparent;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-/* 図形一覧エリア（ボタンを並べるところ） */
-.shape-palette-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-  gap: 6px;
-  overflow-y: auto;
-  padding: 4px 0 2px;
-}
-
-.hw-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
-
-.hw-dialog-overlay.show {
-  display: flex;
-}
-
-.hw-dialog {
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
-  max-width: 720px;
-  width: 100%;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.hw-dialog-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.hw-dialog-title {
-  font-weight: 600;
-}
-
-.hw-dialog-close {
-  border: none;
-  background: transparent;
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.hw-dialog-body {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.hw-canvas-area {
-  flex: 1 1 380px;
-}
-
-.hw-preview-area {
-  flex: 1 1 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.hw-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-.hw-tool-btn {
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 6px;
-  border: 1px solid #cbd5f5;
-  background: #f9fafb;
-  cursor: pointer;
-}
-
-.hw-tool-btn--active {
-  background: #2563eb;
-  color: white;
-  border-color: #2563eb;
-}
-
-.hw-canvas {
-  border: 1px solid #cbd5f5;
-  border-radius: 8px;
-  background: #ffffff;
-  width: 100%;
-  height: 200px;
-}
-
-.hw-preview-text {
-  width: 100%;
-  resize: vertical;
-}
-
-.hw-dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.hw-primary-btn {
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: none;
-  background: #2563eb;
-  color: white;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-/* 図形パレット全体（必要なら） */
-.shape-palette .shape-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-/* 図形ボタン */
-.shape-item {
-  min-width: 80px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.05s ease;
-}
-
-.shape-item:hover {
-  background: #eef2ff;
-  box-shadow: 0 2px 4px rgba(148, 163, 184, 0.4);
-}
-
-.shape-item:active {
-  transform: translateY(1px);
-  box-shadow: 0 1px 2px rgba(148, 163, 184, 0.6);
-}
-
-/* ===== テキストスタイルパネルなどがあればここに追加 ===== */
-
-/* =========================================
-   生徒側ノート提出レイアウト（画面に自動フィット）
-   ========================================= */
-
+/* ノート提出全体：上部の固定ツールバー(88px)を避けて表示する */
 .student-notebook-layout {
-  width: 100%;
-  /* 上のトップバー分を引いた高さ（必要なら 64px を微調整してください） */
-  height: calc(100vh - 64px);
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  /* board-container より上、floating-topbar より下 */
+  background: #f3f4f6;
+  padding: 88px 16px 16px 16px;
+  /* 上はトップバー分空ける */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: hidden;          /* ここで画面外にはみ出さないようにする */
 }
 
+/* 縦方向に「ツールバー」「コンテンツ」で2分割 */
 .student-notebook-inner {
   flex: 1 1 auto;
+  min-height: 0;
+  /* ★これ重要：中身で高さが膨らまないように */
   display: flex;
   flex-direction: column;
-  min-height: 0;             /* flex 子要素がきちんと縮むように */
 }
 
+/* 上のツールバー（カメラ開始ボタンなど） */
 .student-notebook-toolbar {
   flex: 0 0 auto;
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px;
+  box-sizing: border-box;
   gap: 8px;
-  padding: 4px 8px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.student-notebook-toolbar-left .section-title {
-  font-weight: 600;
-  font-size: 0.9rem;
+/* 右側のラベル・ボタンがはみ出さないように折り返し可能に */
+.student-notebook-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
-.student-notebook-toolbar-right label {
-  margin-right: 6px;
-  font-size: 0.85rem;
-}
-
-/* ▼ ここが 3 つのエリア本体（左上カメラ / 左下補正後 / 右全体フィードバック） */
+/* 下のコンテンツ部分：左に「生映像+補正」、右にフィードバック */
 .student-notebook-content {
   flex: 1 1 auto;
-  min-height: 0;                     /* オーバーフロー防止に重要 */
+  min-height: 0;
   display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
-  /* 左列の上段:下段 を 3:7 にする */
-  grid-template-rows: 3fr 7fr;
+
+  /* 左列：生映像＆補正　右列：フィードバック */
+  grid-template-columns: 1.2fr 1fr;
+
+  /* 上を小さめ（生映像）、下を大きめ（補正後）＝だいたい 3:7 */
+  grid-template-rows: 1fr 2.5fr;
+
   gap: 8px;
-  padding: 4px 0;
+  padding: 8px 0;
   box-sizing: border-box;
 }
 
-/* 左上：カメラ映像 */
-.student-notebook-content .video-section {
-  grid-column: 1 / 2;
-  grid-row:    1 / 2;
-}
 
-/* 左下：補正後プレビュー */
-.student-notebook-content .preview-section {
-  grid-column: 1 / 2;
-  grid-row:    2 / 3;
-}
-
-/* 右側全体：教員からのフィードバック */
-.student-notebook-content .feedback-section {
-  grid-column: 2 / 3;
-  grid-row:    1 / 3;
-}
-
-.student-notebook-content .video-section,
-.student-notebook-content .preview-section,
-.student-notebook-content .feedback-section {
-  min-height: 0;
+/* 各セクションは「タイトル + 中身」を縦並びにしつつ、位置を固定 */
+.video-section,
+.preview-section,
+.feedback-section {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  /* はみ出し防止 */
 }
 
-.student-notebook-content .section-title {
-  flex: 0 0 auto;
-  font-size: 0.85rem;
+/* 左上：撮影中の映像 */
+.video-section {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* 左下：台形補正後（送信イメージ） */
+.preview-section {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+/* 右側：教員からのフィードバック（上下 2 段ぶち抜き） */
+.feedback-section {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+
+
+.section-title {
+  font-size: 14px;
   margin-bottom: 4px;
 }
 
-/* 実際の映像・画像部分を、残りの高さにぴったり収める */
-.student-notebook-content .video-section video,
-.student-notebook-content .preview-section canvas,
-.student-notebook-content .feedback-section img {
+/* 映像・キャンバス・画像は枠いっぱいに収める */
+.video-section video,
+.preview-section canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #f9fafb;
+  border-radius: 4px;
+}
+
+/* フィードバックビューア全体（フィードバック欄の中身） */
+.feedback-viewer {
   flex: 1 1 auto;
   min-height: 0;
-  width: 100%;
-  display: block;
-  object-fit: contain;        /* 枠内に収めつつ全体が見える */
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  background: #f9fafb;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  overflow: hidden;
 }
 
-.student-notebook-content .video-section video,
-.student-notebook-content .preview-section canvas {
-  background: #000;
+/* 上の小さなツールバー */
+.feedback-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #e5e7eb;
+  border-bottom: 1px solid #d1d5db;
 }
 
-.student-notebook-content .feedback-section img {
-  background: #fff;
+.feedback-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* 画面が狭いときは縦並びに切り替え */
-@media (max-width: 900px) {
-  .student-notebook-layout {
-    height: auto;
-  }
+/* ズーム表示用ラベル */
+#feedbackZoomLabel {
+  font-variant-numeric: tabular-nums;
+}
 
-  .student-notebook-inner {
-    height: auto;
-  }
+/* --- 右側フィードバックのビューポート背景を白系に変更 --- */
+.feedback-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+}
 
-  .student-notebook-content {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-  }
-
-  .student-notebook-content .video-section {
-    grid-column: 1 / 2;
-    grid-row:    1 / 2;
-  }
-
-  .student-notebook-content .preview-section {
-    grid-column: 1 / 2;
-    grid-row:    2 / 3;
-  }
-
-  .student-notebook-content .feedback-section {
-    grid-column: 1 / 2;
-    grid-row:    3 / 4;
-  }
-
-  .student-notebook-content .video-section video,
-  .student-notebook-content .preview-section canvas,
-  .student-notebook-content .feedback-section img {
-    height: 260px;
-  }
+/* ★ここをこの形に統一（%の translate は使わない） */
+#feedbackImage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  transform: translate(0, 0) scale(1);
+  max-width: none;
+  max-height: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: none;
 }

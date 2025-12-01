@@ -71,25 +71,24 @@ export function initBoardUI() {
   // ========= パレットの表示 / 非表示 =========
   function showStampPalette() {
     if (!stampPalette) return;
-    stampPalette.classList.remove("stamp-palette-hidden");
+    stampPalette.classList.remove("hidden");
   }
   function hideStampPalette() {
     if (!stampPalette) return;
-    stampPalette.classList.add("stamp-palette-hidden");
+    stampPalette.classList.add("hidden");
   }
 
   // ★ ここを修正：図形パレット用の専用クラス shape-palette-hidden を使う
   // ★ 図形パレット表示/非表示（stamp-palette-hidden も一緒に管理する）
+  // ★ 図形パレット表示/非表示
   function showShapePalette() {
     if (!shapePalette) return;
-    shapePalette.classList.remove("shape-palette-hidden");
-    shapePalette.classList.remove("stamp-palette-hidden"); // ← これを追加
+    shapePalette.classList.remove("hidden");
   }
 
   function hideShapePalette() {
     if (!shapePalette) return;
-    shapePalette.classList.add("shape-palette-hidden");
-    shapePalette.classList.add("stamp-palette-hidden"); // ← これを追加
+    shapePalette.classList.add("hidden");
   }
 
 
@@ -181,6 +180,51 @@ export function initBoardUI() {
     if (activeTool !== "shape" && shapePalette) {
       hideShapePalette();
     }
+
+    // ★ 色選択パレット（Context Menu）の表示切り替え
+    const contextMenu = document.getElementById("contextMenu");
+    let showMenu = false;
+
+    // ペン設定
+    const penSettings = document.getElementById("penSettings");
+    if (penSettings) {
+      if (activeTool === "pen" || activeTool === "highlighter") {
+        penSettings.classList.remove("hidden");
+        showMenu = true;
+      } else {
+        penSettings.classList.add("hidden");
+      }
+    }
+
+    // 付箋設定
+    const stickySettings = document.getElementById("stickySettings");
+    if (stickySettings) {
+      if (activeTool === "sticky") {
+        stickySettings.classList.remove("hidden");
+        showMenu = true;
+      } else {
+        stickySettings.classList.add("hidden");
+      }
+    }
+
+    // 図形設定
+    const shapeSettings = document.getElementById("shapeSettings");
+    if (shapeSettings) {
+      if (activeTool === "shape" || activeTool === "rect" || activeTool === "circle" || activeTool === "triangle" || activeTool === "line" || activeTool === "arrow") {
+        shapeSettings.classList.remove("hidden");
+        showMenu = true;
+      } else {
+        shapeSettings.classList.add("hidden");
+      }
+    }
+
+    if (contextMenu) {
+      if (showMenu) {
+        contextMenu.classList.remove("hidden");
+      } else {
+        contextMenu.classList.add("hidden");
+      }
+    }
   }
 
   // ========= Whiteboard 側からの選択変更通知 =========
@@ -202,6 +246,16 @@ export function initBoardUI() {
       if (tool !== "shape" && tool !== "stamp") {
         wb.setTool(tool);
         updateToolButtons(tool);
+
+        // ★ 蛍光ペンの場合、強制的に黄色をセット（UI側でも）
+        if (tool === "highlighter") {
+          // whiteboard.js 側で setTool 時に黄色にしてくれるが、
+          // UI の currentPenColor が黒だと、その後の操作で黒に戻る可能性があるため同期する
+          // ただし、ここでは「初期色」として黄色を当てる
+          // 既にユーザーが色を変えている場合は上書きしない方が良いが、
+          // "初期設定は黄色にしてほしい" という要望なので、ツール切り替え時に黄色にする
+          wb.setHighlighterColor("#facc15");
+        }
         return;
       }
 
@@ -381,26 +435,6 @@ export function initBoardUI() {
           wb.setSelectedStickyColor(color);
         }
         stickyColorButtons.forEach(b =>
-          b.classList.toggle("active", b === btn)
-        );
-      });
-    });
-  }
-
-  // ========= 図形：線の色 =========
-  if (
-    shapeStrokeColorButtons.length > 0 &&
-    typeof wb.setSelectedStrokeColor === "function"
-  ) {
-    shapeStrokeColorButtons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        const color = btn.dataset.shapeStrokeColor;
-        if (!color) return;
-
-        wb.setSelectedStrokeColor(color);
-
-        // UI 側ハイライト
-        shapeStrokeColorButtons.forEach(b =>
           b.classList.toggle("active", b === btn)
         );
       });
@@ -627,25 +661,6 @@ export function initBoardUI() {
     wb.render();
   }
 
-  resizeCanvasToContainer();
-  window.addEventListener("resize", resizeCanvasToContainer);
-
-  // ========= 左サイドバー折りたたみ（teacher / student 共通） =========
-  const sidebar = document.getElementById("wbSidebar");
-  const sidebarToggle = document.getElementById("sidebarToggle");
-
-  if (sidebar && sidebarToggle) {
-    sidebarToggle.addEventListener("click", () => {
-      const collapsed = sidebar.classList.toggle("collapsed");
-      sidebarToggle.classList.toggle("collapsed", collapsed);
-
-      // 折りたたみアニメーション後にキャンバスサイズを再計算
-      setTimeout(() => {
-        resizeCanvasToContainer();
-      }, 260);
-    });
-  }
-
   // ========= PDF 出力（編集範囲のみ） =========
   if (exportPdfBtn) {
     exportPdfBtn.addEventListener("click", () => {
@@ -796,15 +811,16 @@ export function initBoardUI() {
   // ========= サイドバー折りたたみ =========
   const sidebarToggle = document.getElementById("sidebarToggle");
   const sidebar = document.getElementById("wbSidebar");
+  const contextMenu = document.getElementById("contextMenu");
 
   if (sidebarToggle && sidebar) {
     sidebarToggle.addEventListener("click", () => {
       sidebar.classList.toggle("collapsed");
+      document.body.classList.toggle("sidebar-collapsed");
 
-      // アイコンの向きを変える
-      const icon = sidebarToggle.querySelector(".material-symbols-rounded");
-      if (icon) {
-        icon.textContent = sidebar.classList.contains("collapsed") ? "chevron_right" : "chevron_left";
+      // サイドバーが閉じたときにコンテキストメニューも隠す
+      if (sidebar.classList.contains("collapsed") && contextMenu) {
+        contextMenu.classList.add("hidden");
       }
     });
   }

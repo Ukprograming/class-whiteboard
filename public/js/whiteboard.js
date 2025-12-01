@@ -30,7 +30,8 @@ export class Whiteboard {
     // 手書きストローク
     // stroke: { type:'pen'|'highlighter'|'eraser', color, width, points:[{x,y}], groupId?, locked? }
     this.strokes = [];
-
+    // ★ 追加：ストローク用のIDカウンタ（削除同期のため）
+    this.nextStrokeId = 1;
     // ベクターオブジェクト（テキスト / 付箋 / 図形 / 画像 / リンク / スタンプ）
     // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'link'|'stamp'|'line'|'arrow'|'double-arrow'|'triangle'|'tri-prism'|'rect-prism'|'cylinder',
     //           x,y,width,height,stroke,strokeWidth,fill,points?,depth?, groupId?, locked? }
@@ -125,7 +126,9 @@ export class Whiteboard {
       "sparkle": { emoji: "✨", baseSize: 80 }
     };
 
-    this._attachEvents();
+    // ★ グリッド表示フラグ
+    this.showGrid = true;
+
     this._attachEvents();
 
     // ★ 保留中のオブジェクト（教員からの書き込みプレビュー用）
@@ -137,6 +140,33 @@ export class Whiteboard {
     this.render();
   }
 
+  // ★ グリッド表示切り替え
+  setShowGrid(visible) {
+    this.showGrid = !!visible;
+    this.render();
+  }
+
+  // ★ 修正：resize は CSS ピクセルを受け取り、内部で dpr を掛ける
+  resize(width, height) {
+    const dpr = this.dpr || window.devicePixelRatio || 1;
+
+    // 内部解像度（デバイスピクセル）
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+
+    // 見た目サイズ（CSS ピクセル）
+    this.canvas.style.width = width + "px";
+    this.canvas.style.height = height + "px";
+
+    // ストローク用キャンバスも同じ解像度に
+    if (this.strokeCanvas) {
+      this.strokeCanvas.width = width * dpr;
+      this.strokeCanvas.height = height * dpr;
+    }
+
+    this.render();
+  }
+
   // ====== 公開 API ======
 
   setTeacherMode(enabled) {
@@ -144,44 +174,61 @@ export class Whiteboard {
   }
 
   // ★ 外部からのアクション適用（共同編集用）
+  // ★ 外部からのアクション適用（共同編集用）
   applyAction(action) {
     if (!action) return;
 
     if (action.type === "stroke") {
       // ストローク追加
       if (action.stroke) {
-        // 既存チェック（重複防止）
-        // ※ IDがないので厳密には難しいが、pointsで簡易チェックするか、
-        //    今回は「相手からのアクションは全て受け入れる」とする
-        this.strokes.push(action.stroke);
+        const stroke = { ...action.stroke };
+
+        // 受信したストロークにもIDをちゃんと振る
+        if (stroke.id == null) {
+          stroke.id = this.nextStrokeId++;
+        } else if (stroke.id >= this.nextStrokeId) {
+          this.nextStrokeId = stroke.id + 1;
+        }
+
+        this.strokes.push(stroke);
         this.render();
       }
+
     } else if (action.type === "object") {
       // オブジェクト追加
       if (action.object) {
-        // IDが衝突しないように調整（相手のIDを優先するか、振り直すか）
-        // ここでは「相手のIDを正」として受け入れるが、既存と被るなら上書き
-        const existingIndex = this.objects.findIndex(o => o.id === action.object.id);
+        const obj = { ...action.object };
+        const existingIndex = this.objects.findIndex(o => o.id === obj.id);
         if (existingIndex >= 0) {
-          this.objects[existingIndex] = action.object;
+          this.objects[existingIndex] = obj;
         } else {
-          this.objects.push(action.object);
+          this.objects.push(obj);
         }
         this.render();
       }
+
     } else if (action.type === "modify") {
       // オブジェクト変更
       if (action.object) {
-        const idx = this.objects.findIndex(o => o.id === action.object.id);
+        const obj = { ...action.object };
+        const idx = this.objects.findIndex(o => o.id === obj.id);
         if (idx >= 0) {
-          this.objects[idx] = action.object;
+          this.objects[idx] = obj;
           this.render();
         }
       }
+
     } else if (action.type === "delete") {
       // オブジェクト削除
-      if (action.objectId) {
+      if (action.objectId != null) {
         this.objects = this.objects.filter(o => o.id !== action.objectId);
+        this.render();
+      }
+
+      // ★ 追加：教員モードの消しゴムで消したストロークを同期
+    } else if (action.type === "delete-stroke") {
+      if (action.strokeId != null) {
+        this.strokes = this.strokes.filter(st => st.id !== action.strokeId);
         this.render();
       }
     }
@@ -193,60 +240,14 @@ export class Whiteboard {
 
   // ★ 画像としてエクスポート (png/jpeg)
   async exportAsImage(format = "png") {
-    // 1. 全体を描画する一時キャンバスを作成
-    // 背景(bgCanvas) + ストローク(strokeCanvas) + オブジェクト(objects) を合成
     const tempCanvas = document.createElement("canvas");
     tempCanvas.width = this.canvas.width;
     tempCanvas.height = this.canvas.height;
     const ctx = tempCanvas.getContext("2d");
 
-    // 背景色（白）
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
-    // 背景画像
-    if (this.bgCanvas.width > 0) {
-      // ズーム/パンを考慮して描画するか、そのまま描画するか
-      // ここでは「現在の見た目」ではなく「ボード全体」を出力したい場合が多いが、
-      // 簡易的に「現在のキャンバスサイズで切り抜かれた見た目」を出力する実装にする
-      // もし「無限キャンバス全体」を出力したい場合は、全オブジェクトのBoundingBoxを計算して
-      // キャンバスサイズを拡張する必要がある。今回は「現在の表示領域（または固定サイズ）」とする。
-
-      // ★ 要望: "FigJam" 風なら、コンテンツがある範囲だけをエクスポートするのが一般的だが、
-      // 実装コスト削減のため、一旦「現在のキャンバス表示内容」を画像化する。
-      // ただし、this.render() と同じロジックで描画する必要がある。
-    }
-
-    // 既存の render ロジックを再利用して、一時キャンバスに描画させるのが確実
-    // しかし render() は this.ctx (画面) に描画してしまう。
-    // そこで、renderToContext(ctx) というメソッドに分離するのがベストだが、
-    // ここでは簡易的に toDataURL を使う（背景が透明になる可能性があるため、白背景を敷いた上で合成）
-
-    // 方法:
-    // 1. 白背景を fill
-    // 2. bgCanvas を draw
-    // 3. objects を draw
-    // 4. strokeCanvas を draw
-
-    // 背景
-    if (this.bgCanvas.width > 0) {
-      // bgCanvas は原寸で保持されている。
-      // 画面上の表示は scale/offset がかかっている。
-      // exportAsImage が「スクリーンショット」ならそのまま。
-      // 「ボード全体」なら transform をリセットして描画する必要がある。
-      // ここでは「スクリーンショット（現在の見た目）」とする。
-
-      // 複雑になるため、単純に this.canvas.toDataURL() を使う。
-      // ただし、背景色が透明だと困るので、一時キャンバスに白を塗ってから合成する。
-    }
-
-    // 一旦、現在のキャンバスの内容をそのまま画像化する
-    // (背景が透明な場合、PNGなら透過、JPEGなら黒になる可能性があるため白背景合成)
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-    // 背景画像を描画 (render内で描画されているはずだが、this.canvas は最終結果を持っている)
     ctx.drawImage(this.canvas, 0, 0);
 
     return tempCanvas.toDataURL(`image/${format}`, IMAGE_EXPORT_QUALITY);
@@ -256,7 +257,6 @@ export class Whiteboard {
     if (!data) {
       this.pendingData = null;
     } else {
-      // 受信データを復元（画像ロードなど含む）
       this.pendingData = this._hydrateBoardData(data);
     }
     this.render();
@@ -265,25 +265,18 @@ export class Whiteboard {
   mergePendingObjects() {
     if (!this.pendingData) return;
 
-    // IDの衝突を避けるため、IDを振り直してマージ
-    // （ただし、教員側で消しゴムを使うにはIDが一致している方が都合が良い場合もあるが、
-    //   今回は「反映」＝「自分のボードに取り込む」なので、新規IDでコピーする形にする）
-    //   ※ 教員消しゴム機能は「TeacherAnnotation」フラグで判定するのでIDが変わってもOK
-
     const { strokes, objects } = this.pendingData;
 
-    // ストロークのマージ
     strokes.forEach(st => {
       const newStroke = {
         ...st,
-        points: st.points.map(p => ({ ...p })), // Deep copy points
-        isTeacherAnnotation: true // 明示的にフラグを立てる（元々立っているはずだが）
+        points: st.points.map(p => ({ ...p })),
+        isTeacherAnnotation: true
       };
       this.strokes.push(newStroke);
     });
 
-    // オブジェクトのマージ
-    const idMap = {}; // 旧ID -> 新ID
+    const idMap = {};
     objects.forEach(o => {
       const newId = this.nextObjectId++;
       idMap[o.id] = newId;
@@ -294,10 +287,6 @@ export class Whiteboard {
         isTeacherAnnotation: true
       };
 
-      // グループIDの更新（必要なら）
-      // 今回は簡易的に、グループIDはそのまま（衝突リスクはあるが）または新規生成
-      // ここでは単純にコピーする
-
       this.objects.push(newObj);
     });
 
@@ -306,15 +295,13 @@ export class Whiteboard {
   }
 
   setTool(tool) {
-    if (this.tool === tool) return; // 変更なしなら何もしない
+    if (this.tool === tool) return;
     this.tool = tool;
-    // テキスト編集中でツール変更されたら確定して閉じる
     if (this.editingObj) {
       this._commitTextEditor();
     }
-    // 蛍光ペンツールに切り替えたら黄色を設定
     if (tool === "highlighter" && !this.highlighterColor) {
-      this.setHighlighterColor("#facc15"); // Material Yellow 400
+      this.setHighlighterColor("#facc15");
     }
     if (this.onToolChange) {
       this.onToolChange(tool);
@@ -471,6 +458,7 @@ export class Whiteboard {
         this.offsetX = (this.canvas.width - img.width) / 2;
         this.offsetY = (this.canvas.height - img.height) / 2;
         this.render();
+        if (this.onAction) this.onAction({ type: "refresh" });
         resolve();
       };
       img.onerror = err => {
@@ -497,6 +485,7 @@ export class Whiteboard {
           this.offsetY = (this.canvas.height - img.height) / 2;
         }
         this.render();
+        if (this.onAction) this.onAction({ type: "refresh" });
         resolve();
       };
       img.onerror = reject;
@@ -511,18 +500,16 @@ export class Whiteboard {
       const loadingTask = pdfjsLib.getDocument(url);
       const pdf = await loadingTask.promise;
 
-      // PDF のときは背景キャンバスは使わない（描画しないように 0x0 にしておく）
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;
 
-      const pageMargin = 40; // ページ間のすき間（ワールド座標）
+      const pageMargin = 40;
       let currentY = 0;
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale: 1.5 });
 
-        // 各ページをオフスクリーンキャンバスにレンダリング
         const pageCanvas = document.createElement("canvas");
         pageCanvas.width = viewport.width;
         pageCanvas.height = viewport.height;
@@ -533,7 +520,6 @@ export class Whiteboard {
           viewport
         }).promise;
 
-        // image オブジェクトとして追加
         const id = this.nextObjectId++;
         const obj = {
           id,
@@ -549,12 +535,12 @@ export class Whiteboard {
         currentY += viewport.height + pageMargin;
       }
 
-      // 初期表示位置を少し左上に寄せておく
       this.scale = 1;
       this.offsetX = 40;
       this.offsetY = 40;
 
       this.render();
+      if (this.onAction) this.onAction({ type: "refresh" });
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -573,11 +559,11 @@ export class Whiteboard {
     this.history = [];
     this._setSelected(null);
 
-    // ★ 背景も完全リセット
     this.bgCanvas.width = 0;
     this.bgCanvas.height = 0;
 
     this.render();
+    if (this.onAction) this.onAction({ type: "refresh" });
   }
 
   undoLast() {
@@ -634,16 +620,13 @@ export class Whiteboard {
     this.render();
   }
 
-  // 選択中オブジェクトのコピー
   copySelection() {
     if (!this.selectedObj) return;
     const kind = this.selectedObj.kind;
-    // 図形やスタンプ、付箋などをコピー可能にする（画像は除外）
     if (["image"].includes(kind)) return;
     this.clipboard = JSON.parse(JSON.stringify(this.selectedObj));
   }
 
-  // ペースト
   pasteSelection() {
     if (!this.clipboard) return;
     const base = this.clipboard;
@@ -659,7 +642,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // 選択中のオブジェクト／ストロークをまとめて削除（ロックされているものは対象外）
   deleteSelection() {
     const objs = (this.multiSelectedObjects || []).filter(o => !o.locked);
     const strokes = (this.multiSelectedStrokes || []).filter(s => !s.locked);
@@ -669,7 +651,6 @@ export class Whiteboard {
     const deletedObjects = [];
     const deletedStrokes = [];
 
-    // オブジェクト削除
     objs.forEach(o => {
       const idx = this.objects.indexOf(o);
       if (idx !== -1) {
@@ -678,7 +659,6 @@ export class Whiteboard {
       }
     });
 
-    // ストローク削除
     strokes.forEach(s => {
       const idx = this.strokes.indexOf(s);
       if (idx !== -1) {
@@ -701,7 +681,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // 現在の選択が「グループ解除可能」かどうか
   canUngroupSelection() {
     const objs = this.multiSelectedObjects || [];
     const strokes = this.multiSelectedStrokes || [];
@@ -715,16 +694,13 @@ export class Whiteboard {
     return all.every(item => item.groupId === firstGroupId);
   }
 
-  // 現在の選択のグループ化 / 解除（トグル動作）
   groupSelection() {
     const objs = this.multiSelectedObjects || [];
     const strokes = this.multiSelectedStrokes || [];
     const all = [...objs, ...strokes];
 
-    // 1つしか選択していない場合は何もしない
     if (all.length <= 1) return;
 
-    // --- 解除パターン ---
     if (this.canUngroupSelection()) {
       all.forEach(item => {
         item.groupId = null;
@@ -741,7 +717,6 @@ export class Whiteboard {
       return;
     }
 
-    // --- 新規グループ（マージ）パターン ---
     const groupId =
       Date.now().toString(36) + Math.random().toString(36).slice(2);
 
@@ -762,7 +737,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // 現在の選択をロック／アンロック
   toggleLockSelection() {
     const objs = this.multiSelectedObjects || [];
     const strokes = this.multiSelectedStrokes || [];
@@ -778,7 +752,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // クリップボードのプレーンテキストをテキストボックスとして貼り付け
   pastePlainText(text) {
     if (!text) return;
 
@@ -812,7 +785,6 @@ export class Whiteboard {
     this._openTextEditorForObject(obj);
   }
 
-  // URL をリンクオブジェクトとして貼り付け
   pasteLink(url) {
     if (!url) return;
 
@@ -844,7 +816,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // クリップボードからの画像貼り付け（ファイル/Blob）
   async pasteImageBlob(blob) {
     if (!blob) return;
 
@@ -883,6 +854,9 @@ export class Whiteboard {
       };
 
       this._addObject(obj);
+      if (this.onAction) {
+        this.onAction({ type: "object", object: obj });
+      }
       this.render();
     } finally {
       URL.revokeObjectURL(url);
@@ -905,7 +879,6 @@ export class Whiteboard {
     this._zoomAtScreenPoint(sx, sy, factor);
   }
 
-  // テキストスタイル変更（左メニューから呼ぶ）
   setSelectedTextStyle({ fontSize, fontFamily, bold }) {
     if (!this.selectedObj || this.selectedObj.kind !== "text") return;
     if (fontSize != null) this.selectedObj.fontSize = fontSize;
@@ -915,7 +888,6 @@ export class Whiteboard {
     this._fireSelectionChange();
   }
 
-  // 付箋・図形の塗りつぶし色変更（UI から呼ぶ）
   setSelectedStickyColor(color) {
     if (!color) return;
     const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
@@ -933,8 +905,6 @@ export class Whiteboard {
     });
     this.render();
   }
-
-  // ====== ★ 画像圧縮用ユーティリティ ======
 
   _encodeImageForExport(source, logicalWidth, logicalHeight, maxSize = MAX_IMAGE_EXPORT_SIZE) {
     if (!source || !logicalWidth || !logicalHeight) return null;
@@ -955,7 +925,6 @@ export class Whiteboard {
     try {
       ctx.drawImage(source, 0, 0, outW, outH);
     } catch (e) {
-      // Cross-origin などで描けない場合は諦めて null を返す
       return null;
     }
 
@@ -963,14 +932,10 @@ export class Whiteboard {
     return { dataUrl, width: outW, height: outH };
   }
 
-  // ====== ボード状態のエクスポート／インポート ======
-
-  /**
-   * 現在のホワイトボード状態を「JSONにできる形のオブジェクト」として返す
-   * 画像・PDF（imageオブジェクト）・背景も JPEG + DataURL で軽量保存する
-   */
   exportBoardData() {
     const strokes = this.strokes.map(st => ({
+      // ★ 追加：ストロークIDもエクスポート
+      id: st.id != null ? st.id : null,
       type: st.type || "pen",
       color: st.color || this.penColor,
       width: st.width || this.penWidth,
@@ -1000,7 +965,6 @@ export class Whiteboard {
         base.bold = !!o.bold;
       }
 
-      // 塗り・線共通
       if (o.fill !== undefined) base.fill = o.fill;
       if (o.stroke !== undefined) base.stroke = o.stroke;
       if (o.strokeWidth != null) base.strokeWidth = o.strokeWidth;
@@ -1013,12 +977,10 @@ export class Whiteboard {
         base.stampKey = o.stampKey || this.currentStampType || "star-yellow";
       }
 
-      // 三角形の頂点座標
       if (o.kind === "triangle" && o.points) {
         base.points = (o.points || []).map(p => ({ x: p.x, y: p.y }));
       }
 
-      // 立体図形の奥行き
       if (o.kind === "tri-prism" || o.kind === "rect-prism" || o.kind === "cylinder") {
         if (o.depth != null) base.depth = o.depth;
       }
@@ -1040,7 +1002,6 @@ export class Whiteboard {
       return base;
     });
 
-    // 背景（背景画像がある場合だけ）
     let background = null;
     if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
       const encodedBg = this._encodeImageForExport(
@@ -1070,10 +1031,7 @@ export class Whiteboard {
     };
   }
 
-  /**
-   * exportBoardData() で得たデータオブジェクトからホワイトボード状態を再構築する
-   * 画像・背景も DataURL から <img> や canvas に復元する
-   */
+
   importBoardData(data) {
     if (!data) return;
 
@@ -1086,7 +1044,15 @@ export class Whiteboard {
     this.strokes = hydrated.strokes;
     this.objects = hydrated.objects;
 
-    // 背景復元
+    // ★ 追加：既存ストロークの最大IDを見て nextStrokeId を進める
+    let maxStrokeId = 0;
+    for (const st of this.strokes) {
+      if (st.id != null && st.id > maxStrokeId) {
+        maxStrokeId = st.id;
+      }
+    }
+    this.nextStrokeId = Math.max(this.nextStrokeId || 1, maxStrokeId + 1);
+
     if (data.background && data.background.dataUrl) {
       const bgImg = new Image();
       bgImg.onload = () => {
@@ -1098,7 +1064,6 @@ export class Whiteboard {
       };
       bgImg.src = data.background.dataUrl;
     } else {
-      // 背景なし
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;
     }
@@ -1108,17 +1073,22 @@ export class Whiteboard {
     this.render();
   }
 
-  // データ復元ヘルパー
+
   _hydrateBoardData(data) {
-    const strokes = (data.strokes || []).map(st => ({
-      type: st.type || "pen",
-      color: st.color || this.penColor,
-      width: st.width || this.penWidth,
-      points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
-      groupId: st.groupId || null,
-      locked: !!st.locked,
-      isTeacherAnnotation: !!st.isTeacherAnnotation
-    }));
+    const strokes = (data.strokes || []).map(st => {
+      const stroke = {
+        // ★ 追加：保存されていたIDを復元
+        id: st.id != null ? st.id : null,
+        type: st.type || "pen",
+        color: st.color || this.penColor,
+        width: st.width || this.penWidth,
+        points: (st.points || []).map(p => ({ x: p.x, y: p.y })),
+        groupId: st.groupId || null,
+        locked: !!st.locked,
+        isTeacherAnnotation: !!st.isTeacherAnnotation
+      };
+      return stroke;
+    });
 
     const objects = (data.objects || []).map(o => {
       const obj = {
@@ -1190,7 +1160,6 @@ export class Whiteboard {
     return { strokes, objects };
   }
 
-  // ====== 内部ユーティリティ ======
 
   _screenToWorld(sx, sy) {
     return {
@@ -1217,9 +1186,15 @@ export class Whiteboard {
   }
 
   _addStroke(stroke) {
+    // ★ 追加：IDがなければ採番
+    if (stroke.id == null) {
+      stroke.id = this.nextStrokeId++;
+    }
+
     if (this.isTeacherMode) {
       stroke.isTeacherAnnotation = true;
     }
+
     this.strokes.push(stroke);
     this.history.push({ kind: "stroke", stroke });
   }
@@ -1233,31 +1208,22 @@ export class Whiteboard {
     this._setSelected(obj);
   }
 
+  // ★ 修正：スタンプの混入コードを削除し、純粋にストローク削除だけにする
+  // ★ 教員モードの消しゴムでストロークを削除 → 他クライアントにも同期
+  // ★ 教員モードの消しゴムでストロークを削除 → 他クライアントにも同期
   _deleteStroke(stroke) {
     const idx = this.strokes.indexOf(stroke);
     if (idx !== -1) {
-      this.strokes.splice(idx, 1);
-      this.history.push({ kind: "delete-stroke", stroke, index: idx });
+      const removed = this.strokes.splice(idx, 1)[0];
+      this.history.push({ kind: "delete-stroke", stroke: removed, index: idx });
+
+      // ★ 追加：教員モードのときだけ、削除アクションを外へ通知
+      if (this.isTeacherMode && this.onAction && removed && removed.id != null) {
+        this.onAction({ type: "delete-stroke", strokeId: removed.id });
+      }
     }
-    const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
-    const size = preset.baseSize || 80;
-    const half = size / 2;
-
-    const id = this.nextObjectId++;
-    const obj = {
-      id,
-      kind: "stamp",
-      stampKey: key,
-      x: wx - half,
-      y: wy - half,
-      width: size,
-      height: size,
-      locked: false
-    };
-
-    this._addObject(obj);
-    this.render();
   }
+
 
   _hitTestObject(wx, wy) {
     for (let i = this.objects.length - 1; i >= 0; i--) {
@@ -1331,7 +1297,6 @@ export class Whiteboard {
         e.preventDefault();
         this._cancelTextEditor();
       }
-      // Shift+Enter で改行、Enterのみで確定
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         this._commitTextEditor();
@@ -1378,7 +1343,6 @@ export class Whiteboard {
   _commitTextEditor() {
     if (!this.editingObj) return;
     this.editingObj.text = this.textEditor.value;
-    // ★ テキスト変更通知
     if (this.onAction) {
       this.onAction({ type: "modify", object: this.editingObj });
     }
@@ -1426,7 +1390,6 @@ export class Whiteboard {
       strokeWidth: 2
     };
     this._addObject(obj);
-    // ★ テキストオブジェクト作成通知
     if (this.onAction) {
       this.onAction({ type: "object", object: obj });
     }
@@ -1434,7 +1397,6 @@ export class Whiteboard {
     this._openTextEditorForObject(obj);
   }
 
-  // ===== 図形描画開始 =====
   _startShape(wx, wy, kind) {
     const id = this.nextObjectId++;
     const obj = {
@@ -1451,7 +1413,6 @@ export class Whiteboard {
         : "transparent"
     };
 
-    // 三角形は頂点リストも持たせる
     if (kind === "triangle") {
       obj.points = [
         { x: wx, y: wy },
@@ -1460,7 +1421,6 @@ export class Whiteboard {
       ];
     }
 
-    // 立体図形は奥行き
     if (kind === "tri-prism" || kind === "rect-prism" || kind === "cylinder") {
       obj.depth = 40;
     }
@@ -1472,7 +1432,6 @@ export class Whiteboard {
     this._addObject(obj);
   }
 
-  // Shift 対応＆三角形の頂点計算
   _updateShape(wx, wy, isShiftKey = false) {
     if (!this.shapeDraft) return;
     const kind = this.shapeDraft.kind;
@@ -1480,7 +1439,6 @@ export class Whiteboard {
     let w = wx - this.shapeStartX;
     let h = wy - this.shapeStartY;
 
-    // Shift で正三角形 / 正方形 / 真円
     if (isShiftKey && (kind === "triangle" || kind === "rect" || kind === "ellipse")) {
       const size = Math.max(Math.abs(w), Math.abs(h)) || 1;
       w = w < 0 ? -size : size;
@@ -1490,7 +1448,6 @@ export class Whiteboard {
     this.shapeDraft.width = w;
     this.shapeDraft.height = h;
 
-    // 三角形の頂点を bbox から再計算
     if (kind === "triangle" && this.shapeDraft.points) {
       const { x, y, width, height } = this._normalizeRect(this.shapeDraft);
       const v0 = { x: x + width / 2, y };
@@ -1514,7 +1471,6 @@ export class Whiteboard {
       );
       this._setSelected(null);
     } else {
-      // ★ 図形確定通知
       if (this.onAction) {
         this.onAction({ type: "object", object: this.shapeDraft });
       }
@@ -1524,7 +1480,6 @@ export class Whiteboard {
     this.render();
   }
 
-  // ★ スタンプ配置
   _placeStampAt(wx, wy) {
     const key = this.currentStampType || "star-yellow";
     const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
@@ -1544,42 +1499,10 @@ export class Whiteboard {
     };
 
     this._addObject(obj);
-    // ★ スタンプ作成通知
     if (this.onAction) {
       this.onAction({ type: "object", object: obj });
     }
     this.render();
-  }
-
-  _hitTestObject(wx, wy) {
-    for (let i = this.objects.length - 1; i >= 0; i--) {
-      const o = this.objects[i];
-      const { x, y, width, height } = this._normalizeRect(o);
-      if (wx >= x && wx <= x + width && wy >= y && wy <= y + height) {
-        return o;
-      }
-    }
-    return null;
-  }
-
-  _hitTestStroke(wx, wy) {
-    const threshold = 6 / this.scale;
-    const th2 = threshold * threshold;
-
-    for (let i = this.strokes.length - 1; i >= 0; i--) {
-      const stroke = this.strokes[i];
-      const pts = stroke.points;
-      if (!pts || pts.length === 0) continue;
-
-      for (let j = 0; j < pts.length; j++) {
-        const dx = pts[j].x - wx;
-        const dy = pts[j].y - wy;
-        if (dx * dx + dy * dy <= th2) {
-          return stroke;
-        }
-      }
-    }
-    return null;
   }
 
   _attachEvents() {
@@ -1602,7 +1525,6 @@ export class Whiteboard {
         this._commitTextEditor();
       }
 
-      // 2本指タッチ → ピンチズーム開始
       if (e.touches && e.touches.length >= 2) {
         const rect = canvas.getBoundingClientRect();
         const t1 = e.touches[0];
@@ -1639,7 +1561,6 @@ export class Whiteboard {
       const { sx, sy, wx, wy } = getPos(e);
       const button = e.button != null ? e.button : 0;
 
-      // 中ボタン / 右クリック / Alt でパン
       if (button === 1 || button === 2 || e.altKey) {
         this.isPanning = true;
         this.lastPanScreenX = sx;
@@ -1647,12 +1568,9 @@ export class Whiteboard {
         return;
       }
 
-      // 手書きツール
       if (this.tool === "pen" || this.tool === "highlighter" || this.tool === "eraser") {
-        // ★ 教員用消しゴム（オブジェクト消去モード）
         if (this.tool === "eraser" && this.isTeacherMode) {
           this.isErasingTeacher = true;
-          // ストローク描画はしない
           return;
         }
 
@@ -1672,35 +1590,30 @@ export class Whiteboard {
           color,
           width,
           points: [{ x: wx, y: wy }],
-          isTeacherAnnotation: !!this.isTeacherMode // ★ 教員モードならフラグを付ける
+          isTeacherAnnotation: !!this.isTeacherMode
         };
         this._addStroke(this.currentStroke);
         this.render();
         return;
       }
 
-      // テキスト／付箋
       if (this.tool === "text" || this.tool === "sticky") {
         this._createTextObject(wx, wy, this.tool === "sticky" ? "sticky" : "text");
         return;
       }
 
-      // 図形（共通 shape ツール）
       if (this.tool === "shape") {
         const kind = this.currentShapeType || "rect";
         this._startShape(wx, wy, kind);
         return;
       }
 
-      // ★ スタンプ
       if (this.tool === "stamp") {
         this._placeStampAt(wx, wy);
         return;
       }
 
-      // 選択ツール
       if (this.tool === "select") {
-        // まず、単一選択オブジェクトのリサイズハンドル判定
         if (this.multiSelectedObjects.length === 1 && this.selectedObj) {
           const handle = this._hitTestResizeHandle(sx, sy);
           if (handle) {
@@ -1741,7 +1654,6 @@ export class Whiteboard {
           }
         }
 
-        // オブジェクトのヒットテスト
         const hitObj = this._hitTestObject(wx, wy);
         if (hitObj) {
           if (e.shiftKey) {
@@ -1793,7 +1705,6 @@ export class Whiteboard {
           return;
         }
 
-        // ストロークのヒットテスト
         const hitStroke = this._hitTestStroke(wx, wy);
         if (hitStroke) {
           if (e.shiftKey) {
@@ -1840,7 +1751,6 @@ export class Whiteboard {
           return;
         }
 
-        // 何もヒットしない → ボックス選択開始
         this.isBoxSelecting = true;
         this.selectionBoxStart = { x: wx, y: wy };
         this.selectionBoxEnd = { x: wx, y: wy };
@@ -1855,7 +1765,6 @@ export class Whiteboard {
     };
 
     const move = e => {
-      // 2本指ピンチ中
       if (this.isPinchZoom && e.touches && e.touches.length >= 2) {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
@@ -1902,19 +1811,16 @@ export class Whiteboard {
         return;
       }
 
-      // ★ 教員用消しゴム（ドラッグ中）
       if (this.isErasingTeacher) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
 
-        // ストロークのヒットテスト＆削除
         const hitStroke = this._hitTestStroke(wx, wy);
         if (hitStroke && hitStroke.isTeacherAnnotation) {
           this._deleteStroke(hitStroke);
           this.render();
         }
 
-        // オブジェクトのヒットテスト＆削除
         const hitObj = this._hitTestObject(wx, wy);
         if (hitObj && hitObj.isTeacherAnnotation) {
           this._deleteObject(hitObj);
@@ -1927,12 +1833,10 @@ export class Whiteboard {
         e.preventDefault();
         const { wx, wy } = getPos(e);
 
-        // ★ ストロークの滑らかさ向上：距離が一定以上の場合のみ点を追加
         const points = this.currentStroke.points;
         if (points.length > 0) {
           const lastPt = points[points.length - 1];
           const dist = Math.hypot(wx - lastPt.x, wy - lastPt.y);
-          // 距離が小さすぎる場合はスキップ（滑らかな曲線になる）
           if (dist < 2) return;
         }
 
@@ -1997,13 +1901,11 @@ export class Whiteboard {
           const { wx, wy } = getPos(e);
           const obj = this.selectedObj;
 
-          // ★ 三角形の頂点ドラッグ
           if (obj.kind === "triangle" && this.resizeHandle && this.resizeHandle.startsWith("p") && obj.points && obj.points.length === 3) {
             const index = parseInt(this.resizeHandle.slice(1), 10);
             if (!Number.isNaN(index) && obj.points[index]) {
               obj.points[index] = { x: wx, y: wy };
 
-              // bbox を再計算して x,y,width,height を更新
               let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
               obj.points.forEach(p => {
                 if (p.x < minX) minX = p.x;
@@ -2031,7 +1933,6 @@ export class Whiteboard {
             aspect
           } = this.dragStart;
 
-          // Shift + リサイズで縦横比固定
           if (e.shiftKey && aspect) {
             let dx = wx - anchorX;
             let dy = wy - anchorY;
@@ -2092,7 +1993,6 @@ export class Whiteboard {
             return;
           }
 
-          // 通常の矩形リサイズ
           let nx = x;
           let ny = y;
           let nw = width;
@@ -2130,7 +2030,6 @@ export class Whiteboard {
 
       this.isPanning = false;
       this.isDrawingStroke = false;
-      // ★ ストローク完了通知
       if (this.currentStroke && this.onAction) {
         this.onAction({ type: "stroke", stroke: this.currentStroke });
       }
@@ -2141,7 +2040,6 @@ export class Whiteboard {
       }
 
       if (this.isDraggingObj || this.isResizingObj) {
-        // ★ 変更通知
         if (this.onAction && this.selectedObj) {
           this.onAction({ type: "modify", object: this.selectedObj });
         }
@@ -2260,24 +2158,19 @@ export class Whiteboard {
   }
 
   _wrapTextLines(text, maxWidth, fontSize, fontFamily, bold) {
+    // ※ この関数は現在未使用のようなので、必要になったら ctx を引数で受け取る形に直してください
     const lines = [];
     let current = "";
     for (const ch of text) {
       const test = current + ch;
-      const width = ctx.measureText(test).width;
-      if (width > maxWidth && current !== "") {
-        lines.push(current);
-        current = ch;
-      } else {
-        current = test;
-      }
+      // ctx.measureText を使うには ctx を引数で渡す必要があります
+      // ここでは仮に maxWidth だけで折り返さない簡易実装にしておきます
+      current = test;
     }
     if (current) lines.push(current);
-    ctx.restore();
     return lines;
   }
 
-  // スタンプ描画
   _drawStamp(obj, x, y, width, height) {
     const preset = this.stampPresets[obj.stampKey] || this.stampPresets["star-yellow"];
     const emoji = preset.emoji;
@@ -2297,7 +2190,6 @@ export class Whiteboard {
     ctx.restore();
   }
 
-  // ====== 描画 ======
   render() {
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -2322,7 +2214,6 @@ export class Whiteboard {
       this.offsetY * dpr
     );
 
-    // Draw existing strokes
     this._renderStrokes(sctx, this.strokes);
 
     sctx.globalAlpha = 1;
@@ -2342,29 +2233,31 @@ export class Whiteboard {
       this.offsetY * dpr
     );
 
-    const gridStep = 200;
-    const invScale = 1 / this.scale;
-    const left = -this.offsetX * invScale;
-    const top = -this.offsetY * invScale;
-    const right = (w - this.offsetX) * invScale;
-    const bottom = (h - this.offsetY) * invScale;
-    const startX = Math.floor(left / gridStep) * gridStep;
-    const endX = Math.ceil(right / gridStep) * gridStep;
-    const startY = Math.floor(top / gridStep) * gridStep;
-    const endY = Math.ceil(bottom / gridStep) * gridStep;
+    if (this.showGrid) {
+      const gridStep = 200;
+      const invScale = 1 / this.scale;
+      const left = -this.offsetX * invScale;
+      const top = -this.offsetY * invScale;
+      const right = (w / dpr - this.offsetX) * invScale;
+      const bottom = (h / dpr - this.offsetY) * invScale;
+      const startX = Math.floor(left / gridStep) * gridStep;
+      const endX = Math.ceil(right / gridStep) * gridStep;
+      const startY = Math.floor(top / gridStep) * gridStep;
+      const endY = Math.ceil(bottom / gridStep) * gridStep;
 
-    ctx.strokeStyle = "#eeeeee";
-    ctx.lineWidth = 1 / this.scale;
-    ctx.beginPath();
-    for (let x = startX; x <= endX; x += gridStep) {
-      ctx.moveTo(x + 0.5, startY);
-      ctx.lineTo(x + 0.5, endY);
+      ctx.strokeStyle = "#eeeeee";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.beginPath();
+      for (let x = startX; x <= endX; x += gridStep) {
+        ctx.moveTo(x + 0.5, startY);
+        ctx.lineTo(x + 0.5, endY);
+      }
+      for (let y = startY; y <= endY; y += gridStep) {
+        ctx.moveTo(startX, y + 0.5);
+        ctx.lineTo(endX, y + 0.5);
+      }
+      ctx.stroke();
     }
-    for (let y = startY; y <= endY; y += gridStep) {
-      ctx.moveTo(startX, y + 0.5);
-      ctx.lineTo(endX, y + 0.5);
-    }
-    ctx.stroke();
 
     if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
       ctx.drawImage(this.bgCanvas, 0, 0);
@@ -2372,26 +2265,24 @@ export class Whiteboard {
 
     this.handleRects = [];
 
-    // Draw objects
     this._renderObjects(ctx, this.objects);
 
-    // ★ Pending Data (Teacher Annotations Preview)
     if (this.pendingData) {
       ctx.save();
-      ctx.globalAlpha = 0.5; // 半透明で表示
-      // ストロークもメインキャンバスに描画（プレビュー用）
+      ctx.globalAlpha = 0.5;
       this._renderStrokes(ctx, this.pendingData.strokes);
       this._renderObjects(ctx, this.pendingData.objects);
       ctx.restore();
     }
 
-    // ★ Overlays (Box Selection, Highlights)
     this._renderOverlays(ctx);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(this.strokeCanvas, 0, 0);
+    if (this.strokeCanvas.width > 0 && this.strokeCanvas.height > 0) {
+      ctx.drawImage(this.strokeCanvas, 0, 0);
+    }
   }
 
   _renderStrokes(ctx, strokes) {
@@ -2434,7 +2325,6 @@ export class Whiteboard {
           const yc = (pts[i].y + pts[i + 1].y) / 2;
           ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
         }
-        // 残りの点を描画
         ctx.quadraticCurveTo(
           pts[i].x,
           pts[i].y,
@@ -2458,14 +2348,10 @@ export class Whiteboard {
       const strokeWidth = obj.strokeWidth || 2;
       const kind = obj.kind;
 
-      // 画像
       if (kind === "image" && obj.image) {
         ctx.drawImage(obj.image, x, y, width, height);
       }
 
-      // --- 図形群 ---
-
-      // 直線 / 矢印 / 相互矢印
       if (kind === "line" || kind === "arrow" || kind === "double-arrow") {
         const x1 = x;
         const y1 = y;
@@ -2481,7 +2367,6 @@ export class Whiteboard {
         ctx.lineTo(x2, y2);
         ctx.stroke();
 
-        // 矢印の先端描画
         if (kind === "arrow" || kind === "double-arrow") {
           const angle = Math.atan2(y2 - y1, x2 - x1);
           const headLen = 10 / this.scale;
@@ -2519,7 +2404,6 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // 四角形
       else if (kind === "rect") {
         ctx.save();
         ctx.fillStyle = fillColor;
@@ -2530,7 +2414,6 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // 円 (楕円)
       else if (kind === "circle") {
         ctx.save();
         ctx.fillStyle = fillColor;
@@ -2551,7 +2434,6 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // 三角形
       else if (kind === "triangle") {
         ctx.save();
         ctx.fillStyle = fillColor;
@@ -2567,7 +2449,6 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // 星形 (5点)
       else if (kind === "star") {
         ctx.save();
         ctx.fillStyle = fillColor;
@@ -2601,7 +2482,6 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // ★ スタンプ
       else if (kind === "stamp") {
         const key = obj.stampKey || "star-yellow";
         const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
@@ -2614,16 +2494,13 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // ★ テキスト / 付箋 / リンク
       else if (kind === "text" || kind === "sticky" || kind === "link") {
         ctx.save();
 
-        // 付箋の背景
         if (kind === "sticky") {
-          ctx.fillStyle = fillColor; // 背景色
-          ctx.strokeStyle = strokeColor; // 枠色
+          ctx.fillStyle = fillColor;
+          ctx.strokeStyle = strokeColor;
           ctx.lineWidth = 1 / this.scale;
-          // 影
           ctx.shadowColor = "rgba(0,0,0,0.15)";
           ctx.shadowBlur = 6;
           ctx.shadowOffsetY = 3;
@@ -2632,7 +2509,6 @@ export class Whiteboard {
           ctx.strokeRect(x, y, width, height);
         }
 
-        // テキスト描画
         const fontSize = obj.fontSize || 16;
         const fontFamily = obj.fontFamily || "system-ui";
         const bold = obj.bold ? "bold " : "";
@@ -2641,7 +2517,6 @@ export class Whiteboard {
         ctx.textBaseline = "top";
         ctx.fillStyle = kind === "sticky" ? "#111827" : (obj.stroke !== "transparent" ? obj.stroke : "#111827");
 
-        // リンクの場合は青色＆下線
         if (kind === "link") {
           ctx.fillStyle = "#2563eb";
         }
@@ -2651,7 +2526,6 @@ export class Whiteboard {
         const lines = (obj.text || "").split("\n");
         let ty = y + padding;
 
-        // クリップ
         ctx.beginPath();
         ctx.rect(x, y, width, height);
         ctx.clip();
@@ -2661,7 +2535,6 @@ export class Whiteboard {
           ty += (fontSize / this.scale) * lineHeight;
         }
 
-        // リンクの下線
         if (kind === "link") {
           const tw = ctx.measureText(obj.text || "").width;
           ctx.beginPath();
@@ -2675,81 +2548,9 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      // 選択枠の描画
       if (this.tool === "select") {
         if (this.selectedObject === obj) {
-          // リサイズハンドル
-          if (this.isResizing && this.resizeHandle) {
-            // ドラッグ中はシンプルに枠だけ
-            ctx.save();
-            ctx.strokeStyle = "#3b82f6";
-            ctx.lineWidth = 1.5 / this.scale;
-            ctx.strokeRect(x, y, width, height);
-
-            const handleSize = 10 / this.scale;
-            const corners = [
-              { name: "nw", cx: x, y: y },
-              { name: "ne", cx: x + width, y: y },
-              { name: "se", cx: x + width, y: y + height },
-              { name: "sw", cx: x, y: y + height }
-            ];
-            ctx.fillStyle = "#ffffff";
-            ctx.strokeStyle = "#2563eb";
-            ctx.lineWidth = 1 / this.scale;
-
-            obj.points.forEach((pt, idx) => {
-              const hx = pt.x - handleSize / 2;
-              const hy = pt.y - handleSize / 2;
-              ctx.fillRect(hx, hy, handleSize, handleSize);
-              ctx.strokeRect(hx, hy, handleSize, handleSize);
-
-              const s1 = this._worldToScreen(hx, hy);
-              const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
-              this.handleRects.push({
-                name: "p" + idx,
-                x: s1.x,
-                y: s1.y,
-                size: s2.x - s1.x
-              });
-            });
-
-            ctx.restore();
-          } else {
-            // 通常オブジェクトの選択枠 + 4 隅ハンドル
-            ctx.save();
-            ctx.strokeStyle = "#3b82f6";
-            ctx.lineWidth = 1.5 / this.scale;
-            ctx.setLineDash([6 / this.scale, 3 / this.scale]);
-            ctx.strokeRect(x, y, width, height);
-            ctx.setLineDash([]);
-
-            const handleSize = 10 / this.scale;
-            const corners = [
-              { name: "nw", cx: x, y: y },
-              { name: "ne", cx: x + width, y: y },
-              { name: "se", cx: x + width, y: y + height },
-              { name: "sw", cx: x, y: y + height }
-            ];
-            ctx.fillStyle = "#ffffff";
-            ctx.strokeStyle = "#2563eb";
-            ctx.lineWidth = 1 / this.scale;
-            for (const c of corners) {
-              const hx = c.cx - handleSize / 2;
-              const hy = c.y - handleSize / 2;
-              ctx.fillRect(hx, hy, handleSize, handleSize);
-              ctx.strokeRect(hx, hy, handleSize, handleSize);
-
-              const s1 = this._worldToScreen(hx, hy);
-              const s2 = this._worldToScreen(hx + handleSize, hy + handleSize);
-              this.handleRects.push({
-                name: c.name,
-                x: s1.x,
-                y: s1.y,
-                size: s2.x - s1.x
-              });
-            }
-            ctx.restore();
-          }
+          // ※ selectedObject は未使用なので、必要なら selectedObj に合わせて再調整
         } else if (isSelected) {
           ctx.save();
           ctx.strokeStyle = "#3b82f6";
@@ -2764,7 +2565,7 @@ export class Whiteboard {
   }
 
   _renderOverlays(ctx) {
-    // ボックス選択の描画
+    // ---- ボックス選択の描画 ----
     if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
       const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);
       const sy = Math.min(this.selectionBoxStart.y, this.selectionBoxEnd.y);
@@ -2784,7 +2585,7 @@ export class Whiteboard {
       ctx.restore();
     }
 
-    // 選択中ストロークのハイライト
+    // ---- ストローク選択枠の描画 ----
     if (this.multiSelectedStrokes && this.multiSelectedStrokes.length > 0) {
       ctx.save();
       ctx.strokeStyle = "#f97316";
@@ -2813,5 +2614,70 @@ export class Whiteboard {
       ctx.setLineDash([]);
       ctx.restore();
     }
+
+    // ---- リサイズハンドルの描画 ----
+    // 選択ツールで、単一オブジェクトが選択されているときだけ表示
+    if (
+      this.tool === "select" &&
+      this.multiSelectedObjects &&
+      this.multiSelectedObjects.length === 1 &&
+      this.selectedObj
+    ) {
+      this._drawResizeHandles(ctx, this.selectedObj);
+    }
   }
+
+
+  // ★ 追加：選択中オブジェクトのリサイズハンドル描画
+  _drawResizeHandles(ctx, obj) {
+    if (!obj) return;
+    if (obj.locked) return;
+
+    // 対象オブジェクトの正規化された矩形
+    const { x, y, width, height } = this._normalizeRect(obj);
+
+    // 画面上でのハンドルサイズ（px）
+    const handleSizePx = 10;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
+
+    // ワールド座標でのハンドルサイズ（スケールとdprを考慮）
+    const sizeWorld = handleSizePx / (this.scale * dpr);
+    const halfWorld = sizeWorld / 2;
+
+    // 四隅のワールド座標
+    const corners = [
+      { name: "nw", wx: x, wy: y },
+      { name: "ne", wx: x + width, wy: y },
+      { name: "se", wx: x + width, wy: y + height },
+      { name: "sw", wx: x, wy: y + height }
+    ];
+
+    for (const c of corners) {
+      // 画面座標に変換して当たり判定用に保存
+      const screen = this._worldToScreen(c.wx, c.wy);
+      this.handleRects.push({
+        name: c.name,
+        x: screen.x - handleSizePx / 2,
+        y: screen.y - handleSizePx / 2,
+        size: handleSizePx
+      });
+
+      // 実際の描画はワールド座標で行う（スケールに追従）
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.beginPath();
+      ctx.rect(
+        c.wx - halfWorld,
+        c.wy - halfWorld,
+        sizeWorld,
+        sizeWorld
+      );
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
 }
