@@ -3,6 +3,8 @@ import { initBoardUI } from "./board-ui.js";
 import { Whiteboard } from "./whiteboard.js";
 
 const teacherBoard = initBoardUI();
+window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
+
 
 // === サーバー側のボード API ベースパス ===
 const BOARD_API_BASE = "/api/board";

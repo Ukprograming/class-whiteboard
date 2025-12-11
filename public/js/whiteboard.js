@@ -71,6 +71,9 @@ export class Whiteboard {
     this.lastPanScreenX = 0;
     this.lastPanScreenY = 0;
 
+    this.isErasingTeacher = false;  // 既にどこかで使っているならここで初期化
+    this.isErasingStroke = false;   // 一般用（手書きストローク用）消しゴム
+
     // 選択状態（オブジェクト＋ストローク、複数選択対応）
     this.selectedObj = null;          // テキスト設定用の代表オブジェクト
     this.multiSelectedObjects = [];   // 図形・テキストなど
@@ -98,6 +101,15 @@ export class Whiteboard {
     // テキスト編集用オーバーレイ
     this.textEditor = this._createTextEditor();
     this.editingObj = null; // 編集中の text オブジェクト
+
+    // ★ 追加：テキストのデフォルトスタイル
+    this.textDefaults = {
+      fontSize: 16,
+      fontFamily: 'Meiryo, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      bold: false,
+      color: "#111827", // 文字色
+      align: "left"     // "left" | "center" | "right"
+    };
 
     // ★ 外部連携用コールバック
     this.onSelectionChange = null;
@@ -173,7 +185,6 @@ export class Whiteboard {
     this.isTeacherMode = !!enabled;
   }
 
-  // ★ 外部からのアクション適用（共同編集用）
   // ★ 外部からのアクション適用（共同編集用）
   applyAction(action) {
     if (!action) return;
@@ -385,6 +396,40 @@ export class Whiteboard {
     this._fireSelectionChange();
   }
 
+  // ★ ストロークの選択状態を設定（内部用）
+  _setSelectedStroke(stroke, additive = false) {
+    if (!stroke) {
+      this.selectedStroke = null;
+      this.multiSelectedStrokes = [];
+      // 単体選択リセットの場合はオブジェクト選択もクリア
+      if (!additive) {
+        this.selectedObj = null;
+        this.multiSelectedObjects = [];
+      }
+      this._fireSelectionChange();
+      return;
+    }
+
+    if (additive) {
+      // 追加選択（Shift+クリック）の場合
+      if (!this.multiSelectedStrokes.includes(stroke)) {
+        this.multiSelectedStrokes.push(stroke);
+      }
+      this.selectedStroke = stroke;
+    } else {
+      // 単体選択の場合
+      this.multiSelectedStrokes = [stroke];
+      this.selectedStroke = stroke;
+
+      // ストロークだけ選択するので、オブジェクト選択はクリア
+      this.selectedObj = null;
+      this.multiSelectedObjects = [];
+    }
+
+    this._fireSelectionChange();
+  }
+
+
   // ★ 選択変更イベントを発火
   _fireSelectionChange() {
     if (this.onSelectionChange && typeof this.onSelectionChange === "function") {
@@ -570,24 +615,31 @@ export class Whiteboard {
     const last = this.history.pop();
     if (!last) return;
 
+    // ストロークの追加を取り消し
     if (last.kind === "stroke") {
       const idx = this.strokes.indexOf(last.stroke);
       if (idx >= 0) this.strokes.splice(idx, 1);
+    }
 
-    } else if (last.kind === "object") {
+    // オブジェクトの追加を取り消し（_addObject で push されるもの）
+    else if (last.kind === "object") {
       const idx = this.objects.findIndex(o => o.id === last.id);
       if (idx >= 0) this.objects.splice(idx, 1);
       if (this.selectedObj && this.selectedObj.id === last.id) {
         this._setSelected(null);
       }
+    }
 
-    } else if (last.kind === "delete-object") {
+    // 単一オブジェクト削除の UNDO（_deleteObject 用）
+    else if (last.kind === "delete-object") {
       const index =
         typeof last.index === "number" ? last.index : this.objects.length;
       this.objects.splice(index, 0, last.object);
       this._setSelected(last.object);
+    }
 
-    } else if (last.kind === "delete-multi") {
+    // 複数オブジェクト／ストローク削除の UNDO（deleteSelection 用）
+    else if (last.kind === "delete-multi") {
       if (last.objects) {
         last.objects.forEach(entry => {
           const idx =
@@ -617,8 +669,53 @@ export class Whiteboard {
       this._fireSelectionChange();
     }
 
+    // ★ 教員モードの消しゴムによるストローク削除の UNDO
+    else if (last.kind === "delete-stroke") {
+      const index =
+        typeof last.index === "number" ? last.index : this.strokes.length;
+      this.strokes.splice(index, 0, last.stroke);
+    }
+
+    // ★ 移動／リサイズ（オブジェクト＋ストローク）の UNDO
+    else if (last.kind === "transform") {
+      if (last.objects) {
+        last.objects.forEach(entry => {
+          const obj = entry.obj;
+          const before = entry.before;
+          if (!obj || !before) return;
+          obj.x = before.x;
+          obj.y = before.y;
+          if (before.width != null) obj.width = before.width;
+          if (before.height != null) obj.height = before.height;
+          if (before.points && obj.points) {
+            obj.points = before.points.map(p => ({ x: p.x, y: p.y }));
+          }
+        });
+      }
+      if (last.strokes) {
+        last.strokes.forEach(entry => {
+          const stroke = entry.stroke;
+          const before = entry.before;
+          if (!stroke || !before || !before.points) return;
+          stroke.points = before.points.map(p => ({ x: p.x, y: p.y }));
+        });
+      }
+    }
+
+    // ★ テキスト編集の UNDO
+    else if (last.kind === "edit-text") {
+      const obj = last.object;
+      const before = last.before;
+      if (obj && before) {
+        obj.text = before.text;
+        if (before.width != null) obj.width = before.width;
+        if (before.height != null) obj.height = before.height;
+      }
+    }
+
     this.render();
   }
+
 
   copySelection() {
     if (!this.selectedObj) return;
@@ -765,6 +862,13 @@ export class Whiteboard {
     const width = 260;
     const height = 80;
 
+    const d = this.textDefaults || {};
+    const fontSize = d.fontSize || 16;
+    const fontFamily = d.fontFamily || "system-ui";
+    const bold = !!d.bold;
+    const textColor = d.color || "#111827";
+    const textAlign = d.align || "left";
+
     const obj = {
       id,
       kind: "text",
@@ -773,12 +877,16 @@ export class Whiteboard {
       width,
       height,
       text,
-      fontSize: 16,
-      fontFamily: "system-ui",
-      bold: false,
+      fontSize,
+      fontFamily,
+      bold,
+      textColor,
+      textAlign,
       fill: "transparent",
-      stroke: "transparent"
+      stroke: "transparent",
+      strokeWidth: 2
     };
+
 
     this._addObject(obj);
     this.render();
@@ -879,13 +987,32 @@ export class Whiteboard {
     this._zoomAtScreenPoint(sx, sy, factor);
   }
 
-  setSelectedTextStyle({ fontSize, fontFamily, bold }) {
-    if (!this.selectedObj || this.selectedObj.kind !== "text") return;
+  // ★ 修正：色と配置も変更できるように拡張
+  setSelectedTextStyle({ fontSize, fontFamily, bold, color, align } = {}) {
+    if (!this.selectedObj) return;
+    if (!["text", "sticky", "link"].includes(this.selectedObj.kind)) return;
+
     if (fontSize != null) this.selectedObj.fontSize = fontSize;
     if (fontFamily) this.selectedObj.fontFamily = fontFamily;
     if (typeof bold === "boolean") this.selectedObj.bold = bold;
+    if (color) this.selectedObj.textColor = color;
+    if (align) this.selectedObj.textAlign = align;
+
     this.render();
     this._fireSelectionChange();
+  }
+
+
+  // ★ 追加：テキストツールのデフォルトスタイルを更新
+  setTextDefaults({ fontSize, fontFamily, bold, color, align } = {}) {
+    if (!this.textDefaults) {
+      this.textDefaults = {};
+    }
+    if (fontSize != null) this.textDefaults.fontSize = fontSize;
+    if (fontFamily) this.textDefaults.fontFamily = fontFamily;
+    if (typeof bold === "boolean") this.textDefaults.bold = bold;
+    if (color) this.textDefaults.color = color;
+    if (align) this.textDefaults.align = align;
   }
 
   setSelectedStickyColor(color) {
@@ -958,12 +1085,22 @@ export class Whiteboard {
         isTeacherAnnotation: !!o.isTeacherAnnotation
       };
 
+      // 回転角（ラジアン）
+      if (o.rotation != null) {
+        base.rotation = o.rotation;
+      }
+
       if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
         base.text = o.text || "";
         base.fontSize = o.fontSize || 16;
         base.fontFamily = o.fontFamily || "system-ui";
         base.bold = !!o.bold;
+        base.textAlign = o.textAlign || "left";
+        if (o.textColor) {
+          base.textColor = o.textColor;
+        }
       }
+
 
       if (o.fill !== undefined) base.fill = o.fill;
       if (o.stroke !== undefined) base.stroke = o.stroke;
@@ -1103,12 +1240,19 @@ export class Whiteboard {
         isTeacherAnnotation: !!o.isTeacherAnnotation
       };
 
+      // ★ 追加：回転角（なければ 0）
+      obj.rotation = o.rotation != null ? o.rotation : 0;
+
+
       if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
         obj.text = o.text || "";
         obj.fontSize = o.fontSize || 16;
         obj.fontFamily = o.fontFamily || "system-ui";
         obj.bold = !!o.bold;
+        obj.textAlign = o.textAlign || "left";
+        obj.textColor = o.textColor || null;
       }
+
 
       if (o.fill !== undefined) {
         obj.fill = o.fill;
@@ -1183,7 +1327,11 @@ export class Whiteboard {
     this.offsetX = sx - wx * this.scale;
     this.offsetY = sy - wy * this.scale;
     this.render();
+
+    // ✅ ズーム変更を UI に通知
+    if (this.onZoomChange) this.onZoomChange();
   }
+
 
   _addStroke(stroke) {
     // ★ 追加：IDがなければ採番
@@ -1209,7 +1357,6 @@ export class Whiteboard {
   }
 
   // ★ 修正：スタンプの混入コードを削除し、純粋にストローク削除だけにする
-  // ★ 教員モードの消しゴムでストロークを削除 → 他クライアントにも同期
   // ★ 教員モードの消しゴムでストロークを削除 → 他クライアントにも同期
   _deleteStroke(stroke) {
     const idx = this.strokes.indexOf(stroke);
@@ -1335,21 +1482,117 @@ export class Whiteboard {
     this.textEditor.style.fontSize = `${fontSize}px`;
     this.textEditor.style.fontFamily = fontFamily;
     this.textEditor.style.fontWeight = bold;
+    this.textEditor.style.fontSize = `${fontSize}px`;
+    this.textEditor.style.fontFamily = fontFamily;
+    // ★ 追加：テキストの配置を反映
+    this.textEditor.style.textAlign = obj.textAlign || "left";
     this.textEditor.style.display = "block";
+
     this.textEditor.focus();
     this.textEditor.select();
   }
 
+  // ★ テキストボックスの高さを自動調整
+  _autoResizeTextObject(obj) {
+    if (!obj) return;
+
+    const fontSize = obj.fontSize || 16;
+    const fontFamily = obj.fontFamily || "system-ui";
+    const bold = obj.bold ? "bold " : "";
+    const padding = 8;
+
+    // 幅（左右のパディングを除いたテキスト描画可能幅）
+    const baseWidth = Math.max(20, Math.abs(obj.width) - padding * 2);
+
+    // 計測用のオフスクリーンキャンバス
+    const measureCanvas = document.createElement("canvas");
+    const mctx = measureCanvas.getContext("2d");
+    mctx.font = `${bold}${fontSize}px ${fontFamily}`;
+
+    const rawLines = (obj.text || "").split("\n");
+    const lines = [];
+
+    for (const raw of rawLines) {
+      if (raw === "") {
+        lines.push("");
+        continue;
+      }
+      let current = "";
+      for (const ch of raw) {
+        const test = current + ch;
+        const w = mctx.measureText(test).width;
+        if (w > baseWidth && current !== "") {
+          lines.push(current);
+          current = ch;
+        } else {
+          current = test;
+        }
+      }
+      if (current !== "" || raw === "") {
+        lines.push(current);
+      }
+    }
+
+    const lineHeightPx = fontSize * 1.4;
+    const contentHeight = lines.length * lineHeightPx;
+    const totalHeight = contentHeight + padding * 2;
+
+    // もともと負の高さ（上向き描画）の場合もあるので符号を維持
+    if (Math.abs(obj.height) < totalHeight) {
+      const sign = obj.height >= 0 ? 1 : -1;
+      obj.height = sign * totalHeight;
+    }
+  }
+
+
   _commitTextEditor() {
     if (!this.editingObj) return;
-    this.editingObj.text = this.textEditor.value;
+    const obj = this.editingObj;
+
+    // ★ 変更前の状態を保存
+    const before = {
+      text: obj.text || "",
+      width: obj.width,
+      height: obj.height
+    };
+
+    // テキストを反映
+    obj.text = this.textEditor.value;
+
+    // ★ 内容に応じて高さを自動調整
+    this._autoResizeTextObject(obj);
+
+    // ★ 変更後の状態
+    const after = {
+      text: obj.text || "",
+      width: obj.width,
+      height: obj.height
+    };
+
+    // ★ テキストやサイズに変更があれば履歴に積む
+    if (
+      before.text !== after.text ||
+      before.width !== after.width ||
+      before.height !== after.height
+    ) {
+      if (!this.history) this.history = [];
+      this.history.push({
+        kind: "edit-text",
+        object: obj,
+        before,
+        after
+      });
+    }
+
     if (this.onAction) {
-      this.onAction({ type: "modify", object: this.editingObj });
+      this.onAction({ type: "modify", object: obj });
     }
     this.editingObj = null;
     this.textEditor.style.display = "none";
     this.render();
   }
+
+
 
   _cancelTextEditor() {
     this.editingObj = null;
@@ -1374,28 +1617,46 @@ export class Whiteboard {
     const id = this.nextObjectId++;
     const width = 240;
     const height = 60;
+
+    // ★ デフォルトスタイルを使用
+    const d = this.textDefaults || {};
+    const fontSize = d.fontSize || 16;
+    const fontFamily = d.fontFamily || "system-ui";
+    const bold = !!d.bold;
+    const textColor = d.color || "#111827";
+    const textAlign = d.align || "left";
+
     const obj = {
       id,
-      kind,
+      kind, // "text" または "sticky"
+      // クリック位置を左上にするならそのまま、中央にしたければ wx - width/2 などにしてOK
       x: wx,
       y: wy,
       width,
       height,
       text: "",
-      fontSize: 16,
-      fontFamily: "system-ui",
-      bold: false,
+      fontSize,
+      fontFamily,
+      bold,
+      textColor,
+      textAlign,
       fill: kind === "sticky" ? "#FEF3C7" : "transparent",
       stroke: kind === "sticky" ? "#FBBF24" : this.penColor,
       strokeWidth: 2
     };
+
+    // ★ 実際に追加して選択＆編集開始
     this._addObject(obj);
-    if (this.onAction) {
-      this.onAction({ type: "object", object: obj });
-    }
     this.render();
     this._openTextEditorForObject(obj);
+
+    //   テキスト／付箋を配置して編集状態になったら
+    //   ツールを自動で「選択」に戻す
+    this.tool = "select";
   }
+
+
+
 
   _startShape(wx, wy, kind) {
     const id = this.nextObjectId++;
@@ -1477,6 +1738,9 @@ export class Whiteboard {
     }
     this.isDrawingShape = false;
     this.shapeDraft = null;
+
+    // ★ 図形を置いたら自動的に選択ツールへ戻す
+    this.tool = "select";
     this.render();
   }
 
@@ -1569,11 +1833,19 @@ export class Whiteboard {
       }
 
       if (this.tool === "pen" || this.tool === "highlighter" || this.tool === "eraser") {
+        // ★ 教員モードの消しゴム：既存通り「教員注釈だけ削除」
         if (this.tool === "eraser" && this.isTeacherMode) {
           this.isErasingTeacher = true;
           return;
         }
 
+        // ★ 一般用の消しゴム：ストロークを「まるごと削除」するモードにする
+        if (this.tool === "eraser") {
+          this.isErasingStroke = true;
+          return;
+        }
+
+        // ★ ここから先はペン／蛍光ペンだけ
         this.isDrawingStroke = true;
         let color = this.penColor;
         let width = this.penWidth;
@@ -1581,9 +1853,6 @@ export class Whiteboard {
         if (type === "highlighter") {
           color = this.highlighterColor;
           width = this.highlighterWidth;
-        } else if (type === "eraser") {
-          color = "#000000";
-          width = this.eraserWidth;
         }
         this.currentStroke = {
           type,
@@ -1596,6 +1865,7 @@ export class Whiteboard {
         this.render();
         return;
       }
+
 
       if (this.tool === "text" || this.tool === "sticky") {
         this._createTextObject(wx, wy, this.tool === "sticky" ? "sticky" : "text");
@@ -1620,7 +1890,97 @@ export class Whiteboard {
             this.isResizingObj = true;
             this.resizeHandle = handle;
 
-            const { x, y, width, height } = this._normalizeRect(this.selectedObj);
+            const obj = this.selectedObj;
+
+            // ★ ① 回転ハンドルを掴んだとき
+            if (handle === "rotate") {
+              const { x, y, width, height } = this._normalizeRect(obj);
+              const cx = x + width / 2;
+              const cy = y + height / 2;
+
+              this.dragStart = {
+                mode: "rotate",
+                cx,
+                cy,
+                startAngle: obj.rotation || 0,
+                startPointerAngle: Math.atan2(wy - cy, wx - cx)
+              };
+              return;
+            }
+
+            // ★ ② 直線 / 矢印 / 相互矢印のリサイズ開始
+            if (obj.kind === "line" || obj.kind === "arrow" || obj.kind === "double-arrow") {
+              this.dragStart = {
+                wx,
+                wy,
+                handle,
+                objects: [
+                  {
+                    obj,
+                    x: obj.x,
+                    y: obj.y,
+                    width: obj.width,
+                    height: obj.height,
+                    // リサイズ前の端点（ワールド座標）
+                    x1: obj.x,
+                    y1: obj.y,
+                    x2: obj.x + obj.width,
+                    y2: obj.y + obj.height
+                  }
+                ],
+                strokes: []
+              };
+              return;
+            }
+
+            // ★ ③ 3D 図形の depth ハンドル
+            // ★ 3D 図形の depth ハンドル
+            if (
+              (obj.kind === "tri-prism" || obj.kind === "rect-prism" || obj.kind === "cylinder") &&
+              handle === "depth"
+            ) {
+              const { x, y, width, height } = this._normalizeRect(obj);
+
+              if (obj.kind === "cylinder") {
+                // 円柱：depth は「つぶれ具合の割合」として扱う
+                const cx = x + width / 2;
+                const cy = y + height / 2;
+                const baseRy = Math.abs(width) / 2; // 横半径を基準にする
+
+                const ratio0 =
+                  typeof obj.depth === "number" && obj.depth > 0
+                    ? obj.depth
+                    : 0.25; // 初期値
+
+                this.dragStart = {
+                  mode: "depth",
+                  kind: "cylinder",
+                  cx,
+                  cy,
+                  baseRy,
+                  ratio0
+                };
+              } else {
+                // tri-prism / rect-prism：従来通り「奥行き距離」として扱う
+                const depth = obj.depth != null ? obj.depth : 40;
+                const frontTopRight = { x: x + width, y: y };
+
+                this.dragStart = {
+                  mode: "depth",
+                  kind: "prism",
+                  wx,
+                  wy,
+                  frontX: frontTopRight.x,
+                  frontY: frontTopRight.y,
+                  depth0: depth
+                };
+              }
+              return;
+            }
+
+
+            // ★ ④ それ以外（矩形・円・付箋など）：従来通りのリサイズ
+            const { x, y, width, height } = this._normalizeRect(obj);
             const aspect = width !== 0 ? Math.abs(height / width) : null;
 
             let anchorX = x;
@@ -1653,6 +2013,8 @@ export class Whiteboard {
             return;
           }
         }
+
+
 
         const hitObj = this._hitTestObject(wx, wy);
         if (hitObj) {
@@ -1765,6 +2127,7 @@ export class Whiteboard {
     };
 
     const move = e => {
+      // ---- ピンチズーム ----
       if (this.isPinchZoom && e.touches && e.touches.length >= 2) {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
@@ -1791,9 +2154,14 @@ export class Whiteboard {
         this.offsetY = centerSy - this.pinchWorld.y * this.scale;
 
         this.render();
+
+        // ✅ ピンチズームでもUIへ通知
+        if (this.onZoomChange) this.onZoomChange();
+
         return;
       }
 
+      // ---- 中ボタン or Alt でのパン ----
       if (this.isPanning) {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
@@ -1811,24 +2179,41 @@ export class Whiteboard {
         return;
       }
 
-      if (this.isErasingTeacher) {
+      // ---- 消しゴムでの削除 ----
+      if (this.isErasingTeacher || this.isErasingStroke) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
 
         const hitStroke = this._hitTestStroke(wx, wy);
-        if (hitStroke && hitStroke.isTeacherAnnotation) {
-          this._deleteStroke(hitStroke);
-          this.render();
+
+        // ★ 教員モードの消しゴム：教員注釈だけ削除
+        if (this.isErasingTeacher) {
+          if (hitStroke && hitStroke.isTeacherAnnotation) {
+            this._deleteStroke(hitStroke);
+            this.render();
+          }
+
+          const hitObj = this._hitTestObject(wx, wy);
+          if (hitObj && hitObj.isTeacherAnnotation) {
+            this._deleteObject(hitObj);
+            this.render();
+          }
+
+          return;
         }
 
-        const hitObj = this._hitTestObject(wx, wy);
-        if (hitObj && hitObj.isTeacherAnnotation) {
-          this._deleteObject(hitObj);
-          this.render();
+        // ★ 一般用：手書きストロークなら誰のでも削除
+        if (this.isErasingStroke) {
+          if (hitStroke) {
+            this._deleteStroke(hitStroke);
+            this.render();
+          }
+          return;
         }
-        return;
       }
 
+
+      // ---- ペン／蛍光ペンで描画中 ----
       if (this.isDrawingStroke && this.currentStroke) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
@@ -1845,6 +2230,7 @@ export class Whiteboard {
         return;
       }
 
+      // ---- 図形描画中 ----
       if (this.isDrawingShape) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
@@ -1852,7 +2238,51 @@ export class Whiteboard {
         return;
       }
 
+      // ======================================
+      // ここから ドラッグ移動・ボックス選択・リサイズ
+      // ======================================
+
+      // ★ オブジェクト／ストロークのドラッグ移動（ツールに関係なく共通）
+      if (this.isDraggingObj && this.dragStart) {
+        e.preventDefault();
+        const { wx, wy } = getPos(e);
+        const dx = wx - this.dragStart.wx;
+        const dy = wy - this.dragStart.wy;
+
+        // 図形・テキストなど
+        if (this.dragStart.objects) {
+          this.dragStart.objects.forEach(entry => {
+            entry.obj.x = entry.x + dx;
+            entry.obj.y = entry.y + dy;
+            if (entry.points && entry.obj.points) {
+              entry.obj.points.forEach((p, i) => {
+                const base = entry.points[i];
+                p.x = base.x + dx;
+                p.y = base.y + dy;
+              });
+            }
+          });
+        }
+
+        // ★ ペンで描いたストローク
+        if (this.dragStart.strokes) {
+          this.dragStart.strokes.forEach(entry => {
+            const stroke = entry.stroke;
+            stroke.points.forEach((p, i) => {
+              const base = entry.points[i];
+              p.x = base.x + dx;
+              p.y = base.y + dy;
+            });
+          });
+        }
+
+        this.render();
+        return;
+      }
+
+      // ---- 以下は「選択ツール」のときだけ有効 ----
       if (this.tool === "select") {
+        // ボックス選択中
         if (this.isBoxSelecting && this.selectionBoxStart) {
           e.preventDefault();
           const { wx, wy } = getPos(e);
@@ -1861,47 +2291,107 @@ export class Whiteboard {
           return;
         }
 
-        if (this.isDraggingObj && this.dragStart) {
-          e.preventDefault();
-          const { wx, wy } = getPos(e);
-          const dx = wx - this.dragStart.wx;
-          const dy = wy - this.dragStart.wy;
-
-          if (this.dragStart.objects) {
-            this.dragStart.objects.forEach(entry => {
-              entry.obj.x = entry.x + dx;
-              entry.obj.y = entry.y + dy;
-              if (entry.points && entry.obj.points) {
-                entry.obj.points.forEach((p, i) => {
-                  const base = entry.points[i];
-                  p.x = base.x + dx;
-                  p.y = base.y + dy;
-                });
-              }
-            });
-          }
-
-          if (this.dragStart.strokes) {
-            this.dragStart.strokes.forEach(entry => {
-              const stroke = entry.stroke;
-              stroke.points.forEach((p, i) => {
-                const base = entry.points[i];
-                p.x = base.x + dx;
-                p.y = base.y + dy;
-              });
-            });
-          }
-
-          this.render();
-          return;
-        }
-
+        // オブジェクトのリサイズ
         if (this.isResizingObj && this.selectedObj && this.dragStart) {
           e.preventDefault();
           const { wx, wy } = getPos(e);
           const obj = this.selectedObj;
 
-          if (obj.kind === "triangle" && this.resizeHandle && this.resizeHandle.startsWith("p") && obj.points && obj.points.length === 3) {
+          // ★ ① 回転ハンドルをドラッグ中
+          if (
+            this.resizeHandle === "rotate" &&
+            this.dragStart.mode === "rotate"
+          ) {
+            const { cx, cy, startAngle, startPointerAngle } = this.dragStart;
+            const currentPointerAngle = Math.atan2(wy - cy, wx - cx);
+            const delta = currentPointerAngle - startPointerAngle;
+            obj.rotation = startAngle + delta;
+            this.render();
+            return;
+          }
+
+          // ★ ② 3D 図形の depth ハンドルをドラッグ中
+          // ★ ② 3D 図形の depth ハンドルをドラッグ中
+          if (
+            this.resizeHandle === "depth" &&
+            this.dragStart.mode === "depth"
+          ) {
+            // 円柱：depth は「つぶれ具合の割合」として扱う
+            if (obj.kind === "cylinder" && this.dragStart.kind === "cylinder") {
+              const { cy, baseRy, ratio0 } = this.dragStart;
+
+              // ハンドルの上下ドラッグ量を「円のつぶれ具合」に反映
+              const dy = wy - cy; // 中心からの縦方向の差
+              // ちょっと感度を落とす（4 は適当なスケール）
+              const deltaRatio = -dy / (baseRy * 4);
+
+              let ratio = ratio0 + deltaRatio;
+              // あまりつぶれすぎ / 立ちすぎないようにクランプ
+              const minRatio = 0.12;
+              const maxRatio = 0.6;
+              ratio = Math.max(minRatio, Math.min(maxRatio, ratio));
+
+              obj.depth = ratio; // ← 円柱では depth を「割合」として使う
+
+              this.render();
+              return;
+            }
+
+            // tri-prism / rect-prism：これまで通り「奥行き距離」として扱う
+            const { frontX, frontY } = this.dragStart;
+            const vx = wx - frontX;
+            const vy = wy - frontY;
+
+            // 理想的な方向ベクトルは (1, -1)（右上方向）
+            // そこへの射影長 t ≒ depth とみなす
+            const t = (vx - vy) / 2;
+            obj.depth = Math.max(0, t);
+
+            this.render();
+            return;
+          }
+
+
+          // ★ 直線 / 矢印 / 相互矢印：両端ハンドルをドラッグしたとき
+          if (
+            (obj.kind === "line" || obj.kind === "arrow" || obj.kind === "double-arrow") &&
+            (this.resizeHandle === "p0" || this.resizeHandle === "p1") &&
+            this.dragStart.objects &&
+            this.dragStart.objects.length > 0
+          ) {
+            const entry = this.dragStart.objects[0];
+            let { x1, y1, x2, y2 } = entry;
+
+            if (this.resizeHandle === "p0") {
+              // 開始点をマウス位置に
+              x1 = wx;
+              y1 = wy;
+            } else {
+              // 終了点をマウス位置に
+              x2 = wx;
+              y2 = wy;
+            }
+
+            // モデルは「開始点 + ベクトル」として保持
+            obj.x = x1;
+            obj.y = y1;
+            obj.width = x2 - x1;
+            obj.height = y2 - y1;
+
+            this.render();
+            return;
+          }
+
+
+
+          // 頂点ドラッグで三角形の形状変更
+          if (
+            obj.kind === "triangle" &&
+            this.resizeHandle &&
+            this.resizeHandle.startsWith("p") &&
+            obj.points &&
+            obj.points.length === 3
+          ) {
             const index = parseInt(this.resizeHandle.slice(1), 10);
             if (!Number.isNaN(index) && obj.points[index]) {
               obj.points[index] = { x: wx, y: wy };
@@ -1933,6 +2423,7 @@ export class Whiteboard {
             aspect
           } = this.dragStart;
 
+          // Shift + ドラッグで縦横比固定
           if (e.shiftKey && aspect) {
             let dx = wx - anchorX;
             let dy = wy - anchorY;
@@ -1993,6 +2484,7 @@ export class Whiteboard {
             return;
           }
 
+          // 通常のリサイズ
           let nx = x;
           let ny = y;
           let nw = width;
@@ -2023,6 +2515,7 @@ export class Whiteboard {
       }
     };
 
+
     const up = e => {
       if (this.isPinchZoom && (!e.touches || e.touches.length < 2)) {
         this.isPinchZoom = false;
@@ -2040,18 +2533,160 @@ export class Whiteboard {
       }
 
       if (this.isDraggingObj || this.isResizingObj) {
+
+        // ★ ここから：移動／リサイズの履歴を記録する ------------------
+        if (this.dragStart) {
+          // ① 複数オブジェクト／ストロークのドラッグ移動
+          if (this.dragStart.objects || this.dragStart.strokes) {
+            const changedObjects = [];
+            const changedStrokes = [];
+
+            if (this.dragStart.objects) {
+              this.dragStart.objects.forEach(entry => {
+                const obj = entry.obj;
+                if (!obj) return;
+
+                const moved =
+                  obj.x !== entry.x ||
+                  obj.y !== entry.y ||
+                  (entry.points && obj.points && obj.points.some((p, i) => {
+                    const bp = entry.points[i];
+                    return !bp || p.x !== bp.x || p.y !== bp.y;
+                  }));
+
+                if (moved) {
+                  changedObjects.push({
+                    obj,
+                    before: {
+                      x: entry.x,
+                      y: entry.y,
+                      // width/height は移動では変わらないので不要だが、
+                      // 将来の拡張を考えて一応含めておく
+                      width: obj.width,
+                      height: obj.height,
+                      points: entry.points
+                        ? entry.points.map(p => ({ x: p.x, y: p.y }))
+                        : null
+                    },
+                    after: {
+                      x: obj.x,
+                      y: obj.y,
+                      width: obj.width,
+                      height: obj.height,
+                      points: obj.points
+                        ? obj.points.map(p => ({ x: p.x, y: p.y }))
+                        : null
+                    }
+                  });
+                }
+              });
+            }
+
+            if (this.dragStart.strokes) {
+              this.dragStart.strokes.forEach(entry => {
+                const stroke = entry.stroke;
+                if (!stroke) return;
+                const beforePts = entry.points || [];
+                const afterPts = stroke.points || [];
+
+                let moved = false;
+                if (beforePts.length !== afterPts.length) {
+                  moved = true;
+                } else {
+                  for (let i = 0; i < beforePts.length; i++) {
+                    const bp = beforePts[i];
+                    const ap = afterPts[i];
+                    if (!ap || bp.x !== ap.x || bp.y !== ap.y) {
+                      moved = true;
+                      break;
+                    }
+                  }
+                }
+
+                if (moved) {
+                  changedStrokes.push({
+                    stroke,
+                    before: {
+                      points: beforePts.map(p => ({ x: p.x, y: p.y }))
+                    },
+                    after: {
+                      points: afterPts.map(p => ({ x: p.x, y: p.y }))
+                    }
+                  });
+                }
+              });
+            }
+
+            if (changedObjects.length || changedStrokes.length) {
+              this.history.push({
+                kind: "transform",
+                objects: changedObjects,
+                strokes: changedStrokes
+              });
+            }
+          }
+          // ② リサイズ（単一オブジェクト・ドラッグ開始時に x,y,width,height を持っている場合）
+          else if (this.isResizingObj && this.selectedObj &&
+            typeof this.dragStart.x === "number" &&
+            typeof this.dragStart.y === "number" &&
+            typeof this.dragStart.width === "number" &&
+            typeof this.dragStart.height === "number") {
+
+            const obj = this.selectedObj;
+            const before = {
+              x: this.dragStart.x,
+              y: this.dragStart.y,
+              width: this.dragStart.width,
+              height: this.dragStart.height
+            };
+            const after = {
+              x: obj.x,
+              y: obj.y,
+              width: obj.width,
+              height: obj.height
+            };
+
+            const changed =
+              before.x !== after.x ||
+              before.y !== after.y ||
+              before.width !== after.width ||
+              before.height !== after.height;
+
+            if (changed) {
+              this.history.push({
+                kind: "transform",
+                objects: [{ obj, before, after }],
+                strokes: []
+              });
+            }
+          }
+        }
+        // ★ ここまで：履歴記録 ------------------
+
+        // オブジェクトが動いたときは modify を送る
         if (this.onAction && this.selectedObj) {
           this.onAction({ type: "modify", object: this.selectedObj });
         }
+        // ★ 追加：ストロークだけ動かした場合などは、全体再描画のきっかけを送る
+        else if (this.onAction && this.multiSelectedStrokes && this.multiSelectedStrokes.length > 0) {
+          this.onAction({ type: "refresh" });
+        }
+
         this.isDraggingObj = false;
         this.isResizingObj = false;
         this.resizeHandle = null;
         this.dragStart = null;
       }
 
+
       if (this.isErasingTeacher) {
         this.isErasingTeacher = false;
       }
+      // ★ 一般用消しゴムフラグも解除
+      if (this.isErasingStroke) {
+        this.isErasingStroke = false;
+      }
+
 
       if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
         const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);
@@ -2107,6 +2742,10 @@ export class Whiteboard {
         this.selectionBoxEnd = null;
         this.render();
       }
+      if (this.isDraggingObj && this.multiSelectedStrokes.length && this.onAction) {
+        this.onAction({ type: "refresh" });
+      }
+
     };
 
     const dbl = e => {
@@ -2121,6 +2760,11 @@ export class Whiteboard {
       }
 
       if (hit.kind === "text") {
+        this._setSelected(hit);
+        this._openTextEditorForObject(hit);
+      }
+
+      if (hit.kind === "text" || hit.kind === "sticky") {
         this._setSelected(hit);
         this._openTextEditorForObject(hit);
       }
@@ -2339,18 +2983,44 @@ export class Whiteboard {
   _renderObjects(ctx, objects) {
     if (!objects) return;
     for (const obj of objects) {
-      const { x, y, width, height } = this._normalizeRect(obj);
+      const kind = obj.kind;
+
+      // ★ デフォルトは「そのまま」の座標
+      let x = obj.x;
+      let y = obj.y;
+      let width = obj.width;
+      let height = obj.height;
+
+      // ★ 直線・矢印・相互矢印のときだけは
+      //    「ドラッグ開始 → 終了」の向きをそのまま使いたいので、
+      //    _normalizeRect を適用しない
+      if (kind !== "line" && kind !== "arrow" && kind !== "double-arrow") {
+        ({ x, y, width, height } = this._normalizeRect(obj));
+      }
+
       const isSelected =
         this.multiSelectedObjects &&
         this.multiSelectedObjects.includes(obj);
       const strokeColor = obj.stroke || "#111827";
       const fillColor = obj.fill || "transparent";
       const strokeWidth = obj.strokeWidth || 2;
-      const kind = obj.kind;
 
       if (kind === "image" && obj.image) {
+        ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
         ctx.drawImage(obj.image, x, y, width, height);
+        ctx.restore();
       }
+
 
       if (kind === "line" || kind === "arrow" || kind === "double-arrow") {
         const x1 = x;
@@ -2406,6 +3076,16 @@ export class Whiteboard {
 
       else if (kind === "rect") {
         ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
         ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
@@ -2414,8 +3094,20 @@ export class Whiteboard {
         ctx.restore();
       }
 
-      else if (kind === "circle") {
+
+      // ★ ellipse（円・楕円）
+      else if (kind === "ellipse") {
         ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
         ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
@@ -2434,8 +3126,19 @@ export class Whiteboard {
         ctx.restore();
       }
 
+
       else if (kind === "triangle") {
         ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
         ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
@@ -2448,6 +3151,219 @@ export class Whiteboard {
         ctx.stroke();
         ctx.restore();
       }
+
+
+      else if (kind === "tri-prism") {
+        ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+
+        // 前面の三角形（triangle と同じ）
+        const front = [
+          { x: x + width / 2, y: y },
+          { x: x, y: y + height },
+          { x: x + width, y: y + height }
+        ];
+
+        // 奥側へのオフセット（depth 利用。なければ幅の 0.3 倍）
+        const depth = obj.depth != null ? obj.depth : Math.min(width, height) * 0.3;
+        const dx = depth;
+        const dy = -depth;
+
+        const back = front.map(p => ({
+          x: p.x + dx,
+          y: p.y + dy
+        }));
+
+        // 前面
+        ctx.beginPath();
+        ctx.moveTo(front[0].x, front[0].y);
+        ctx.lineTo(front[1].x, front[1].y);
+        ctx.lineTo(front[2].x, front[2].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 奥側（三角形アウトライン）
+        ctx.beginPath();
+        ctx.moveTo(back[0].x, back[0].y);
+        ctx.lineTo(back[1].x, back[1].y);
+        ctx.lineTo(back[2].x, back[2].y);
+        ctx.closePath();
+        ctx.stroke();
+
+        // 対応する頂点を結ぶ辺
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(front[i].x, front[i].y);
+          ctx.lineTo(back[i].x, back[i].y);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      // ★ 直方体（rect-prism）
+      else if (kind === "rect-prism") {
+        ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+
+        const depth = obj.depth != null ? obj.depth : Math.min(width, height) * 0.3;
+        const dx = depth;
+        const dy = -depth;
+
+        // 前面の四角形
+        const front = {
+          x1: x,
+          y1: y,
+          x2: x + width,
+          y2: y + height
+        };
+
+        // 奥側の四角形
+        const back = {
+          x1: x + dx,
+          y1: y + dy,
+          x2: x + width + dx,
+          y2: y + height + dy
+        };
+
+        // 前面 塗りつぶし
+        ctx.beginPath();
+        ctx.rect(front.x1, front.y1, width, height);
+        ctx.fill();
+        ctx.stroke();
+
+        // 奥側
+        ctx.beginPath();
+        ctx.rect(back.x1, back.y1, width, height);
+        ctx.stroke();
+
+        // 対応する 4 頂点を結ぶ
+        const cornersFront = [
+          { x: front.x1, y: front.y1 },
+          { x: front.x2, y: front.y1 },
+          { x: front.x2, y: front.y2 },
+          { x: front.x1, y: front.y2 }
+        ];
+        const cornersBack = [
+          { x: back.x1, y: back.y1 },
+          { x: back.x2, y: back.y1 },
+          { x: back.x2, y: back.y2 },
+          { x: back.x1, y: back.y2 }
+        ];
+
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(cornersFront[i].x, cornersFront[i].y);
+          ctx.lineTo(cornersBack[i].x, cornersBack[i].y);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      // ★ 円柱（cylinder）
+      else if (kind === "cylinder") {
+        ctx.save();
+
+        // ✅ ここで回転を反映：中心で回してから描画
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cxCenter = x + width / 2;
+          const cyCenter = y + height / 2;
+          ctx.translate(cxCenter, cyCenter);
+          ctx.rotate(angle);
+          ctx.translate(-cxCenter, -cyCenter);
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+
+        const cx = x + width / 2;
+        const rx = Math.abs(width) / 2;
+        const h = Math.abs(height);
+
+        // ★ depth を「つぶれ具合（0〜1）」として扱う
+        let ry;
+        const defaultRy = Math.min(rx, h / 6);
+
+        if (typeof obj.depth === "number" && obj.depth > 0 && obj.depth < 1.0) {
+          const minRatio = 0.12;
+          const maxRatio = 0.6;
+          const ratio = Math.max(minRatio, Math.min(maxRatio, obj.depth));
+          ry = rx * ratio;
+        } else {
+          // depth が無い／おかしい場合は従来ロジック
+          ry = defaultRy;
+        }
+
+        // 念のため高さが極端に小さいときのガード
+        if (h <= 2 * ry) {
+          ry = h / 4;
+        }
+
+        const topY = y + ry;
+        const bottomY = y + height - ry;
+        const sideHeight = bottomY - topY;
+
+        // --- 側面：塗りつぶし ---
+        if (sideHeight > 0) {
+          ctx.beginPath();
+          ctx.fillRect(x, topY, width, sideHeight);
+        }
+
+        // 側面の縦線
+        ctx.beginPath();
+        ctx.moveTo(x, topY);
+        ctx.lineTo(x, bottomY);
+        ctx.moveTo(x + width, topY);
+        ctx.lineTo(x + width, bottomY);
+        ctx.stroke();
+
+        // 上面の楕円
+        ctx.beginPath();
+        ctx.ellipse(cx, topY, rx, ry, 0, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // 下面の楕円
+        ctx.beginPath();
+        ctx.ellipse(cx, bottomY, rx, ry, 0, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+
+
+
+
 
       else if (kind === "star") {
         ctx.save();
@@ -2486,7 +3402,18 @@ export class Whiteboard {
         const key = obj.stampKey || "star-yellow";
         const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
         const emoji = preset ? (preset.emoji || "★") : "★";
+
         ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
         ctx.font = `${width}px serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -2494,8 +3421,18 @@ export class Whiteboard {
         ctx.restore();
       }
 
+
       else if (kind === "text" || kind === "sticky" || kind === "link") {
         ctx.save();
+
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cxCenter = x + width / 2;
+          const cyCenter = y + height / 2;
+          ctx.translate(cxCenter, cyCenter);
+          ctx.rotate(angle);
+          ctx.translate(-cxCenter, -cyCenter);
+        }
 
         if (kind === "sticky") {
           ctx.fillStyle = fillColor;
@@ -2513,53 +3450,107 @@ export class Whiteboard {
         const fontFamily = obj.fontFamily || "system-ui";
         const bold = obj.bold ? "bold " : "";
         ctx.font = `${bold}${fontSize / this.scale}px ${fontFamily}`;
-        ctx.textAlign = "left";
         ctx.textBaseline = "top";
-        ctx.fillStyle = kind === "sticky" ? "#111827" : (obj.stroke !== "transparent" ? obj.stroke : "#111827");
 
-        if (kind === "link") {
-          ctx.fillStyle = "#2563eb";
+        // ★ 追加：文字色（textColor）優先
+        let textColor = obj.textColor;
+        if (!textColor) {
+          if (kind === "link") {
+            textColor = "#2563eb";
+          } else if (kind === "sticky") {
+            textColor = "#111827";
+          } else {
+            textColor = (obj.stroke && obj.stroke !== "transparent") ? obj.stroke : "#111827";
+          }
         }
+        ctx.fillStyle = textColor;
 
         const padding = 8 / this.scale;
         const lineHeight = 1.4;
-        const lines = (obj.text || "").split("\n");
+
+        // ★ 自動改行：ボックス幅に合わせてテキストを折り返す
+        const maxTextWidth = Math.max(10 / this.scale, width - padding * 2);
+        const rawLines = (obj.text || "").split("\n");
+        const lines = [];
+
+        for (const raw of rawLines) {
+          // 空行はそのまま保持
+          if (raw === "") {
+            lines.push("");
+            continue;
+          }
+
+          let current = "";
+          for (const ch of raw) {
+            const test = current + ch;
+            const w = ctx.measureText(test).width;
+            if (w > maxTextWidth && current !== "") {
+              lines.push(current);
+              current = ch;
+            } else {
+              current = test;
+            }
+          }
+          if (current !== "" || raw === "") {
+            lines.push(current);
+          }
+        }
+
         let ty = y + padding;
+
 
         ctx.beginPath();
         ctx.rect(x, y, width, height);
         ctx.clip();
 
+        // ★ 追加：テキスト配置
+        const align = obj.textAlign || "left";
+
         for (const line of lines) {
-          ctx.fillText(line, x + padding, ty);
+          let tx;
+          if (align === "center") {
+            ctx.textAlign = "center";
+            tx = x + width / 2;
+          } else if (align === "right") {
+            ctx.textAlign = "right";
+            tx = x + width - padding;
+          } else {
+            ctx.textAlign = "left";
+            tx = x + padding;
+          }
+
+          ctx.fillText(line, tx, ty);
           ty += (fontSize / this.scale) * lineHeight;
         }
 
+        // リンクの下線（配置に合わせる）
         if (kind === "link") {
-          const tw = ctx.measureText(obj.text || "").width;
+          const text = obj.text || "";
+          const tw = ctx.measureText(text).width;
+          let ux1, ux2;
+          const uy = ty - (fontSize / this.scale) * 0.2;
+
+          if (align === "center") {
+            const cx = x + width / 2;
+            ux1 = cx - tw / 2;
+            ux2 = cx + tw / 2;
+          } else if (align === "right") {
+            ux2 = x + width - padding;
+            ux1 = ux2 - tw;
+          } else {
+            ux1 = x + padding;
+            ux2 = ux1 + tw;
+          }
+
           ctx.beginPath();
           ctx.strokeStyle = "#2563eb";
           ctx.lineWidth = 1 / this.scale;
-          ctx.moveTo(x + padding, ty - (fontSize / this.scale) * 0.2);
-          ctx.lineTo(x + padding + tw, ty - (fontSize / this.scale) * 0.2);
+          ctx.moveTo(ux1, uy);
+          ctx.lineTo(ux2, uy);
           ctx.stroke();
         }
 
         ctx.restore();
-      }
-
-      if (this.tool === "select") {
-        if (this.selectedObject === obj) {
-          // ※ selectedObject は未使用なので、必要なら selectedObj に合わせて再調整
-        } else if (isSelected) {
-          ctx.save();
-          ctx.strokeStyle = "#3b82f6";
-          ctx.lineWidth = 1.2 / this.scale;
-          ctx.setLineDash([4 / this.scale, 2 / this.scale]);
-          ctx.strokeRect(x, y, width, height);
-          ctx.setLineDash([]);
-          ctx.restore();
-        }
       }
     }
   }
@@ -2628,23 +3619,61 @@ export class Whiteboard {
   }
 
 
-  // ★ 追加：選択中オブジェクトのリサイズハンドル描画
+  // ★ 選択中オブジェクトのリサイズ＆回転ハンドル描画
   _drawResizeHandles(ctx, obj) {
     if (!obj) return;
     if (obj.locked) return;
 
-    // 対象オブジェクトの正規化された矩形
-    const { x, y, width, height } = this._normalizeRect(obj);
+    const kind = obj.kind;
 
-    // 画面上でのハンドルサイズ（px）
+    // ハンドルの見た目サイズ（画面上の px）
     const handleSizePx = 10;
     const dpr = this.dpr || window.devicePixelRatio || 1;
-
-    // ワールド座標でのハンドルサイズ（スケールとdprを考慮）
-    const sizeWorld = handleSizePx / (this.scale * dpr);
+    const sizeWorld = handleSizePx / (this.scale * dpr); // ワールド座標でのサイズ
     const halfWorld = sizeWorld / 2;
 
-    // 四隅のワールド座標
+    // ==== 1) 線・矢印・相互矢印 → 両端だけ（現状維持） ====
+    if (kind === "line" || kind === "arrow" || kind === "double-arrow") {
+      const x1 = obj.x;
+      const y1 = obj.y;
+      const x2 = obj.x + obj.width;
+      const y2 = obj.y + obj.height;
+
+      const endpoints = [
+        { name: "p0", wx: x1, wy: y1 }, // 開始点
+        { name: "p1", wx: x2, wy: y2 }  // 終了点
+      ];
+
+      for (const p of endpoints) {
+        const screen = this._worldToScreen(p.wx, p.wy);
+        this.handleRects.push({
+          name: p.name,
+          x: screen.x - handleSizePx / 2,
+          y: screen.y - handleSizePx / 2,
+          size: handleSizePx
+        });
+
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#3b82f6";
+        ctx.lineWidth = 1 / this.scale;
+        ctx.beginPath();
+        ctx.rect(
+          p.wx - halfWorld,
+          p.wy - halfWorld,
+          sizeWorld,
+          sizeWorld
+        );
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+      return; // ← 線系はここで終わり
+    }
+
+    // ==== 2) それ以外の図形 → 四隅のリサイズハンドル ====
+    const { x, y, width, height } = this._normalizeRect(obj);
+
     const corners = [
       { name: "nw", wx: x, wy: y },
       { name: "ne", wx: x + width, wy: y },
@@ -2653,7 +3682,6 @@ export class Whiteboard {
     ];
 
     for (const c of corners) {
-      // 画面座標に変換して当たり判定用に保存
       const screen = this._worldToScreen(c.wx, c.wy);
       this.handleRects.push({
         name: c.name,
@@ -2662,7 +3690,6 @@ export class Whiteboard {
         size: handleSizePx
       });
 
-      // 実際の描画はワールド座標で行う（スケールに追従）
       ctx.save();
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = "#3b82f6";
@@ -2678,6 +3705,104 @@ export class Whiteboard {
       ctx.stroke();
       ctx.restore();
     }
-  }
 
+    // ==== 3) 回転ハンドル（全図形共通・線以外） ====
+    //   ※ ここでは「バウンディングボックスの上側」に固定で出します
+    //     （回転していても、常に“見た目の上”にある必要はない、という割り切り版）
+    const cx = x + width / 2;
+    const topY = y;
+
+    const offsetWorld = 40 / this.scale;        // オブジェクトからの距離（ワールド）
+    const rotateWx = cx;
+    const rotateWy = topY - offsetWorld;        // 上方向に少し離す
+
+    // 当たり判定用
+    const rotateScreen = this._worldToScreen(rotateWx, rotateWy);
+    this.handleRects.push({
+      name: "rotate",
+      x: rotateScreen.x - handleSizePx / 2,
+      y: rotateScreen.y - handleSizePx / 2,
+      size: handleSizePx
+    });
+
+    // 描画（回転ハンドルはオレンジの丸）
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#f97316"; // オレンジ
+    ctx.lineWidth = 1 / this.scale;
+    ctx.beginPath();
+    ctx.arc(rotateWx, rotateWy, sizeWorld * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // ==== 4) 3D 図形には depth 用ハンドルを追加（現状のまま＋α） ====
+    // ★ 3) 3D 図形には depth 用ハンドルを追加
+    if (kind === "tri-prism" || kind === "rect-prism") {
+      // tri-prism / rect-prism はこれまで通り「奥行き距離」として扱う
+      const depth = obj.depth != null ? obj.depth : 40;
+      const dx = depth;
+      const dy = -depth;
+
+      // 前面右上（正面の右上頂点）
+      const frontTopRight = { wx: x + width, wy: y };
+      // 奥側右上（そこに depth 分ずれる）
+      const backTopRight = {
+        wx: frontTopRight.wx + dx,
+        wy: frontTopRight.wy + dy
+      };
+
+      const screen = this._worldToScreen(backTopRight.wx, backTopRight.wy);
+      this.handleRects.push({
+        name: "depth",
+        x: screen.x - handleSizePx / 2,
+        y: screen.y - handleSizePx / 2,
+        size: handleSizePx
+      });
+
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#10b981"; // depth 用
+      ctx.lineWidth = 1 / this.scale;
+      ctx.beginPath();
+      ctx.rect(
+        backTopRight.wx - halfWorld,
+        backTopRight.wy - halfWorld,
+        sizeWorld,
+        sizeWorld
+      );
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    } else if (kind === "cylinder") {
+      // ★ 円柱だけは「視点角度（楕円のつぶれ具合）」用ハンドル
+      //    → 図形の右側中央から少し右に出す
+      const offsetWorld = 30 / this.scale;
+      const wx = x + width + offsetWorld;
+      const wy = y + height / 2;
+
+      const screen = this._worldToScreen(wx, wy);
+      this.handleRects.push({
+        name: "depth",
+        x: screen.x - handleSizePx / 2,
+        y: screen.y - handleSizePx / 2,
+        size: handleSizePx
+      });
+
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#10b981"; // depth 用（緑）
+      ctx.lineWidth = 1 / this.scale;
+      ctx.beginPath();
+      ctx.rect(
+        wx - halfWorld,
+        wy - halfWorld,
+        sizeWorld,
+        sizeWorld
+      );
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 }

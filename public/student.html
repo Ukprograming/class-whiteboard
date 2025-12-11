@@ -170,9 +170,6 @@
         <button data-tool="stamp" class="tool-btn" title="スタンプ">
           <span class="material-symbols-rounded">add_reaction</span>
         </button>
-        <button data-tool="image" class="tool-btn" title="画像">
-          <span class="material-symbols-rounded">image</span>
-        </button>
       </div>
 
       <div class="divider"></div>
@@ -288,6 +285,70 @@
       </div>
     </div>
   </div>
+
+  <!-- ▼ テキストボックス設定バー（画面下中央） ▼ -->
+  <div id="textSettings" class="hidden">
+    <!-- フォントサイズ -->
+    <div class="ts-group">
+      <span class="ts-label">サイズ</span>
+      <select id="textFontSizeSelect">
+        <option value="12">12</option>
+        <option value="14">14</option>
+        <option value="16" selected>16</option>
+        <option value="20">20</option>
+        <option value="24">24</option>
+        <option value="32">32</option>
+      </select>
+    </div>
+
+    <span class="ts-separator"></span>
+
+    <!-- フォントファミリ -->
+    <div class="ts-group">
+      <span class="ts-label">フォント</span>
+      <select id="textFontFamilySelect">
+        <option value="system-ui" selected>標準</option>
+        <option value="'Meiryo', 'メイリオ', sans-serif">メイリオ</option>
+        <option value="'Yu Gothic UI', '游ゴシック体', 'YuGothic', sans-serif">ゴシック</option>
+        <option value="'MS Mincho', 'ヒラギノ明朝 ProN', serif">明朝</option>
+      </select>
+    </div>
+
+    <span class="ts-separator"></span>
+
+    <!-- 太字 -->
+    <div class="ts-group">
+      <button id="textBoldToggle" class="ts-icon-button" type="button" title="太字">
+        <span class="material-symbols-rounded">format_bold</span>
+      </button>
+    </div>
+
+    <span class="ts-separator"></span>
+
+    <!-- 文字色 -->
+    <div class="ts-group ts-color-group">
+      <button class="ts-color-dot is-active" data-text-color="#111827" type="button"></button>
+      <button class="ts-color-dot" data-text-color="#f97316" type="button"></button>
+      <button class="ts-color-dot" data-text-color="#ef4444" type="button"></button>
+      <button class="ts-color-dot" data-text-color="#0ea5e9" type="button"></button>
+    </div>
+
+    <span class="ts-separator"></span>
+
+    <!-- 左右揃え -->
+    <div class="ts-group ts-align-group">
+      <button class="ts-icon-button is-active" data-text-align="left" type="button" title="左揃え">
+        <span class="material-symbols-rounded">format_align_left</span>
+      </button>
+      <button class="ts-icon-button" data-text-align="center" type="button" title="中央揃え">
+        <span class="material-symbols-rounded">format_align_center</span>
+      </button>
+      <button class="ts-icon-button" data-text-align="right" type="button" title="右揃え">
+        <span class="material-symbols-rounded">format_align_right</span>
+      </button>
+    </div>
+  </div>
+  <!-- ▲ テキストボックス設定バー ▲ -->
 
   <!-- スタンプパレット -->
   <div id="stampPalette" class="floating-palette hidden">

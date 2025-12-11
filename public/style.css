@@ -50,7 +50,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  z-index: 100;
+  z-index: 200;
   gap: 16px;
 }
 
@@ -545,45 +545,118 @@ body {
   font-size: 14px;
 }
 
-/* Floating Palettes */
+/* Floating Palettes（図形モーダルのカード） */
 .floating-palette {
   position: fixed;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
   background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  border-radius: 18px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.32);
   border: 1px solid #e5e7eb;
   z-index: 7000;
-  min-width: 260px;
-  max-width: 90vw;
-  max-height: 80vh;
+  min-width: 480px;
+  max-width: min(720px, 90vw);
+  max-height: 70vh;
   display: flex;
   flex-direction: column;
   pointer-events: auto;
 }
+
 
 .floating-palette.hidden {
   display: none;
 }
 
 .palette-header {
-  padding: 12px;
+  padding: 14px 20px;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 600;
 }
 
-.stamp-palette-grid,
-.shape-items {
+.palette-header .modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.palette-header .icon-btn-sm,
+.palette-header button {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  color: #6b7280;
+}
+
+.palette-header .icon-btn-sm:hover,
+.palette-header button:hover {
+  background: #f3f4f6;
+}
+
+.stamp-palette-grid {
   padding: 12px;
   display: grid;
   gap: 8px;
   overflow-y: auto;
+  grid-template-columns: repeat(6, minmax(40px, 1fr));
 }
+
+/* 図形ボタンのエリア：中央寄せの2〜3段レイアウト */
+.shape-items {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 図形ボタン（アイコン＋ラベルのピル型） */
+.shape-item {
+  min-width: 96px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.08s ease;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.shape-item:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.shape-item.active {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+}
+
 
 .stamp-palette-grid {
   grid-template-columns: repeat(6, minmax(40px, 1fr));
@@ -613,25 +686,9 @@ body {
   border-color: #2563eb;
 }
 
-.shape-items {
-  display: flex;
-  flex-wrap: wrap;
-}
 
-.shape-item {
-  min-width: 90px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s;
-}
+
+
 
 .shape-item:hover {
   background: #eef2ff;
@@ -646,11 +703,14 @@ body {
 
 .shape-icon {
   font-size: 18px;
+  line-height: 1;
 }
 
 .shape-label {
   font-size: 12px;
+  line-height: 1;
 }
+
 
 /* Modal */
 .modal-backdrop {
@@ -1713,4 +1773,240 @@ body {
   cursor: grab;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* ===========================
+   テキストツールバー（画面下中央）
+   =========================== */
+
+#textSettings {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 40;
+
+  /* 背景・影・角丸 */
+  background: rgba(17, 24, 39, 0.96);
+  /* #111827 ベースの半透明 */
+  color: #f9fafb;
+  border-radius: 999px;
+  box-shadow:
+    0 12px 30px rgba(15, 23, 42, 0.35),
+    0 0 0 1px rgba(148, 163, 184, 0.4);
+  backdrop-filter: blur(14px);
+
+  /* レイアウト */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  pointer-events: auto;
+
+}
+
+/* hidden クラスで非表示（既存の .hidden と同じ役割） */
+#textSettings.hidden {
+  display: none;
+}
+
+/* グループ（サイズ / フォント / 太字 / 色 / 揃え） */
+#textSettings .ts-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 小さいラベル（「サイズ」「フォント」など） */
+#textSettings .ts-label {
+  font-size: 11px;
+  color: #e5e7eb;
+  opacity: 0.9;
+}
+
+/* セレクトボックス（サイズ・フォント） */
+#textSettings select {
+  background: rgba(15, 23, 42, 0.9);
+  color: #f9fafb;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  font-size: 12px;
+  padding: 4px 20px 4px 10px;
+  outline: none;
+  appearance: none;
+  -moz-appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+}
+
+/* セレクトの矢印っぽい装飾（簡易） */
+#textSettings select::-ms-expand {
+  display: none;
+}
+
+/* グループ間の縦線セパレータ */
+#textSettings .ts-separator {
+  width: 1px;
+  height: 22px;
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* アイコンボタン（太字 / 揃え） */
+#textSettings .ts-icon-button {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e5e7eb;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.08s ease;
+}
+
+#textSettings .ts-icon-button:hover {
+  background: rgba(148, 163, 184, 0.25);
+  transform: translateY(-0.5px);
+}
+
+#textSettings .ts-icon-button.is-active {
+  background: #f97316;
+  /* amber 系にしたければ #f59e0b などに変更 */
+  color: #111827;
+}
+
+/* マテリアルアイコンのサイズ調整（使っている場合） */
+#textSettings .ts-icon-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* カラー選択（丸いドット） */
+#textSettings .ts-color-group {
+  gap: 4px;
+}
+
+#textSettings .ts-color-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.9);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.7);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.15s ease;
+}
+
+#textSettings .ts-color-dot:hover {
+  transform: translateY(-0.5px) scale(1.05);
+  box-shadow:
+    0 0 0 1px rgba(248, 250, 252, 0.8),
+    0 0 0 4px rgba(148, 163, 184, 0.3);
+}
+
+#textSettings .ts-color-dot.is-active {
+  box-shadow:
+    0 0 0 1px #f97316,
+    0 0 0 4px rgba(249, 115, 22, 0.4);
+}
+
+/* 色は data 属性ごとに背景指定（例） */
+#textSettings .ts-color-dot[data-text-color="#111827"] {
+  background: #111827;
+}
+
+#textSettings .ts-color-dot[data-text-color="#f97316"] {
+  background: #f97316;
+}
+
+#textSettings .ts-color-dot[data-text-color="#ef4444"] {
+  background: #ef4444;
+}
+
+#textSettings .ts-color-dot[data-text-color="#0ea5e9"] {
+  background: #0ea5e9;
+}
+
+/* 揃えボタンのグループ */
+#textSettings .ts-align-group .ts-icon-button {
+  width: 26px;
+  height: 26px;
+}
+
+/* スマホ／狭い画面用に少し小さく */
+@media (max-width: 768px) {
+  #textSettings {
+    bottom: 10px;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  #textSettings .ts-label {
+    display: none;
+    /* モバイルではラベルを隠してコンパクトに */
+  }
+
+  #textSettings select {
+    font-size: 11px;
+    padding: 3px 16px 3px 8px;
+  }
+
+  #textSettings .ts-separator {
+    height: 18px;
+  }
+
+  #textSettings .ts-icon-button {
+    width: 24px;
+    height: 24px;
+  }
+
+  #textSettings .ts-icon-button .material-symbols-outlined {
+    font-size: 16px;
+  }
+
+  #textSettings .ts-color-dot {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+#textSettings {
+  pointer-events: none;
+  /* ★ 追加: パネル自体はクリックを透過 */
+}
+
+#textSettings .ts-group,
+#textSettings select,
+#textSettings button {
+  pointer-events: auto;
+  /* ★ 追加: 中のUIだけ操作できるように戻す */
+}
+
+/* 右下フローティングツール（Undo・前面/背面 など）を確実に表示 */
+.floating-bottom-right {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 500;
+  /* サイドバー(100)・context-menu(100)より前面 */
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* hidden が誤って付いても完全に殺されないように保険 */
+.floating-bottom-right.hidden {
+  display: none !important;
 }

@@ -12,6 +12,28 @@ export function initBoardUI() {
 
   const wb = new Whiteboard({ canvas });
 
+  // ==== ここから追加 ====
+  const zoomLevelEl = document.getElementById("zoomLevel");
+
+  function updateZoomLabelFromWB() {
+    if (!zoomLevelEl || !wb) return;
+    const current = wb.scale || 1;
+    const pct = Math.round(current * 100);
+    zoomLevelEl.textContent = pct + "%";
+  }
+
+  // Whiteboard 側からも呼べるように
+  wb.onZoomChange = () => {
+    updateZoomLabelFromWB();
+  };
+
+  // 初期表示
+  updateZoomLabelFromWB();
+  // ==== ここまで追加 ====
+
+  canvas.whiteboardInstance = wb;
+
+
   // ========= ツールボタン =========
   const toolButtons = document.querySelectorAll("[data-tool]");
   const pdfInput = document.getElementById("pdfInput");
@@ -22,6 +44,22 @@ export function initBoardUI() {
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
   const deleteBtn = document.getElementById("deleteBtn");
+  const zoomLevelLabel = document.getElementById("zoomLevel");
+
+  // ✅ Whiteboardの実スケールからズーム表示を更新
+  function updateZoomLabelFromWB() {
+    if (!zoomLevelEl || !wb) return;
+
+    const scale = wb.scale ?? 1;
+    const percent = Math.round(scale * 100);
+    zoomLevelEl.textContent = percent + "%";
+  }
+
+
+  // 初期表示を反映
+  updateZoomLabelFromWB();
+
+
 
   let currentTool = "pen";
 
@@ -62,11 +100,27 @@ export function initBoardUI() {
   const penWidthSelect = document.getElementById("penWidthSelect");
   const stickyColorButtons = document.querySelectorAll("[data-sticky-color]");
 
+  // ★ テキストスタイルパネル関連
+  let textStylePanel = null;
+  let textFontSizeSelect = null;
+  let textColorInput = null;
+  let textBoldToggle = null;
+  let textFontFamilySelect = null;
+  let textAlignLeftBtn = null;
+  let textAlignCenterBtn = null;
+  let textAlignRightBtn = null;
+  let panelStickyColorRow = null;
+
   // 現在のペン設定
   let currentPenColor = "#111827";
   let currentPenWidth = 3;
 
+
+  // 初期表示を 100% にしておく
+  updateZoomLabelFromWB();
+
   let currentStampKey = null;
+
 
   // ========= パレットの表示 / 非表示 =========
   function showStampPalette() {
@@ -163,6 +217,76 @@ export function initBoardUI() {
     }
   }
 
+  // ★ テキストスタイルパネルの表示切り替え
+  function updateTextStylePanelVisibility(activeTool) {
+    if (!textStylePanel) return;
+
+    // text / sticky ツールのときだけバーを表示
+    const showPanel = activeTool === "text" || activeTool === "sticky";
+    textStylePanel.style.display = showPanel ? "flex" : "none";
+
+    // 付箋カラー行は sticky のときだけ表示
+    if (panelStickyColorRow) {
+      panelStickyColorRow.style.display =
+        activeTool === "sticky" ? "inline-flex" : "none";
+    }
+  }
+
+  // ★ 選択されたテキストオブジェクトからパネルの状態を更新
+  function updateTextStylePanelFromSelection() {
+    if (!textStylePanel) return;
+    const obj = wb.selectedObj;
+    if (!obj || !["text", "sticky", "link"].includes(obj.kind)) return;
+
+    // フォントサイズ
+    if (textFontSizeSelect && obj.fontSize) {
+      textFontSizeSelect.value = String(obj.fontSize);
+    }
+
+    // 文字色
+    if (textColorInput) {
+      if (obj.textColor) {
+        textColorInput.value = obj.textColor;
+      } else if (obj.stroke && obj.stroke !== "transparent") {
+        // フォールバックとして stroke 色
+        textColorInput.value = obj.stroke;
+      }
+    }
+
+    // 太字
+    if (textBoldToggle) {
+      const isBold = !!obj.bold;
+      textBoldToggle.dataset.active = isBold ? "1" : "0";
+      textBoldToggle.classList.toggle("active", isBold);
+    }
+
+    // フォントファミリー（ざっくり判定）
+    if (textFontFamilySelect) {
+      const ff = (obj.fontFamily || "").toLowerCase();
+      let v = "system";
+      if (ff.includes("meiryo") || ff.includes("メイリオ")) {
+        v = "meiryo";
+      } else if (ff.includes("gothic") || ff.includes("yu gothic") || ff.includes("游ゴシック")) {
+        v = "gothic";
+      } else if (ff.includes("mincho") || ff.includes("明朝")) {
+        v = "mincho";
+      }
+      textFontFamilySelect.value = v;
+    }
+
+    // 揃え
+    const align = obj.textAlign || "left";
+    if (textAlignLeftBtn && textAlignCenterBtn && textAlignRightBtn) {
+      [textAlignLeftBtn, textAlignCenterBtn, textAlignRightBtn].forEach(b => {
+        b.classList.remove("active");
+      });
+      if (align === "left") textAlignLeftBtn.classList.add("active");
+      if (align === "center") textAlignCenterBtn.classList.add("active");
+      if (align === "right") textAlignRightBtn.classList.add("active");
+    }
+  }
+
+
   // ========= ツールボタンの UI 更新 =========
   function updateToolButtons(activeTool) {
     currentTool = activeTool;
@@ -196,16 +320,13 @@ export function initBoardUI() {
       }
     }
 
-    // 付箋設定
+    // 付箋設定（サイドのパレットは使わないので常に隠す）
     const stickySettings = document.getElementById("stickySettings");
     if (stickySettings) {
-      if (activeTool === "sticky") {
-        stickySettings.classList.remove("hidden");
-        showMenu = true;
-      } else {
-        stickySettings.classList.add("hidden");
-      }
+      stickySettings.classList.add("hidden");
     }
+
+
 
     // 図形設定
     const shapeSettings = document.getElementById("shapeSettings");
@@ -225,16 +346,224 @@ export function initBoardUI() {
         contextMenu.classList.add("hidden");
       }
     }
+    // ★ テキストスタイルパネルの表示切り替え
+    updateTextStylePanelVisibility(activeTool);
   }
+
+  // ★ テキストスタイルパネルのセットアップ
+  function setupTextStylePanel() {
+    // whiteboard 側のAPIがなければ何もしない
+    if (typeof wb.setTextDefaults !== "function" ||
+      typeof wb.setSelectedTextStyle !== "function") {
+      return;
+    }
+
+    const container = canvas.parentElement || document.body;
+    container.style.position = container.style.position || "relative";
+
+    textStylePanel = document.createElement("div");
+    textStylePanel.id = "textStylePanel";
+
+    Object.assign(textStylePanel.style, {
+      position: "absolute",
+      left: "50%",
+      bottom: "12px",
+      transform: "translateX(-50%)",
+      padding: "6px 10px",
+      borderRadius: "9999px",
+      background: "rgba(255,255,255,0.96)",
+      boxShadow: "0 6px 16px rgba(15,23,42,0.25)",
+      border: "1px solid #e5e7eb",
+      display: "none", // 初期は非表示
+      zIndex: 40,
+      fontSize: "12px",
+      displayFlex: "flex"
+    });
+
+    textStylePanel.innerHTML = `
+      <div style="display:inline-flex;align-items:center;gap:6px;">
+        <select data-text-font-size style="padding:2px 4px; font-size:12px;">
+          <option value="12">12pt</option>
+          <option value="14">14pt</option>
+          <option value="16" selected>16pt</option>
+          <option value="20">20pt</option>
+          <option value="24">24pt</option>
+          <option value="32">32pt</option>
+        </select>
+
+        <input type="color" data-text-color
+          style="width:28px;height:28px;border:none;background:transparent;padding:0;" />
+
+        <button type="button" data-text-bold
+          style="min-width:28px;height:28px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;font-weight:bold;">
+          B
+        </button>
+
+        <select data-text-font-family style="padding:2px 4px; font-size:12px;">
+          <option value="system">標準</option>
+          <option value="meiryo">メイリオ</option>
+          <option value="gothic">ゴシック</option>
+          <option value="mincho">明朝</option>
+        </select>
+
+        <div data-text-align-group style="display:inline-flex;gap:2px;margin-left:4px;">
+          <button type="button" data-text-align="left"
+            style="min-width:24px;height:24px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;">左</button>
+          <button type="button" data-text-align="center"
+            style="min-width:24px;height:24px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;">中</button>
+          <button type="button" data-text-align="right"
+            style="min-width:24px;height:24px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;">右</button>
+        </div>
+
+        <!-- ★ 付箋カラー（テキストバー内） -->
+        <div data-text-sticky-colors
+             style="display:inline-flex;gap:6px;margin-left:8px;">
+          <button type="button" data-text-sticky-color="#FEF3C7"
+            style="width:18px;height:18px;border-radius:9999px;border:2px solid #3b82f6;background:#FEF3C7;"></button>
+          <button type="button" data-text-sticky-color="#E0F2FE"
+            style="width:18px;height:18px;border-radius:9999px;border:2px solid #e5e7eb;background:#E0F2FE;"></button>
+          <button type="button" data-text-sticky-color="#DCFCE7"
+            style="width:18px;height:18px;border-radius:9999px;border:2px solid #e5e7eb;background:#DCFCE7;"></button>
+          <button type="button" data-text-sticky-color="#FCE7F3"
+            style="width:18px;height:18px;border-radius:9999px;border:2px solid #e5e7eb;background:#FCE7F3;"></button>
+          <button type="button" data-text-sticky-color="#FDE68A"
+            style="width:18px;height:18px;border-radius:9999px;border:2px solid #e5e7eb;background:#FDE68A;"></button>
+        </div>
+      </div>
+    `;
+
+
+
+
+    container.appendChild(textStylePanel);
+
+    // 要素の参照を取る
+    textFontSizeSelect = textStylePanel.querySelector("[data-text-font-size]");
+    textColorInput = textStylePanel.querySelector("[data-text-color]");
+    textBoldToggle = textStylePanel.querySelector("[data-text-bold]");
+    textFontFamilySelect = textStylePanel.querySelector("[data-text-font-family]");
+    const alignButtons = textStylePanel.querySelectorAll("[data-text-align]");
+    textAlignLeftBtn = textStylePanel.querySelector('[data-text-align="left"]');
+    textAlignCenterBtn = textStylePanel.querySelector('[data-text-align="center"]');
+    textAlignRightBtn = textStylePanel.querySelector('[data-text-align="right"]');
+
+    // ★ パネル内の付箋カラー行
+    panelStickyColorRow = textStylePanel.querySelector("[data-text-sticky-colors]");
+    const panelStickyColorDots =
+      textStylePanel.querySelectorAll("[data-text-sticky-color]");
+
+    // デフォルト値を whiteboard 側から反映
+    const d = wb.textDefaults || {};
+    if (textFontSizeSelect && d.fontSize) {
+      textFontSizeSelect.value = String(d.fontSize);
+    }
+    if (textColorInput && d.color) {
+      textColorInput.value = d.color;
+    }
+
+    // ===== イベントハンドラ =====
+
+    // フォントサイズ
+    if (textFontSizeSelect) {
+      textFontSizeSelect.addEventListener("change", () => {
+        const size = parseInt(textFontSizeSelect.value, 10) || 16;
+        wb.setTextDefaults({ fontSize: size });
+        wb.setSelectedTextStyle({ fontSize: size });
+      });
+    }
+
+    // 文字色
+    if (textColorInput) {
+      textColorInput.addEventListener("input", () => {
+        const color = textColorInput.value;
+        wb.setTextDefaults({ color });
+        wb.setSelectedTextStyle({ color });
+      });
+    }
+
+    // 太字
+    if (textBoldToggle) {
+      textBoldToggle.addEventListener("click", () => {
+        const isActive = textBoldToggle.dataset.active === "1";
+        const next = !isActive;
+        textBoldToggle.dataset.active = next ? "1" : "0";
+        textBoldToggle.classList.toggle("active", next);
+        wb.setTextDefaults({ bold: next });
+        wb.setSelectedTextStyle({ bold: next });
+      });
+    }
+
+    // フォントファミリー
+    if (textFontFamilySelect) {
+      textFontFamilySelect.addEventListener("change", () => {
+        const v = textFontFamilySelect.value;
+        let ff = "";
+        if (v === "meiryo") {
+          ff = 'Meiryo, "メイリオ", sans-serif';
+        } else if (v === "gothic") {
+          ff = '"Yu Gothic Medium", "游ゴシック体", sans-serif';
+        } else if (v === "mincho") {
+          ff = '"MS Mincho", "ＭＳ 明朝", serif';
+        } else {
+          ff = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        }
+        wb.setTextDefaults({ fontFamily: ff });
+        wb.setSelectedTextStyle({ fontFamily: ff });
+      });
+    }
+
+    // 揃え
+    if (alignButtons && alignButtons.length > 0) {
+      alignButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          const align = btn.dataset.textAlign || "left";
+
+          alignButtons.forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+
+          wb.setTextDefaults({ align });
+          wb.setSelectedTextStyle({ align });
+        });
+      });
+    }
+
+    // 付箋カラー（パネル内）
+    if (panelStickyColorDots.length > 0 &&
+      typeof wb.setSelectedStickyColor === "function") {
+      panelStickyColorDots.forEach(btn => {
+        btn.addEventListener("click", () => {
+          const color = btn.dataset.textStickyColor;
+          if (!color) return;
+
+          wb.setSelectedStickyColor(color);
+
+          panelStickyColorDots.forEach(b =>
+            b.classList.toggle("active", b === btn)
+          );
+        });
+      });
+    }
+  }
+
 
   // ========= Whiteboard 側からの選択変更通知 =========
   wb.onSelectionChange = info => {
     updateSelectionButtonsUI();
     updateShapeStyleUI(info);
+    // ★ テキスト選択に応じてパネル状態を更新
+    updateTextStylePanelFromSelection();
   };
+
 
   // 初期状態も反映
   updateSelectionButtonsUI();
+
+  // ★ 追加: クリック透過を確実にする（パネル生成後のイベントブロック対策）
+  function whiteboardEnableCanvasClicks() {
+    const panel = document.getElementById("textSettings");
+    if (panel) panel.style.pointerEvents = "none";
+  }
+
 
   // ========= ツールボタン共通処理 =========
   toolButtons.forEach(btn => {
@@ -242,18 +571,13 @@ export function initBoardUI() {
       const tool = btn.dataset.tool;
       if (!tool) return;
 
-      // shape / stamp 以外は普通のツール
+      // shape / stamp 以外はそのままツールにセット
       if (tool !== "shape" && tool !== "stamp") {
         wb.setTool(tool);
         updateToolButtons(tool);
 
-        // ★ 蛍光ペンの場合、強制的に黄色をセット（UI側でも）
-        if (tool === "highlighter") {
-          // whiteboard.js 側で setTool 時に黄色にしてくれるが、
-          // UI の currentPenColor が黒だと、その後の操作で黒に戻る可能性があるため同期する
-          // ただし、ここでは「初期色」として黄色を当てる
-          // 既にユーザーが色を変えている場合は上書きしない方が良いが、
-          // "初期設定は黄色にしてほしい" という要望なので、ツール切り替え時に黄色にする
+        // ★ 蛍光ペンは毎回黄色を初期色にしておく
+        if (tool === "highlighter" && typeof wb.setHighlighterColor === "function") {
           wb.setHighlighterColor("#facc15");
         }
         return;
@@ -275,6 +599,9 @@ export function initBoardUI() {
       }
     });
   });
+
+
+
 
   // ========= スタンプパレットの生成＆選択 =========
   if (stampPalette && wb.stampPresets) {
@@ -393,6 +720,9 @@ export function initBoardUI() {
   wb.setTool("pen");
 
   wb.setPen(currentPenColor, currentPenWidth);
+  // ★ テキストスタイルパネルを初期化
+  setupTextStylePanel();
+
   if (wb.setHighlighterColor) {
     wb.setHighlighterColor(currentPenColor);
   }
@@ -503,13 +833,63 @@ export function initBoardUI() {
     });
   }
 
-  // ========= ズーム =========
+  // ========= ズーム（10%刻み + Whiteboard 実倍率同期） =========
   if (zoomInBtn) {
-    zoomInBtn.addEventListener("click", () => wb.zoomAtCanvasCenter(1.1));
+    zoomInBtn.addEventListener("click", () => {
+      const current =
+        wb.scale ??
+        wb.viewScale ??
+        wb.zoomScale ??
+        1;
+
+      // 現在の倍率を 10% 単位に丸めて +10%
+      const next = Math.min(
+        Math.round(current * 10) / 10 + 0.1,
+        4 // 最大 400%
+      );
+
+      const ratio = next / current;
+      wb.zoomAtCanvasCenter(ratio);
+
+      // 表示更新
+      updateZoomLabelFromWB();
+    });
   }
+
   if (zoomOutBtn) {
-    zoomOutBtn.addEventListener("click", () => wb.zoomAtCanvasCenter(0.9));
+    zoomOutBtn.addEventListener("click", () => {
+      const current =
+        wb.scale ??
+        wb.viewScale ??
+        wb.zoomScale ??
+        1;
+
+      // 現在の倍率を 10% 単位に丸めて -10%
+      const next = Math.max(
+        Math.round(current * 10) / 10 - 0.1,
+        0.2 // 最小 20%
+      );
+
+      const ratio = next / current;
+      wb.zoomAtCanvasCenter(ratio);
+
+      // 表示更新
+      updateZoomLabelFromWB();
+    });
   }
+
+
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener("click", () => {
+      wb.zoomAtCanvasCenter(0.9);
+
+      // UI側のズーム倍率も更新
+      currentZoomScale *= 0.9;
+      if (currentZoomScale < 0.25) currentZoomScale = 0.25; // 下限はお好みで
+      updateZoomLabelFromWB();
+    });
+  }
+
 
   // ========= グループ化 =========
   if (groupBtn) {
@@ -830,6 +1210,9 @@ export function initBoardUI() {
   const fileMenuDropdown = document.getElementById("fileMenuDropdown");
 
   if (fileMenuBtn && fileMenuDropdown) {
+    // ★ 追加：起動時に必ず閉じた状態にしておく
+    fileMenuDropdown.classList.add("hidden");
+
     fileMenuBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       fileMenuDropdown.classList.toggle("hidden");
@@ -837,11 +1220,15 @@ export function initBoardUI() {
 
     // メニュー外をクリックしたら閉じる
     document.addEventListener("click", (e) => {
-      if (!fileMenuBtn.contains(e.target) && !fileMenuDropdown.contains(e.target)) {
+      if (
+        !fileMenuBtn.contains(e.target) &&
+        !fileMenuDropdown.contains(e.target)
+      ) {
         fileMenuDropdown.classList.add("hidden");
       }
     });
   }
+
 
   // ========= キャンバスリサイズの初期化 =========
   resizeCanvasToContainer();
