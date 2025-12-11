@@ -141,6 +141,10 @@ export class Whiteboard {
     // ★ グリッド表示フラグ
     this.showGrid = true;
 
+    // ★ 追加：未保存フラグ & コールバック
+    this.isBoardDirty = false;      // 未保存の変更があるか？
+    this.onDirtyChange = null;      // (isDirty:boolean) => void
+
     this._attachEvents();
 
     // ★ 保留中のオブジェクト（教員からの書き込みプレビュー用）
@@ -156,6 +160,31 @@ export class Whiteboard {
   setShowGrid(visible) {
     this.showGrid = !!visible;
     this.render();
+  }
+
+  // ★ 追加：未保存状態を「変更あり」にする内部メソッド
+  _markDirty() {
+    if (!this.isBoardDirty) {
+      this.isBoardDirty = true;
+      if (this.onDirtyChange) {
+        this.onDirtyChange(true);
+      }
+    }
+  }
+
+  // ★ 追加：外部から「保存済み」にリセットするためのメソッド
+  markSaved() {
+    if (this.isBoardDirty) {
+      this.isBoardDirty = false;
+      if (this.onDirtyChange) {
+        this.onDirtyChange(false);
+      }
+    }
+  }
+
+  // （必要ならゲッターも）
+  isDirty() {
+    return this.isBoardDirty;
   }
 
   // ★ 修正：resize は CSS ピクセルを受け取り、内部で dpr を掛ける
@@ -607,6 +636,9 @@ export class Whiteboard {
     this.bgCanvas.width = 0;
     this.bgCanvas.height = 0;
 
+    // ★ 追加：変更フラグを立てる
+    this._markDirty();
+
     this.render();
     if (this.onAction) this.onAction({ type: "refresh" });
   }
@@ -713,6 +745,9 @@ export class Whiteboard {
       }
     }
 
+    // ★ 追加：UNDO も状態変化なので未保存フラグを立てる
+    this._markDirty();
+
     this.render();
   }
 
@@ -736,6 +771,10 @@ export class Whiteboard {
     this.objects.push(obj);
     this.history.push({ kind: "object", id: obj.id });
     this._setSelected(obj);
+
+    // ★ 追加
+    this._markDirty();
+
     this.render();
   }
 
@@ -775,6 +814,10 @@ export class Whiteboard {
     this.multiSelectedObjects = [];
     this.multiSelectedStrokes = [];
     this._fireSelectionChange();
+
+    // ★ 追加：変更フラグを立てる
+    this._markDirty();
+
     this.render();
   }
 
@@ -1207,6 +1250,9 @@ export class Whiteboard {
 
     this.history = [];
     this._setSelected(null);
+    // ★ 追加：読み込んだ直後は「保存済み」とみなす
+    this.isBoardDirty = false;
+    if (this.onDirtyChange) this.onDirtyChange(false);
     this.render();
   }
 
@@ -1345,6 +1391,9 @@ export class Whiteboard {
 
     this.strokes.push(stroke);
     this.history.push({ kind: "stroke", stroke });
+
+    // ★ 追加：変更フラグを立てる
+    this._markDirty();
   }
 
   _addObject(obj) {
@@ -1354,6 +1403,9 @@ export class Whiteboard {
     this.objects.push(obj);
     this.history.push({ kind: "object", id: obj.id });
     this._setSelected(obj);
+
+    // ★ 追加：変更フラグを立てる
+    this._markDirty();
   }
 
   // ★ 修正：スタンプの混入コードを削除し、純粋にストローク削除だけにする
@@ -1363,6 +1415,9 @@ export class Whiteboard {
     if (idx !== -1) {
       const removed = this.strokes.splice(idx, 1)[0];
       this.history.push({ kind: "delete-stroke", stroke: removed, index: idx });
+
+      // ★ 追加：変更フラグを立てる
+      this._markDirty();
 
       // ★ 追加：教員モードのときだけ、削除アクションを外へ通知
       if (this.isTeacherMode && this.onAction && removed && removed.id != null) {
@@ -1582,6 +1637,9 @@ export class Whiteboard {
         before,
         after
       });
+
+      // ★ 追加：変更フラグを立てる
+      this._markDirty();
     }
 
     if (this.onAction) {
@@ -1735,6 +1793,8 @@ export class Whiteboard {
       if (this.onAction) {
         this.onAction({ type: "object", object: this.shapeDraft });
       }
+      // ★ 追加：図形が確定したので未保存フラグを立てる
+      this._markDirty();
     }
     this.isDrawingShape = false;
     this.shapeDraft = null;
@@ -2623,6 +2683,8 @@ export class Whiteboard {
                 objects: changedObjects,
                 strokes: changedStrokes
               });
+              // ★ 追加：移動・変形があったので未保存フラグを立てる
+              this._markDirty();
             }
           }
           // ② リサイズ（単一オブジェクト・ドラッグ開始時に x,y,width,height を持っている場合）
@@ -2658,6 +2720,9 @@ export class Whiteboard {
                 objects: [{ obj, before, after }],
                 strokes: []
               });
+
+              // ★ 追加：リサイズでも未保存フラグを立てる
+              this._markDirty();
             }
           }
         }

@@ -4,6 +4,19 @@ import { initBoardUI } from "./board-ui.js";
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
 
+// ★ ここから追加：ブラウザ離脱時の確認ダイアログ
+window.addEventListener("beforeunload", (event) => {
+  if (!whiteboard) return;
+
+  // 変更がなければ何もしない
+  if (!whiteboard.isBoardDirty) return;
+
+  // 変更アリ → 確認ダイアログを出す
+  event.preventDefault();
+  event.returnValue = ""; // Chrome 等で必須
+});
+// ★ ここまで追加
+
 // === API ベースパス（server.js の /api/board プロキシを叩く） ===
 const BOARD_API_BASE = "/api/board";
 
@@ -628,6 +641,12 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
 
     lastUsedFolderPath = (folderPath || "").trim();
 
+
+    // ★ 保存が成功したので「保存済み」としてフラグをリセット
+    if (typeof whiteboard.markSaved === "function") {
+      whiteboard.markSaved();
+    }
+
     alert(
       json.message ||
       (mode === "update"
@@ -691,6 +710,11 @@ async function studentLoadBoardInternal(folderPath, fileId) {
     }
 
     whiteboard.importBoardData(json.boardData);
+
+    // ★ 読み込み直後の状態を「保存済み」とみなす
+    if (typeof whiteboard.markSaved === "function") {
+      whiteboard.markSaved();
+    }
 
     // ★ 今開いているファイル情報を更新
     currentBoardFileId = json.fileId || fileId || null;

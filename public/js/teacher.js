@@ -5,6 +5,19 @@ import { Whiteboard } from "./whiteboard.js";
 const teacherBoard = initBoardUI();
 window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
 
+// ★ ここから追加：ブラウザ離脱時の確認ダイアログ
+window.addEventListener("beforeunload", (event) => {
+  // board がなければ何もしない
+  if (!teacherBoard) return;
+
+  // 変更がなければ何もしない
+  if (!teacherBoard.isBoardDirty) return;
+
+  // 変更アリ → 確認ダイアログを出す
+  event.preventDefault();
+  event.returnValue = ""; // Chrome 等で必須
+});
+// ★ ここまで追加
 
 // === サーバー側のボード API ベースパス ===
 const BOARD_API_BASE = "/api/board";
@@ -883,6 +896,11 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
 
     lastUsedFolderPath = (folderPath || "").trim();
 
+    // ★ ここで「保存済み」にする（dirty フラグをリセット）
+    if (typeof teacherBoard.markSaved === "function") {
+      teacherBoard.markSaved();
+    }
+
     alert(
       json.message ||
       (mode === "update"
@@ -965,6 +983,11 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
     }
 
     teacherBoard.importBoardData(json.boardData);
+
+    // ★ 読み込み直後の状態を「保存済み」とみなす
+    if (typeof teacherBoard.markSaved === "function") {
+      teacherBoard.markSaved();
+    }
 
     // ★ ここで「今開いているファイル情報」を更新
     currentBoardFileId = json.fileId || fileId || null;
