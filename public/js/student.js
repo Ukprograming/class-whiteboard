@@ -68,6 +68,9 @@ const chatCloseBtn = document.getElementById("chatCloseBtn");
 const chatMessagesEl = document.getElementById("chatMessages");
 const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
+const chatTemplateButtons = Array.from(
+  document.querySelectorAll("[data-chat-template]")
+);
 
 // ★ 教員からの書き込み受け入れバー
 const annotationAcceptBar = document.getElementById("annotationAcceptBar");
@@ -866,6 +869,9 @@ function updateModeUI() {
 
     chatInput.disabled = !canChat;
     chatSendBtn.disabled = !canChat;
+    chatTemplateButtons.forEach(btn => {
+      btn.disabled = !canChat;
+    });
     chatInput.placeholder = canChat
       ? "メッセージを入力"
       : "この画面ではチャットは使えません";
@@ -1097,7 +1103,9 @@ if (chatCloseBtn) {
 }
 
 // 生徒 → 教員 チャット送信
-function studentSendChat() {
+function studentSendChat(templateText = "") {
+  const presetText = typeof templateText === "string" ? templateText : "";
+
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してからチャットを送信してください。");
     return;
@@ -1109,9 +1117,9 @@ function studentSendChat() {
     return;
   }
 
-  if (!chatInput) return;
+  if (!chatInput && !presetText) return;
 
-  const text = chatInput.value.trim();
+  const text = (presetText || chatInput.value).trim();
   if (!text) return;
 
   socket.emit("student-chat-to-teacher", {
@@ -1128,7 +1136,9 @@ function studentSendChat() {
   });
   renderStudentChatMessages();
 
-  chatInput.value = "";
+  if (!presetText && chatInput) {
+    chatInput.value = "";
+  }
 }
 
 if (chatSendBtn && chatInput) {
@@ -1140,6 +1150,12 @@ if (chatSendBtn && chatInput) {
     }
   });
 }
+
+chatTemplateButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    studentSendChat(btn.dataset.chatTemplate || btn.textContent || "");
+  });
+});
 
 
 /* ========================================
