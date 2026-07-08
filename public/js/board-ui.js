@@ -2,8 +2,12 @@
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
 import { Whiteboard } from "./whiteboard.js";
+import { createStampElement } from "./stamps.js";
+import { replaceMaterialIcons } from "./ui-icons.js";
 
 export function initBoardUI() {
+  replaceMaterialIcons();
+
   const canvas = document.getElementById("whiteboard");
   if (!canvas) {
     console.error("whiteboard canvas (#whiteboard) が見つかりません。");
@@ -12,24 +16,7 @@ export function initBoardUI() {
 
   const wb = new Whiteboard({ canvas });
 
-  // ==== ここから追加 ====
   const zoomLevelEl = document.getElementById("zoomLevel");
-
-  function updateZoomLabelFromWB() {
-    if (!zoomLevelEl || !wb) return;
-    const current = wb.scale || 1;
-    const pct = Math.round(current * 100);
-    zoomLevelEl.textContent = pct + "%";
-  }
-
-  // Whiteboard 側からも呼べるように
-  wb.onZoomChange = () => {
-    updateZoomLabelFromWB();
-  };
-
-  // 初期表示
-  updateZoomLabelFromWB();
-  // ==== ここまで追加 ====
 
   canvas.whiteboardInstance = wb;
 
@@ -55,6 +42,9 @@ export function initBoardUI() {
     zoomLevelEl.textContent = percent + "%";
   }
 
+  wb.onZoomChange = () => {
+    updateZoomLabelFromWB();
+  };
 
   // 初期表示を反映
   updateZoomLabelFromWB();
@@ -623,8 +613,9 @@ export function initBoardUI() {
       item.type = "button";
       item.className = "stamp-item";
       item.dataset.stampKey = key;
-      item.title = key;
-      item.textContent = preset.emoji || "★";
+      item.title = preset.label || key;
+      item.setAttribute("aria-label", preset.label || key);
+      item.appendChild(createStampElement(key));
 
       item.addEventListener("click", () => {
         if (typeof wb.setStampType === "function") wb.setStampType(key);

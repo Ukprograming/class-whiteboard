@@ -3,6 +3,8 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
+import { STAMP_PRESETS, drawStamp } from "./stamps.js";
+
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
 const IMAGE_EXPORT_QUALITY = 0.95;   // JPEG 品質（0〜1）
@@ -117,26 +119,7 @@ export class Whiteboard {
 
     // ★ スタンプ関連
     this.currentStampType = null; // 例: "star-yellow"
-    this.stampPresets = {
-      "star-yellow": { emoji: "⭐", baseSize: 80 },
-      "circle-ok": { emoji: "⭕", baseSize: 80 },
-      "cross-ng": { emoji: "❌", baseSize: 80 },
-      "maru-hanamaru": { emoji: "💮", baseSize: 80 },
-      "check": { emoji: "✅", baseSize: 80 },
-      "question": { emoji: "❓", baseSize: 80 },
-      "exclamation": { emoji: "❗", baseSize: 80 },
-      "lightbulb": { emoji: "💡", baseSize: 80 },
-      "pin": { emoji: "📌", baseSize: 80 },
-      "clap": { emoji: "👏", baseSize: 80 },
-      "good": { emoji: "👍", baseSize: 80 },
-      "fire": { emoji: "🔥", baseSize: 80 },
-      "megaphone": { emoji: "📣", baseSize: 80 },
-      "excellent": { emoji: "🏆", baseSize: 80 },
-      "pencil": { emoji: "✏️", baseSize: 80 },
-      "note": { emoji: "📝", baseSize: 80 },
-      "100": { emoji: "💯", baseSize: 80 },
-      "sparkle": { emoji: "✨", baseSize: 80 }
-    };
+    this.stampPresets = STAMP_PRESETS;
 
     // ★ グリッド表示フラグ
     this.showGrid = true;
@@ -2881,22 +2864,17 @@ export class Whiteboard {
   }
 
   _drawStamp(obj, x, y, width, height) {
-    const preset = this.stampPresets[obj.stampKey] || this.stampPresets["star-yellow"];
-    const emoji = preset.emoji;
     const ctx = this.ctx;
-
-    const size = Math.min(width, height) * 0.9;
-    const fontPx = (size / this.scale);
-
-    const cx = x + width / 2;
-    const cy = y + height / 2;
-
-    ctx.save();
-    ctx.font = `${fontPx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "center";
-    ctx.fillText(emoji, cx, cy);
-    ctx.restore();
+    const inset = Math.min(width, height) * 0.04;
+    drawStamp(
+      ctx,
+      obj.stampKey || "star-yellow",
+      x + inset,
+      y + inset,
+      width - inset * 2,
+      height - inset * 2,
+      () => this.render()
+    );
   }
 
   render() {
@@ -3465,8 +3443,6 @@ export class Whiteboard {
 
       else if (kind === "stamp") {
         const key = obj.stampKey || "star-yellow";
-        const preset = this.stampPresets[key] || this.stampPresets["star-yellow"];
-        const emoji = preset ? (preset.emoji || "★") : "★";
 
         ctx.save();
 
@@ -3479,10 +3455,16 @@ export class Whiteboard {
           ctx.translate(-cx, -cy);
         }
 
-        ctx.font = `${width}px serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(emoji, x + width / 2, y + height / 2);
+        const inset = Math.min(width, height) * 0.04;
+        drawStamp(
+          ctx,
+          key,
+          x + inset,
+          y + inset,
+          width - inset * 2,
+          height - inset * 2,
+          () => this.render()
+        );
         ctx.restore();
       }
 

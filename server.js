@@ -2,24 +2,27 @@
 
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const { Server } = require("socket.io");
-const session = require("express-session"); // ★ セッション用
+const session = require("express-session");
 
-// ★ GAS Webアプリの URL（あなたのもの）
 const GAS_ENDPOINT =
+  process.env.GAS_ENDPOINT ||
   "https://script.google.com/macros/s/AKfycbwiG9RIoKoowqfuPhzckfDeqQjIN-YqXK_i6RWwBLc6g2GJU3FT7WZgLHzfd28Ulh8H/exec";
+const PORT = process.env.PORT || 3000;
+const SESSION_SECRET = process.env.SESSION_SECRET || "some-random-secret";
+const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "teacher1234";
+const PUBLIC_DIR = path.join(__dirname, "public");
+const TEACHER_PAGE = path.join(PUBLIC_DIR, "teacher.html");
+const TEACHER_LOGIN_PAGE = path.join(PUBLIC_DIR, "teacher-login.html");
 
 const app = express();
 
-// ★ JSON ボディの最大サイズを 50MB まで許可（大きめのPDFでもOK）
 app.use(express.json({ limit: "50mb" }));
-// ★ フォーム（パスワード）の POST を受け取るため
 app.use(express.urlencoded({ extended: true }));
-
-// ★ セッション設定（本番では env から読むのが望ましい）
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "some-random-secret",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
   })
@@ -30,66 +33,46 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e7, // 約10MB（socket.io経由の画像転送の上限）
 });
 
-const PORT = process.env.PORT || 3000;
-
-// ★ 教員用パスワード（Render の環境変数に設定しておくのが理想）
-const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "teacher1234";
-
 /* =========================
    教員用ログイン関連ルート
    ========================= */
 
-// ログインページ表示
+function isTeacherLoggedIn(req) {
+  return !!(req.session && req.session.isTeacher);
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 app.get("/teacher-login", (req, res) => {
-  const path = require("path");
-  res.sendFile(path.join(__dirname, "public", "teacher-login.html"));
+  res.sendFile(TEACHER_LOGIN_PAGE);
 });
 
-// 教員用トップ（/teacher にアクセスしたとき）
-app.get("/teacher", (req, res) => {
-  const path = require("path");
-  if (req.session && req.session.isTeacher) {
-    // 認証済みなら teacher.html を返す
-    return res.sendFile(path.join(__dirname, "public", "teacher.html"));
-  } else {
-    // 未認証ならログインページへ
-    return res.redirect("/teacher-login");
-  }
+app.get(["/teacher", "/teacher.html"], (req, res) => {
+  if (!isTeacherLoggedIn(req)) return res.redirect("/teacher-login");
+  return res.sendFile(TEACHER_PAGE);
 });
 
-// 直接 /teacher.html と打たれても同じ挙動にする
-app.get("/teacher.html", (req, res) => {
-  if (req.session && req.session.isTeacher) {
-    const path = require("path");
-    return res.sendFile(path.join(__dirname, "public", "teacher.html"));
-  } else {
-    return res.redirect("/teacher-login");
-  }
-});
-
-// ログイン処理
 app.post("/teacher/login", (req, res) => {
   const { password, classCode } = req.body;
   if (password === TEACHER_PASSWORD) {
-    // 認証成功 → セッションにフラグを立てる
     req.session.isTeacher = true;
-    // クラスコードもセッションに保存（あれば）
-    if (classCode) {
-      req.session.classCode = classCode;
+    const normalizedClassCode = normalizeText(classCode);
+    if (normalizedClassCode) {
+      req.session.classCode = normalizedClassCode;
     }
     return res.redirect("/teacher");
-  } else {
-    // 認証失敗
-    return res.status(401).send(`
-      <h2>パスワードが違います</h2>
-      <p><a href="/teacher-login">戻る</a></p>
-    `);
   }
+
+  return res.status(401).send(`
+    <h2>パスワードが違います</h2>
+    <p><a href="/teacher-login">戻る</a></p>
+  `);
 });
 
-// セッション情報取得（クライアント側でクラスコードを知るため）
 app.get("/api/teacher/session", (req, res) => {
-  if (req.session && req.session.isTeacher) {
+  if (isTeacherLoggedIn(req)) {
     res.json({
       ok: true,
       classCode: req.session.classCode || null,
@@ -99,7 +82,6 @@ app.get("/api/teacher/session", (req, res) => {
   }
 });
 
-// ログアウト（必要に応じて使用）
 app.post("/teacher/logout", (req, res) => {
   req.session.destroy(() => {
     res.redirect("/teacher-login");
@@ -109,8 +91,7 @@ app.post("/teacher/logout", (req, res) => {
 /* =========================
    静的ファイル（public）
    ========================= */
-// ★ ここは認証ルートの「後」に置くこと！
-app.use(express.static("public"));
+app.use(express.static(PUBLIC_DIR));
 
 /* =========================
    GAS プロキシ API
@@ -151,32 +132,16 @@ async function proxyToGas(req, res) {
   }
 }
 
-// ★ ホワイトボード保存 → GAS に転送
-app.post("/api/board/save", async (req, res) => {
-  await proxyToGas(req, res);
-});
+const boardProxyPaths = [
+  "/api/board/save",
+  "/api/board/load",
+  "/api/board/list",
+  "/api/board/folders",
+  "/api/board/students",
+];
 
-// ★ ホワイトボード読み込み → GAS に転送
-app.post("/api/board/load", async (req, res) => {
-  await proxyToGas(req, res);
-});
-
-// ★ ファイル一覧取得 → GAS に転送
-app.post("/api/board/list", async (req, res) => {
-  await proxyToGas(req, res);
-});
-
-// ★ フォルダ一覧取得 → GAS に転送
-app.post("/api/board/folders", async (req, res) => {
-  await proxyToGas(req, res);
-});
-
-// ★★★ 追加：クラス内でボードを保存している生徒一覧取得 → GAS に転送 ★★★
-// teacher.js の fetchStudentNicknameList() が叩いているエンドポイント
-// 例: POST /api/board/students
-//     { action: "listStudentsForBoard", classCode: "XXXX" }
-app.post("/api/board/students", async (req, res) => {
-  await proxyToGas(req, res);
+boardProxyPaths.forEach((routePath) => {
+  app.post(routePath, proxyToGas);
 });
 
 /* =========================
@@ -195,15 +160,26 @@ const notebookStudentSockets = {};
 // notebookSocketToStudent = { [socketId]: { classCode, studentId } }
 const notebookSocketToStudent = {};
 
-// classCode ごとに接続中の生徒情報を管理
-// { [classCode]: Map<socketId, { socketId, nickname }> }
-const studentListByClass = new Map();
+function ensureClass(classCode) {
+  if (!classes[classCode]) {
+    classes[classCode] = { teacherSocketId: null, students: {} };
+  }
+  return classes[classCode];
+}
 
-function broadcastStudentList(classCode) {
-  const map = studentListByClass.get(classCode);
-  const list = map ? Array.from(map.values()) : [];
-  // 同じクラスの教員・生徒に配信（room を classCode で分けている想定）
-  io.to(classCode).emit("student-list-update", list);
+function cleanupClassIfEmpty(classCode) {
+  const cls = classes[classCode];
+  if (!cls) return;
+  if (!cls.teacherSocketId && Object.keys(cls.students).length === 0) {
+    delete classes[classCode];
+  }
+}
+
+function notifyTeacherStudentList(classCode) {
+  const cls = classes[classCode];
+  if (cls && cls.teacherSocketId) {
+    io.to(cls.teacherSocketId).emit("student-list-update", getStudentList(classCode));
+  }
 }
 
 io.on("connection", (socket) => {
@@ -217,121 +193,108 @@ io.on("connection", (socket) => {
   let notebookJoinedClassCode = null;
   let notebookStudentId = null;
 
+  function leaveCurrentWhiteboardClass() {
+    if (!joinedClassCode) return;
+
+    const code = joinedClassCode;
+    const cls = classes[code];
+    console.log(`Socket ${socket.id} leaving class ${code} as ${role}`);
+
+    if (cls) {
+      if (role === "teacher" && cls.teacherSocketId === socket.id) {
+        cls.teacherSocketId = null;
+      } else if (role === "student") {
+        delete cls.students[socket.id];
+        notifyTeacherStudentList(code);
+      }
+    }
+
+    socket.leave(code);
+    joinedClassCode = null;
+    role = null;
+    cleanupClassIfEmpty(code);
+  }
+
+  function joinStudentToClass({ classCode, nickname, source, sendSuccess }) {
+    const code = normalizeText(classCode);
+    const name = normalizeText(nickname);
+    if (!code || !name) return false;
+
+    if (joinedClassCode && joinedClassCode !== code) {
+      leaveCurrentWhiteboardClass();
+    }
+
+    role = "student";
+    joinedClassCode = code;
+
+    const cls = ensureClass(code);
+    cls.students[socket.id] = {
+      nickname: name,
+      mode: "whiteboard",
+    };
+    socket.join(code);
+
+    console.log(`Student ${name} joined class ${code} via ${source}`);
+    if (sendSuccess) {
+      socket.emit("join-success", { classCode: code, nickname: name });
+    }
+    notifyTeacherStudentList(code);
+    return true;
+  }
+
   /* =========================
      ホワイトボード用 イベント
      ========================= */
 
   // 教員が参加
   socket.on("join-teacher", ({ classCode }) => {
-    if (!classCode) return;
+    const code = normalizeText(classCode);
+    if (!code) return;
 
     // すでに別のクラスに入っている場合は、そのクラスから抜ける
-    if (joinedClassCode && joinedClassCode !== classCode) {
-      const prevCls = classes[joinedClassCode];
-      if (prevCls && prevCls.teacherSocketId === socket.id) {
-        prevCls.teacherSocketId = null;
-      }
-      socket.leave(joinedClassCode);
-      console.log(
-        `Teacher moved: ${socket.id} from ${joinedClassCode} to ${classCode}`
-      );
+    if (joinedClassCode && joinedClassCode !== code) {
+      const previousClassCode = joinedClassCode;
+      leaveCurrentWhiteboardClass();
+      console.log(`Teacher moved: ${socket.id} from ${previousClassCode} to ${code}`);
     }
 
     role = "teacher";
-    joinedClassCode = classCode;
+    joinedClassCode = code;
 
-    if (!classes[classCode]) {
-      classes[classCode] = { teacherSocketId: null, students: {} };
-    }
-    classes[classCode].teacherSocketId = socket.id;
+    const cls = ensureClass(code);
+    cls.teacherSocketId = socket.id;
 
     // このクラスのroomに参加
-    socket.join(classCode);
+    socket.join(code);
 
-    console.log(`Teacher joined: ${classCode}, socket=${socket.id}`);
+    console.log(`Teacher joined: ${code}, socket=${socket.id}`);
 
     // 既に参加している生徒一覧を送る
-    socket.emit("student-list-update", getStudentList(classCode));
+    socket.emit("student-list-update", getStudentList(code));
   });
 
   // クラスから退室（教員でも生徒でも共通で使える）
   socket.on("leave-class", () => {
-    if (!joinedClassCode) return;
-
-    console.log(`Socket ${socket.id} leaving class ${joinedClassCode} as ${role}`);
-
-    const cls = classes[joinedClassCode];
-    if (cls) {
-      if (role === "teacher" && cls.teacherSocketId === socket.id) {
-        // 教員が抜ける場合
-        cls.teacherSocketId = null;
-      } else if (role === "student") {
-        // 生徒が抜ける場合
-        delete cls.students[socket.id];
-        // 先生に生徒一覧の更新を通知
-        if (cls.teacherSocketId) {
-          io.to(cls.teacherSocketId).emit(
-            "student-list-update",
-            getStudentList(joinedClassCode)
-          );
-        }
-      }
-    }
-
-    socket.leave(joinedClassCode);
-    joinedClassCode = null;
-    role = null;
+    leaveCurrentWhiteboardClass();
   });
 
 
   // 生徒が参加（旧）
   socket.on("join-student", ({ classCode, nickname }) => {
-    if (!classCode || !nickname) return;
-    role = "student";
-    joinedClassCode = classCode;
-    if (!classes[classCode]) {
-      classes[classCode] = { teacherSocketId: null, students: {} };
-    }
-    // ★ mode を追加（初期値: "whiteboard"）
-    classes[classCode].students[socket.id] = {
-      nickname: nickname,
-      mode: "whiteboard",
-    };
-    console.log(`Student ${nickname} joined class ${classCode} via join-student`);
-
-    const teacherId = classes[classCode].teacherSocketId;
-    if (teacherId) {
-      io.to(teacherId).emit("student-list-update", getStudentList(classCode));
-    }
+    joinStudentToClass({ classCode, nickname, source: "join-student" });
   });
 
 
   // 生徒が参加 (新ログインフロー用: join-class イベントに対応)
   socket.on("join-class", ({ classCode, nickname }) => {
-    if (!classCode || !nickname) {
+    const joined = joinStudentToClass({
+      classCode,
+      nickname,
+      source: "join-class",
+      sendSuccess: true,
+    });
+    if (!joined) {
       socket.emit("join-error", "クラスコードとニックネームを入力してください。");
-      return;
-    }
-
-    role = "student";
-    joinedClassCode = classCode;
-    if (!classes[classCode]) {
-      classes[classCode] = { teacherSocketId: null, students: {} };
-    }
-    // ★ mode を追加（初期値: "whiteboard"）
-    classes[classCode].students[socket.id] = {
-      nickname: nickname,
-      mode: "whiteboard",
-    };
-    console.log(`Student ${nickname} joined class ${classCode} via join-class`);
-
-    // 参加成功を通知
-    socket.emit("join-success", { classCode, nickname });
-
-    // 教員に生徒一覧更新を通知
-    const teacherId = classes[classCode].teacherSocketId;
-    if (teacherId) {
-      io.to(teacherId).emit("student-list-update", getStudentList(classCode));
     }
   });
 
@@ -739,24 +702,7 @@ io.on("connection", (socket) => {
     console.log("Disconnected:", socket.id);
 
     // --- ホワイトボード用のクラス管理 ---
-    if (joinedClassCode) {
-      const cls = classes[joinedClassCode];
-      if (cls) {
-        if (role === "student") {
-          // 生徒の削除
-          delete cls.students[socket.id];
-          if (cls.teacherSocketId) {
-            io.to(cls.teacherSocketId).emit(
-              "student-list-update",
-              getStudentList(joinedClassCode)
-            );
-          }
-        } else if (role === "teacher") {
-          // 教員が落ちた
-          cls.teacherSocketId = null;
-        }
-      }
-    }
+    leaveCurrentWhiteboardClass();
 
     // --- ノート確認用のクラス管理 ---
     const noteInfo = notebookSocketToStudent[socket.id];

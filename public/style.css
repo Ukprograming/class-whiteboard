@@ -10,14 +10,19 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  color: #172033;
+  font-variant-numeric: tabular-nums;
 }
 
 .app-root {
   width: 100%;
   height: 100%;
   position: relative;
-  background: #f3f4f6;
+  background:
+    radial-gradient(circle at 24px 24px, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    #eef2f7;
+  background-size: 32px 32px, auto;
 }
 
 /* Full Screen Canvas */
@@ -42,10 +47,11 @@ body {
   left: 16px;
   right: 16px;
   height: 56px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 10px;
+  box-shadow: 0 14px 38px rgba(30, 41, 59, 0.13);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -70,7 +76,7 @@ body {
   display: flex;
   flex-direction: row;
   gap: 4px;
-  background: #f3f4f6;
+  background: #edf2f7;
   padding: 4px;
   border-radius: 10px;
 }
@@ -85,18 +91,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
-  color: #6b7280;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  color: #64748b;
 }
 
 .mode-btn:hover {
-  background: #e5e7eb;
+  background: #e2e8f0;
+  transform: translateY(-1px);
 }
 
 .mode-btn.active {
   background: #ffffff;
-  color: #2563eb;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  color: #0f766e;
+  box-shadow: 0 3px 10px rgba(15, 118, 110, 0.16);
 }
 
 /* Floating Sidebar */
@@ -106,10 +113,11 @@ body {
   top: 88px;
   bottom: 16px;
   width: 64px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 10px;
+  box-shadow: 0 14px 38px rgba(30, 41, 59, 0.13);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  backdrop-filter: blur(14px);
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -140,27 +148,42 @@ body {
   height: 48px;
   border: none;
   background: transparent;
-  border-radius: 10px;
+  border-radius: 9px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
-  color: #374151;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  color: #334155;
   position: relative;
 }
 
 .tool-btn:hover {
-  background: #f3f4f6;
+  background: #eef2f7;
+  transform: translateY(-1px);
 }
 
 .tool-btn.active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: #e0f2f1;
+  color: #0f766e;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.15);
 }
 
-.tool-btn .material-symbols-rounded {
-  font-size: 24px;
+.app-icon {
+  width: 1.25em;
+  height: 1.25em;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.tool-btn .app-icon {
+  width: 24px;
+  height: 24px;
 }
 
 
@@ -181,8 +204,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
-  color: #374151;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  color: #334155;
 }
 
 .icon-btn-text {
@@ -195,12 +218,30 @@ body {
 
 .icon-btn:hover,
 .icon-btn-text:hover {
-  background: #f3f4f6;
+  background: #eef2f7;
+  transform: translateY(-1px);
 }
 
-.icon-btn .material-symbols-rounded,
-.icon-btn-text .material-symbols-rounded {
-  font-size: 20px;
+.icon-btn:active,
+.icon-btn-text:active,
+.tool-btn:active,
+.mode-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.icon-btn:focus-visible,
+.icon-btn-text:focus-visible,
+.tool-btn:focus-visible,
+.mode-btn:focus-visible,
+.stamp-item:focus-visible {
+  outline: 3px solid rgba(20, 184, 166, 0.32);
+  outline-offset: 2px;
+}
+
+.icon-btn .app-icon,
+.icon-btn-text .app-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .icon-btn-sm {
@@ -600,7 +641,7 @@ body {
 
 .palette-header .icon-btn-sm:hover,
 .palette-header button:hover {
-  background: #f3f4f6;
+  background: #eef2f7;
 }
 
 .stamp-palette-grid {
@@ -609,6 +650,48 @@ body {
   gap: 8px;
   overflow-y: auto;
   grid-template-columns: repeat(6, minmax(40px, 1fr));
+}
+
+.stamp-items {
+  padding: 14px 16px 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 10px;
+}
+
+.stamp-item {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.stamp-item svg {
+  width: 44px;
+  height: 44px;
+  display: block;
+}
+
+.stamp-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 184, 166, 0.55);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+
+.stamp-item.active {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.2);
 }
 
 /* 図形ボタンのエリア：中央寄せの2〜3段レイアウト */
@@ -1203,13 +1286,14 @@ body {
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
 }
 
-.sidebar-toggle-btn .material-symbols-rounded {
-  font-size: 18px;
+.sidebar-toggle-btn .app-icon {
+  width: 18px;
+  height: 18px;
   color: #6b7280;
   transition: transform 0.3s ease;
 }
 
-.floating-sidebar.collapsed .sidebar-toggle-btn .material-symbols-rounded {
+.floating-sidebar.collapsed .sidebar-toggle-btn .app-icon {
   transform: rotate(180deg);
 }
 
@@ -1266,8 +1350,9 @@ body {
   background: #f3f4f6;
 }
 
-.dropdown-content button .material-symbols-rounded {
-  font-size: 18px;
+.dropdown-content button .app-icon {
+  width: 18px;
+  height: 18px;
   color: #6b7280;
 }
 
@@ -1330,7 +1415,7 @@ body {
   background: #f3f4f6;
 }
 
-.modal-sidebar.collapsed .sidebar-toggle-btn .material-symbols-rounded {
+.modal-sidebar.collapsed .sidebar-toggle-btn .app-icon {
   transform: rotate(180deg);
 }
 
@@ -2009,4 +2094,55 @@ body {
 /* hidden が誤って付いても完全に殺されないように保険 */
 .floating-bottom-right.hidden {
   display: none !important;
+}
+
+/* Device-independent SVG stamps and icons */
+.stamp-items {
+  padding: 14px 16px 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 10px;
+}
+
+.stamp-item {
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0;
+  line-height: 1;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.stamp-item svg {
+  width: 44px;
+  height: 44px;
+  display: block;
+}
+
+.stamp-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 184, 166, 0.55);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+
+.stamp-item.active {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.2);
+}
+
+#textSettings .ts-icon-button .app-icon {
+  width: 18px;
+  height: 18px;
 }
