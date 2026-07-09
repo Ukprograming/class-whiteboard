@@ -80,6 +80,11 @@ const modalToolPenBtn = document.getElementById("modalToolPen");
 const modalToolHighlighterBtn = document.getElementById("modalToolHighlighter");
 const modalToolEraserBtn = document.getElementById("modalToolEraser");
 const modalPenColorInput = document.getElementById("modalPenColor");
+const modalPenColorButtons = document.querySelectorAll("[data-modal-pen-color]");
+const modalChatStudentName = document.getElementById("modalChatStudentName");
+const modalChatMessagesEl = document.getElementById("modalChatMessages");
+const modalChatInput = document.getElementById("modalChatInput");
+const modalChatSendBtn = document.getElementById("modalChatSendBtn");
 
 // 互換用エイリアス（古い処理がこれらを参照していても落ちないように）
 // 「移動」ボタンを廃止したため、選択ツール用ボタンは存在しない
@@ -1426,6 +1431,22 @@ socket.on("teacher-class-started", payload => {
 
 // ======== 生徒画面モーダル用ツール切り替え ========
 
+function applyModalPenColor(color) {
+  if (!color) return;
+  if (modalPenColorInput) {
+    modalPenColorInput.value = color;
+  }
+  modalPenColorButtons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.modalPenColor === color);
+  });
+  if (!modalBoard) return;
+  if (modalCurrentTool === "highlighter") {
+    modalBoard.setHighlighterColor(color);
+  } else {
+    modalBoard.setPen(color, 3);
+  }
+}
+
 function setModalTool(tool) {
   modalCurrentTool = tool;
 
@@ -1624,6 +1645,7 @@ socket.on("student-list-update", (list) => {
     if (!s || !s.socketId) return;
     studentNameMap[s.socketId] = s.nickname || s.socketId;
   });
+  updateModalChatTargetLabel();
 
   // チャット宛先セレクト更新
   if (chatTargetSelect) {
@@ -1938,15 +1960,15 @@ socket.on(
 // 色変更時のイベントリスナーを追加
 if (modalPenColorInput) {
   modalPenColorInput.addEventListener("change", () => {
-    if (modalBoard) {
-      if (modalCurrentTool === "pen") {
-        modalBoard.setPen(modalPenColorInput.value, 3);
-      } else if (modalCurrentTool === "highlighter") {
-        modalBoard.setHighlighterColor(modalPenColorInput.value);
-      }
-    }
+    applyModalPenColor(modalPenColorInput.value);
   });
 }
+
+modalPenColorButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    applyModalPenColor(btn.dataset.modalPenColor);
+  });
+});
 
 /* ===== 共同編集開始 / 終了ヘルパー ===== */
 
@@ -1992,6 +2014,10 @@ function startMonitoringStudent(studentSocketId, nickname) {
   }
 
   // キャンバスの準備と Whiteboard 初期化
+  updateModalChatTargetLabel(studentSocketId);
+  renderModalChatMessagesForTarget(studentSocketId);
+  if (modalChatInput) modalChatInput.focus();
+
   if (modalCanvas && modalBoardContainer) {
     const rect = modalBoardContainer.getBoundingClientRect();
     const w = rect.width;
@@ -2199,6 +2225,8 @@ if (modalBackdrop && modalCloseBtn) {
 
     // ★★ ここが重要：監視状態とmodal関連をすべてリセット ★★
     currentMonitoringStudentSocketId = null;
+    if (modalChatInput) modalChatInput.value = "";
+    renderModalChatMessagesForTarget("");
 
     // ★ モーダル用の状態だけリセット（canvas サイズは触らない）
     // ▼ ここはコメントアウトする（生徒ノートの背景画像は消さない）
@@ -2327,6 +2355,95 @@ function appendChatMessageToHistory(targetSocketId, msg) {
   chatHistories[targetSocketId].push(msg);
 }
 
+function getStudentDisplayName(socketId) {
+  if (!socketId) return "生徒";
+  return (
+    studentNameMap[socketId] ||
+    latestThumbnails[socketId]?.nickname ||
+    socketId
+  );
+}
+
+function createChatMessageRow(message) {
+  const row = document.createElement("div");
+  row.className =
+    "chat-message-row " +
+    (message.from === "me" ? "chat-message--me" : "chat-message--them");
+
+  const meta = document.createElement("div");
+  meta.className = "chat-message-meta";
+
+  const time = new Date(message.timestamp || Date.now());
+  const timeStr = time.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+
+  if (message.from === "me") {
+    meta.textContent = `自分 • ${timeStr}`;
+  } else {
+    meta.textContent = `${message.nickname || "生徒"} • ${timeStr}`;
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-message-bubble";
+  bubble.textContent = message.text;
+
+  row.appendChild(meta);
+  row.appendChild(bubble);
+  return row;
+}
+
+function updateModalChatTargetLabel(targetSocketId = currentMonitoringStudentSocketId) {
+  if (!modalChatStudentName) return;
+  modalChatStudentName.textContent = targetSocketId
+    ? getStudentDisplayName(targetSocketId)
+    : "生徒を選択中";
+}
+
+function isStudentModalChatOpenFor(socketId) {
+  return !!(
+    socketId &&
+    modalBackdrop &&
+    modalBackdrop.classList.contains("show") &&
+    currentMonitoringStudentSocketId === socketId
+  );
+}
+
+function renderModalChatMessagesForTarget(targetSocketId = currentMonitoringStudentSocketId, options = {}) {
+  if (!modalChatMessagesEl) return;
+  modalChatMessagesEl.innerHTML = "";
+  updateModalChatTargetLabel(targetSocketId);
+
+  if (targetSocketId && options.markRead !== false) {
+    unreadStudentIds.delete(targetSocketId);
+    unreadTemplateKindsByStudentId.delete(targetSocketId);
+    updateChatBadge();
+  }
+
+  if (!targetSocketId) {
+    const empty = document.createElement("div");
+    empty.className = "chat-message-row chat-empty-state";
+    empty.textContent = "生徒を選択してください。";
+    modalChatMessagesEl.appendChild(empty);
+    return;
+  }
+
+  const history = chatHistories[targetSocketId] || [];
+  if (!history.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-message-row chat-empty-state";
+    empty.textContent = "まだメッセージはありません。";
+    modalChatMessagesEl.appendChild(empty);
+    return;
+  }
+
+  history.forEach(message => {
+    modalChatMessagesEl.appendChild(createChatMessageRow(message));
+  });
+  modalChatMessagesEl.scrollTop = modalChatMessagesEl.scrollHeight;
+}
+
 function renderChatMessagesForTarget(targetSocketId) {
   if (!chatMessagesEl) return;
   chatMessagesEl.innerHTML = "";
@@ -2390,6 +2507,9 @@ function renderChatMessagesForTarget(targetSocketId) {
   if (otherUnreadList) chatMessagesEl.appendChild(otherUnreadList);
 
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  if (isStudentModalChatOpenFor(targetSocketId)) {
+    renderModalChatMessagesForTarget(targetSocketId, { markRead: false });
+  }
 }
 
 function openChatForStudent(socketId) {
@@ -2531,12 +2651,58 @@ function teacherSendChat() {
   chatInput.value = "";
 }
 
+function teacherSendModalChat() {
+  if (!currentClassCode) {
+    alert("クラスを開始してからチャットを送信してください。");
+    return;
+  }
+  const targetSocketId = currentMonitoringStudentSocketId;
+  if (!targetSocketId) {
+    alert("対象の生徒を選択してください。");
+    return;
+  }
+  if (!modalChatInput) return;
+
+  const text = modalChatInput.value.trim();
+  if (!text) return;
+
+  socket.emit("teacher-chat-to-student", {
+    classCode: currentClassCode,
+    targetSocketId,
+    message: text
+  });
+
+  appendChatMessageToHistory(targetSocketId, {
+    from: "me",
+    nickname: null,
+    text,
+    timestamp: Date.now()
+  });
+
+  modalChatInput.value = "";
+  renderModalChatMessagesForTarget(targetSocketId, { markRead: false });
+
+  if (chatPanelOpen && activeChatTargetSocketId === targetSocketId) {
+    renderChatMessagesForTarget(targetSocketId);
+  }
+}
+
 if (chatSendBtn && chatInput) {
   chatSendBtn.addEventListener("click", teacherSendChat);
   chatInput.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.isComposing) {
       e.preventDefault();
       teacherSendChat();
+    }
+  });
+}
+
+if (modalChatSendBtn && modalChatInput) {
+  modalChatSendBtn.addEventListener("click", teacherSendModalChat);
+  modalChatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      teacherSendModalChat();
     }
   });
 }
@@ -2562,9 +2728,20 @@ socket.on("chat-message", payload => {
     timestamp
   });
 
-  if (chatPanelOpen && activeChatTargetSocketId === fromId) {
+  const isMainChatActive = chatPanelOpen && activeChatTargetSocketId === fromId;
+  const isModalChatActive = isStudentModalChatOpenFor(fromId);
+
+  if (isMainChatActive || isModalChatActive) {
     // 今見ている生徒からのメッセージなら、そのまま表示更新＆既読扱い
-    renderChatMessagesForTarget(fromId);
+    unreadStudentIds.delete(fromId);
+    unreadTemplateKindsByStudentId.delete(fromId);
+    updateChatBadge();
+    if (isMainChatActive) {
+      renderChatMessagesForTarget(fromId);
+    }
+    if (isModalChatActive) {
+      renderModalChatMessagesForTarget(fromId, { markRead: false });
+    }
   } else {
     // ★別の生徒 or パネル閉じている → 未読扱い
     unreadStudentIds.add(fromId);

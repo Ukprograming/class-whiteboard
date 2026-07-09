@@ -372,18 +372,50 @@
       <!-- 左のツールサイドバー -->
       <div id="studentModalSidebar" class="modal-sidebar">
         <div class="sidebar-content">
-          <!-- ツールボタン -->
-          <!-- ★ 移動ボタンは不要なので削除済み -->
-          <button id="modalToolPen" class="wb-btn" data-tool="pen">ペン</button>
-          <button id="modalToolHighlighter" class="wb-btn" data-tool="highlighter">蛍光ペン</button>
-          <button id="modalToolEraser" class="wb-btn" data-tool="eraser">消しゴム</button>
+          <div class="modal-tool-strip" aria-label="注釈ツール">
+            <button id="modalToolPen" class="wb-btn" data-tool="pen" title="ペン" aria-label="ペン">
+              <span class="material-symbols-rounded">edit</span>
+            </button>
+            <button id="modalToolHighlighter" class="wb-btn" data-tool="highlighter" title="蛍光ペン" aria-label="蛍光ペン">
+              <span class="material-symbols-rounded">ink_highlighter</span>
+            </button>
+            <button id="modalToolEraser" class="wb-btn" data-tool="eraser" title="消しゴム" aria-label="消しゴム">
+              <span class="material-symbols-rounded">ink_eraser</span>
+            </button>
+          </div>
 
-          <div class="setting-row">
-            <span class="label">色</span>
-            <input id="modalPenColor" type="color" value="#111827" />
+          <div class="setting-row modal-color-row" aria-label="ペンの色">
+            <input id="modalPenColor" type="color" value="#111827" aria-label="ペンの色" />
+            <div class="color-palette">
+              <button class="color-dot active" data-modal-pen-color="#111827" style="--c:#111827" title="黒"></button>
+              <button class="color-dot" data-modal-pen-color="#ef4444" style="--c:#ef4444" title="赤"></button>
+              <button class="color-dot" data-modal-pen-color="#f97316" style="--c:#f97316" title="オレンジ"></button>
+              <button class="color-dot" data-modal-pen-color="#facc15" style="--c:#facc15" title="黄"></button>
+              <button class="color-dot" data-modal-pen-color="#22c55e" style="--c:#22c55e" title="緑"></button>
+              <button class="color-dot" data-modal-pen-color="#0ea5e9" style="--c:#0ea5e9" title="青"></button>
+              <button class="color-dot" data-modal-pen-color="#6366f1" style="--c:#6366f1" title="藍"></button>
+              <button class="color-dot" data-modal-pen-color="#a855f7" style="--c:#a855f7" title="紫"></button>
+            </div>
+          </div>
+
+          <section class="student-modal-chat" aria-label="選択中の生徒とのチャット">
+            <header class="student-modal-chat-header">
+              <span class="material-symbols-rounded">chat</span>
+              <div>
+                <div class="student-modal-chat-title">チャット</div>
+                <div id="modalChatStudentName" class="student-modal-chat-target">生徒を選択中</div>
+              </div>
+            </header>
+            <div id="modalChatMessages" class="student-modal-chat-messages"></div>
+            <footer class="student-modal-chat-input">
+              <input id="modalChatInput" type="text" placeholder="メッセージ..." autocomplete="off" />
+              <button id="modalChatSendBtn" class="icon-btn-primary" title="送信" aria-label="送信">
+                <span class="material-symbols-rounded">send</span>
+              </button>
+            </footer>
+          </section>
           </div>
         </div>
-      </div>
 
       <!-- 右側：ホワイトボード表示エリア -->
       <div id="studentModalBoardContainer" class="modal-board-container">

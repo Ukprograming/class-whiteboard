@@ -478,6 +478,49 @@ export function initBoardUI() {
 
     container.appendChild(textStylePanel);
 
+    textStylePanel.classList.add("text-style-panel");
+    const panelInner = textStylePanel.firstElementChild;
+    if (panelInner) panelInner.classList.add("text-style-panel-inner");
+
+    const generatedTextColorInput = textStylePanel.querySelector("[data-text-color]");
+    if (generatedTextColorInput) {
+      generatedTextColorInput.removeAttribute("style");
+      generatedTextColorInput.classList.add("text-color-input");
+      generatedTextColorInput.title = "文字色";
+    }
+
+    const generatedBoldButton = textStylePanel.querySelector("[data-text-bold]");
+    if (generatedBoldButton) {
+      generatedBoldButton.removeAttribute("style");
+      generatedBoldButton.classList.add("ts-icon-button");
+      generatedBoldButton.title = "太字";
+      generatedBoldButton.innerHTML = '<span class="material-symbols-rounded">format_bold</span>';
+    }
+
+    textStylePanel.querySelectorAll("[data-text-align]").forEach(btn => {
+      const align = btn.dataset.textAlign || "left";
+      const iconName =
+        align === "center"
+          ? "format_align_center"
+          : align === "right"
+            ? "format_align_right"
+            : "format_align_left";
+      btn.removeAttribute("style");
+      btn.classList.add("ts-icon-button");
+      btn.title =
+        align === "center" ? "中央揃え" : align === "right" ? "右揃え" : "左揃え";
+      btn.innerHTML = `<span class="material-symbols-rounded">${iconName}</span>`;
+    });
+
+    textStylePanel.querySelectorAll("[data-text-sticky-color]").forEach(btn => {
+      const color = btn.dataset.textStickyColor;
+      btn.removeAttribute("style");
+      btn.classList.add("color-dot");
+      if (color) btn.style.setProperty("--c", color);
+    });
+
+    replaceMaterialIcons(textStylePanel);
+
     // 要素の参照を取る
     textFontSizeSelect = textStylePanel.querySelector("[data-text-font-size]");
     textColorInput = textStylePanel.querySelector("[data-text-color]");
