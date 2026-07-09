@@ -1,6 +1,7 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 import { Whiteboard } from "./whiteboard.js";
+import { boardApi, createRealtimeBridge } from "./supabase-api.js";
 
 const teacherBoard = initBoardUI();
 window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
@@ -23,7 +24,7 @@ window.addEventListener("beforeunload", (event) => {
 const BOARD_API_BASE = "/api/board";
 
 // ========= socket.io =========
-const socket = io();
+const socket = createRealtimeBridge();
 
 // 上部 UI
 const classCodeInput = document.getElementById("teacherClassCodeInput");
@@ -326,6 +327,16 @@ async function fetchFolderList() {
     payload.nickname = boardScopeStudentNickname.trim();
   }
 
+  if (boardApi.enabled) {
+    const json = await boardApi.listFolders(payload);
+    const folders = json.folders || [];
+    return folders.map((f) => {
+      const path = f.path || f.folderPath || "";
+      const name = f.name || path || "(folder)";
+      return { path, name };
+    });
+  }
+
   const res = await fetch(`${BOARD_API_BASE}/folders`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -369,6 +380,12 @@ async function fetchFileList(folderPath) {
 
   if (isStudentScope) {
     payload.nickname = boardScopeStudentNickname.trim();
+  }
+
+  if (boardApi.enabled) {
+    const json = await boardApi.listBoards(payload);
+    if (!json.ok) throw new Error(json.message || "Failed to load board list.");
+    return json.files || [];
   }
 
   const res = await fetch(`${BOARD_API_BASE}/list`, {
@@ -856,18 +873,23 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
       payload
     });
 
-    const res = await fetch(`${BOARD_API_BASE}/save`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await res.text();
+    let res = { ok: true, status: 200 };
     let json = {};
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
-      console.warn("[teacherSaveBoardInternal] response is not JSON", text);
+    if (boardApi.enabled) {
+      json = await boardApi.saveBoard(payload);
+    } else {
+      res = await fetch(`${BOARD_API_BASE}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        console.warn("[teacherSaveBoardInternal] response is not JSON", text);
+      }
     }
 
     console.log("[teacherSaveBoardInternal] response", res.status, json);
@@ -954,6 +976,29 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
 
     if (isStudentScope) {
       payload.nickname = boardScopeStudentNickname.trim();
+    }
+
+    if (boardApi.enabled) {
+      const json = await boardApi.loadBoard(payload);
+      if (!json.ok) {
+        alert(json.message || "Failed to load board.");
+        return;
+      }
+      if (!json.boardData) {
+        alert("Board data was not found.");
+        return;
+      }
+
+      teacherBoard.importBoardData(json.boardData);
+      if (typeof teacherBoard.markSaved === "function") {
+        teacherBoard.markSaved();
+      }
+      currentBoardFileId = json.fileId || fileId || null;
+      currentBoardFileName = json.fileName ? json.fileName.replace(/\.json$/i, "") : "";
+      lastUsedFolderPath = (folderPath || "").trim();
+      alert("Loaded board.");
+      closeBoardDialog();
+      return;
     }
 
     const res = await fetch(`${BOARD_API_BASE}/load`, {

@@ -1,5 +1,12 @@
 // public/js/student.js
 import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
+import {
+  authApi,
+  boardApi,
+  createRealtimeBridge,
+  getStudentLoginHints,
+  supabaseEnabled,
+} from "./supabase-api.js";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -26,7 +33,7 @@ const studentLoadBoardBtn = document.getElementById("studentLoadBoardBtn");
 const studentOverwriteSaveBtn = document.getElementById("studentOverwriteSaveBtn");
 
 // ========= socket.io =========
-const socket = io();
+const socket = createRealtimeBridge();
 
 // ==== DOM 要素（新 ID 優先、なければ旧 ID を使う） ====
 // ==== DOM 要素（新 ID 優先、なければ旧 ID を使う） ====
@@ -164,16 +171,85 @@ const studentLoginForm = document.getElementById("studentLoginForm");
 const studentLoginOverlay = document.getElementById("studentLoginOverlay");
 const loginClassCodeInput = document.getElementById("loginClassCode");
 const loginNicknameInput = document.getElementById("loginNickname");
+let loginStudentPasswordInput = document.getElementById("loginStudentPassword");
+let loginSavedAccountSelect = document.getElementById("loginSavedAccount");
+
+function ensureStudentPasswordLoginControls() {
+  if (!studentLoginForm) return;
+
+  if (!loginSavedAccountSelect) {
+    const label = document.createElement("label");
+    label.textContent = "Saved login";
+    loginSavedAccountSelect = document.createElement("select");
+    loginSavedAccountSelect.id = "loginSavedAccount";
+    label.appendChild(loginSavedAccountSelect);
+    studentLoginForm.insertBefore(label, studentLoginForm.firstElementChild);
+  }
+
+  if (!loginStudentPasswordInput) {
+    const label = document.createElement("label");
+    label.textContent = "Password";
+    loginStudentPasswordInput = document.createElement("input");
+    loginStudentPasswordInput.id = "loginStudentPassword";
+    loginStudentPasswordInput.type = "password";
+    loginStudentPasswordInput.autocomplete = "current-password";
+    loginStudentPasswordInput.required = true;
+    label.appendChild(loginStudentPasswordInput);
+    const submitButton = studentLoginForm.querySelector("button[type='submit']");
+    studentLoginForm.insertBefore(label, submitButton || null);
+  }
+}
 
 if (studentLoginForm) {
-  studentLoginForm.addEventListener("submit", (e) => {
+  ensureStudentPasswordLoginControls();
+
+  if (loginSavedAccountSelect) {
+    const hints = getStudentLoginHints();
+    loginSavedAccountSelect.innerHTML = `<option value="">New login</option>`;
+    hints.forEach((hint, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = hint.label || `${hint.classCode} / ${hint.studentLoginId}`;
+      loginSavedAccountSelect.appendChild(option);
+    });
+    loginSavedAccountSelect.addEventListener("change", () => {
+      const hint = hints[Number(loginSavedAccountSelect.value)];
+      if (!hint) return;
+      if (loginClassCodeInput) loginClassCodeInput.value = hint.classCode || "";
+      if (loginNicknameInput) loginNicknameInput.value = hint.studentLoginId || "";
+      if (loginStudentPasswordInput) loginStudentPasswordInput.value = "";
+      if (loginStudentPasswordInput) loginStudentPasswordInput.focus();
+    });
+  }
+
+  studentLoginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = loginClassCodeInput.value.trim();
     const name = loginNicknameInput.value.trim();
+    const password = loginStudentPasswordInput ? loginStudentPasswordInput.value : "";
 
     if (!code || !name) {
       alert("クラスコードとニックネームを入力してください。");
       return;
+    }
+
+    if (supabaseEnabled && !password) {
+      alert("Password is required.");
+      return;
+    }
+
+    if (supabaseEnabled) {
+      try {
+        await authApi.signInStudent({
+          classCode: code,
+          studentLoginId: name,
+          password,
+        });
+      } catch (err) {
+        console.error("Supabase student login failed:", err);
+        alert("Login failed: " + (err.message || err));
+        return;
+      }
     }
 
     currentClassCode = code;
@@ -181,6 +257,13 @@ if (studentLoginForm) {
 
     // サーバーへ参加リクエスト
     socket.emit("join-class", { classCode: code, nickname: name });
+    if (supabaseEnabled) {
+      if (studentLoginOverlay) studentLoginOverlay.classList.add("hidden");
+      if (statusLabel) statusLabel.textContent = `Class: ${code} / ${name}`;
+      joinedNotebookClassCode = code;
+      notebookStudentId = name;
+      updateModeUI();
+    }
   });
 }
 
@@ -226,15 +309,27 @@ async function fetchFolderList() {
     throw new Error("クラスコードとニックネームが設定されていません。");
   }
 
+  const payload = {
+    action: "listFolders",
+    role: "student",
+    classCode: currentClassCode,
+    nickname
+  };
+
+  if (boardApi.enabled) {
+    const json = await boardApi.listFolders(payload);
+    const folders = json.folders || [];
+    return folders.map(f => {
+      const path = f.path || f.folderPath || "";
+      const name = f.name || path || "(folder)";
+      return { path, name };
+    });
+  }
+
   const res = await fetch(`${BOARD_API_BASE}/folders`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "listFolders",
-      role: "student",
-      classCode: currentClassCode,
-      nickname
-    })
+    body: JSON.stringify(payload)
   });
 
   if (!res.ok) {
@@ -262,16 +357,24 @@ async function fetchFileList(folderPath) {
     throw new Error("クラスコードとニックネームが設定されていません。");
   }
 
+  const payload = {
+    action: "listBoards",
+    role: "student",
+    classCode: currentClassCode,
+    nickname,
+    folderPath: folderPath || ""
+  };
+
+  if (boardApi.enabled) {
+    const json = await boardApi.listBoards(payload);
+    if (!json.ok) throw new Error(json.message || "Failed to load board list.");
+    return json.files || [];
+  }
+
   const res = await fetch(`${BOARD_API_BASE}/list`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "listBoards",
-      role: "student",
-      classCode: currentClassCode,
-      nickname,
-      folderPath: folderPath || ""
-    })
+    body: JSON.stringify(payload)
   });
 
   if (!res.ok) {
@@ -615,18 +718,23 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
   }
 
   try {
-    const res = await fetch(`${BOARD_API_BASE}/save`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await res.text();
+    let res = { ok: true, status: 200 };
     let json = {};
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
-      console.warn("[studentSaveBoardInternal] response is not JSON", text);
+    if (boardApi.enabled) {
+      json = await boardApi.saveBoard(payload);
+    } else {
+      res = await fetch(`${BOARD_API_BASE}/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        console.warn("[studentSaveBoardInternal] response is not JSON", text);
+      }
     }
 
     if (!res.ok || json.ok === false) {
@@ -689,6 +797,38 @@ async function studentLoadBoardInternal(folderPath, fileId) {
   }
 
   try {
+    const payload = {
+      action: "loadBoard",
+      role: "student",
+      classCode: currentClassCode,
+      nickname,
+      folderPath: (folderPath || "").trim(),
+      fileId
+    };
+
+    if (boardApi.enabled) {
+      const json = await boardApi.loadBoard(payload);
+      if (!json.ok) {
+        alert(json.message || "Failed to load board.");
+        return;
+      }
+      if (!json.boardData) {
+        alert("Board data was not found.");
+        return;
+      }
+
+      whiteboard.importBoardData(json.boardData);
+      if (typeof whiteboard.markSaved === "function") {
+        whiteboard.markSaved();
+      }
+      currentBoardFileId = json.fileId || fileId || null;
+      currentBoardFileName = json.fileName ? json.fileName.replace(/\.json$/i, "") : "";
+      lastUsedFolderPath = (folderPath || "").trim();
+      alert("Loaded board.");
+      closeBoardDialog();
+      return;
+    }
+
     const res = await fetch(`${BOARD_API_BASE}/load`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

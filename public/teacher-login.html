@@ -3,27 +3,44 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>教員用ホワイトボード ログイン</title>
+  <title>教員ログイン | Class Whiteboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="/style.css?v=toolbar-chat-templates" rel="stylesheet" />
+  <link href="./style.css?v=toolbar-chat-templates" rel="stylesheet" />
 </head>
 
 <body class="app-root">
   <main class="login-container teacher-login-card">
     <p class="login-product-name">Class Whiteboard</p>
-    <h1>先生ログイン画面</h1>
-    <form method="POST" action="/teacher/login">
+    <h1>教員ログイン</h1>
+    <form method="POST" action="/teacher/login" data-teacher-login-form>
+      <input id="teacherAuthMode" type="hidden" value="signin" />
+      <label>
+        教員メール
+        <input id="teacherEmail" type="email" name="email" autocomplete="username" required />
+      </label>
+      <label class="teacher-signup-only">
+        表示名
+        <input id="teacherDisplayName" type="text" name="displayName" autocomplete="name" />
+      </label>
       <label>
         パスワード
-        <input type="password" name="password" placeholder="••••••••" required />
+        <input id="teacherPassword" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
+      </label>
+      <label class="teacher-signup-only">
+        教員用招待コード
+        <input id="teacherInviteCode" type="password" name="inviteCode" autocomplete="off" />
       </label>
       <label>
         クラスコード
         <input type="text" name="classCode" placeholder="例: ABC123" />
       </label>
       <button type="submit">ログイン</button>
+      <button id="teacherAuthModeToggle" type="button" class="login-secondary-action">教員アカウントを作成</button>
+      <p id="teacherLoginMessage" class="login-message" aria-live="polite"></p>
     </form>
   </main>
+  <script src="./js/app-config.js"></script>
+  <script type="module" src="./js/teacher-login.js"></script>
 </body>
 
 </html>

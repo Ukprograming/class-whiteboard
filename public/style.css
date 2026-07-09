@@ -3050,6 +3050,33 @@ select:focus {
   font-size: 18px;
 }
 
+.teacher-signup-only {
+  display: none;
+}
+
+body[data-teacher-auth-mode="signup"] .teacher-signup-only {
+  display: flex;
+}
+
+.login-secondary-action {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.login-message {
+  min-height: 1.2em;
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .floating-topbar {
     left: 12px;
