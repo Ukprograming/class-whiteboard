@@ -2560,11 +2560,19 @@ select:focus {
 .chat-panel-header {
   padding: 20px 20px 16px;
   border-bottom: 1px solid var(--cw-line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-title {
   font-size: 22px;
   font-weight: 780;
+  flex: 1;
+}
+
+.chat-home-btn.hidden {
+  display: none;
 }
 
 .chat-target-area {
@@ -2660,6 +2668,52 @@ select:focus {
 .chat-message-meta {
   color: #61717d;
   font-size: 12px;
+}
+
+.chat-unread-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dce7ec;
+  border-radius: 10px;
+  background: #f7fbfd;
+}
+
+.chat-unread-summary-title {
+  color: #4b5c68;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.chat-unread-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 48px;
+  padding: 9px 10px;
+  border: 1px solid #d7e2e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-unread-item:hover {
+  border-color: rgba(47, 143, 190, 0.56);
+  background: #eef7fa;
+}
+
+.chat-unread-name {
+  font-weight: 760;
+}
+
+.chat-unread-preview {
+  overflow: hidden;
+  color: #61717d;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-input-area {
@@ -2802,8 +2856,8 @@ select:focus {
 }
 
 .student-modal-frame {
-  width: min(900px, 92vw);
-  height: min(560px, 84vh);
+  width: min(1680px, calc(100vw - 24px));
+  height: min(980px, calc(100vh - 24px));
   max-width: none;
   max-height: none;
   border-radius: var(--cw-radius-lg);
@@ -3117,8 +3171,8 @@ body[data-teacher-auth-mode="signup"] .teacher-signup-only {
   }
 
   .student-modal-frame {
-    width: 94vw;
-    height: 88vh;
+    width: calc(100vw - 12px);
+    height: calc(100vh - 12px);
   }
 
   .modal-sidebar {

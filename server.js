@@ -430,7 +430,7 @@ io.on("connection", (socket) => {
   });
 
   // 生徒 → 教員：縮小キャプチャ
-  socket.on("student-thumbnail", ({ classCode, nickname, dataUrl }) => {
+  socket.on("student-thumbnail", ({ classCode, nickname, dataUrl, mode, viewport }) => {
     const cls = classes[classCode];
     if (!cls || !cls.teacherSocketId) return;
     console.log(
@@ -440,6 +440,8 @@ io.on("connection", (socket) => {
       socketId: socket.id,
       nickname,
       dataUrl,
+      mode,
+      viewport,
     });
   });
 
@@ -517,7 +519,7 @@ io.on("connection", (socket) => {
   // ★★ 生徒 → 教員：モニタリング中の画面更新（連続）
   socket.on(
     "student-screen-update",
-    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData }) => {
+    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, isSync }) => {
       if (!teacherSocketId || !classCode) return;
       console.log(
         `[monitor] student-screen-update class=${classCode}, student=${socket.id} -> teacher=${teacherSocketId}, mode=${mode}, imgSize=${dataUrl ? dataUrl.length : 0}`
@@ -529,6 +531,7 @@ io.on("connection", (socket) => {
         viewport,
         mode,
         boardData,
+        isSync,
       });
     }
   );

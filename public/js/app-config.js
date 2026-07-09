@@ -6,4 +6,5 @@ window.CLASS_WHITEBOARD_CONFIG = {
   supabaseAnonKey: "",
   storageBucket: "class-whiteboard",
   edgeFunctionBaseUrl: "",
+  realtimePrivateChannels: true,
 };

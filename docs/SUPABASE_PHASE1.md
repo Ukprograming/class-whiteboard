@@ -46,7 +46,9 @@ set it explicitly if your local or deployment environment needs it.
 ## Deploy Order
 
 1. Create a Supabase project.
-2. Run the SQL migration in `supabase/migrations/0001_class_whiteboard_core.sql`.
+2. Run the SQL migrations in order:
+   - `supabase/migrations/0001_class_whiteboard_core.sql`
+   - `supabase/migrations/0002_realtime_class_channels.sql`
 3. Deploy Edge Functions:
    - `teacher-signup`
    - `create-class`
@@ -79,14 +81,15 @@ path-based storage layout leaves room to deduplicate image assets later.
 
 ## Phase 2
 
-Phase 2 should move active classroom realtime features from Socket.IO to
-Supabase Realtime:
+See `docs/SUPABASE_PHASE2.md`.
+
+Phase 2 adds a Supabase Realtime bridge for the existing class-session events:
 
 - student presence in each class
 - chat
 - screen/board monitoring
-- one shared collaborative board per class
-- periodic shared-board snapshots
+- notebook-image updates
+- shared-board publishing, action sync, and periodic snapshots
 
-Keep full edit-history replay and per-user layers out of scope until the basic
-shared board is stable.
+The remaining Phase 2 polish items are reconnect recovery and clearer
+shared-board status controls.

@@ -111,6 +111,8 @@ const studentCanvas =
 // ========= 状態 =========
 let currentClassCode = null;
 let nickname = null;
+let sharedBoardSession = null;
+let applyingSharedBoardRemote = false;
 
 let captureTimerId = null;
 const CAPTURE_INTERVAL_MS = 3000;
@@ -124,6 +126,43 @@ let currentStream = null; // ノート提出用カメラの MediaStream
 
 let screenStream = null;
 let screenVideo = null;
+
+async function loadActiveSharedBoard(classCode) {
+  if (!boardApi.enabled || !whiteboard || !classCode) return;
+  try {
+    const result = await boardApi.getActiveSharedBoard({ classCode });
+    const sharedBoard = result.sharedBoard;
+    if (!sharedBoard || !sharedBoard.boardData) return;
+
+    sharedBoardSession = {
+      id: sharedBoard.sharedBoardId,
+      title: sharedBoard.title || "Shared board",
+    };
+    applyingSharedBoardRemote = true;
+    try {
+      whiteboard.importBoardData(sharedBoard.boardData);
+    } finally {
+      applyingSharedBoardRemote = false;
+    }
+    if (statusLabel) {
+      statusLabel.textContent = `共同編集に参加中: ${classCode} / ${nickname || ""}`;
+    }
+  } catch (err) {
+    console.error("Failed to load active shared board:", err);
+  }
+}
+
+function publishSharedBoardSnapshotFromStudent(reason = "refresh") {
+  if (!sharedBoardSession || !whiteboard || !currentClassCode) return;
+  socket.emit("shared-board-snapshot", {
+    classCode: currentClassCode,
+    sharedBoardId: sharedBoardSession.id,
+    title: sharedBoardSession.title,
+    boardData: whiteboard.exportBoardData(),
+    active: true,
+    reason,
+  });
+}
 
 // ★チャットを許可する画面モード
 const CHAT_ENABLED_MODES = ["whiteboard", "screen", "notebook"];
@@ -282,6 +321,7 @@ socket.on("join-success", (payload) => {
 
   // ★ クラス参加後に現在モード（初期値: whiteboard）をサーバーに通知
   updateModeUI();
+  void loadActiveSharedBoard(payload.classCode);
 
   // 既存ボードデータの読み込みなどがあればここで行う
   // socket.emit("request-board-state", ...);
@@ -1363,7 +1403,9 @@ function sendWhiteboardThumbnail() {
     socket.emit("student-thumbnail", {
       classCode: currentClassCode,
       nickname,
-      dataUrl
+      dataUrl,
+      mode: viewMode,
+      viewport: { scale: 1, offsetX: 0, offsetY: 0, width: vw, height: vh }
     });
 
     return;
@@ -1403,7 +1445,15 @@ function sendWhiteboardThumbnail() {
   socket.emit("student-thumbnail", {
     classCode: currentClassCode,
     nickname,
-    dataUrl
+    dataUrl,
+    mode: viewMode,
+    viewport: {
+      scale: whiteboard?.scale || 1,
+      offsetX: whiteboard?.offsetX || 0,
+      offsetY: whiteboard?.offsetY || 0,
+      width: srcCanvasThumb.getBoundingClientRect().width || srcCanvasThumb.width,
+      height: srcCanvasThumb.getBoundingClientRect().height || srcCanvasThumb.height
+    }
   });
 }
 
@@ -2198,6 +2248,18 @@ socket.on("teacher-whiteboard-action", ({ action }) => {
 // ★ ホワイトボード操作の送信フック設定
 if (whiteboard) {
   whiteboard.onAction = (action) => {
+    if (sharedBoardSession && !applyingSharedBoardRemote) {
+      if (action?.type === "refresh") {
+        publishSharedBoardSnapshotFromStudent("refresh");
+      } else {
+        socket.emit("shared-board-action", {
+          classCode: currentClassCode,
+          sharedBoardId: sharedBoardSession.id,
+          action
+        });
+      }
+    }
+
     // 教員が監視中の場合のみ送信
     if (currentTeacherSocketId) {
       // ★ refresh アクション（PDF読込や全消去など）の場合は、
@@ -2216,6 +2278,46 @@ if (whiteboard) {
 }
 
 // ★ モニタリング開始通知（既存の処理に teacherSocketId 保存を追加）
+socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active }) => {
+  if (!sharedBoardId) return;
+  if (active === false) {
+    if (sharedBoardSession?.id === sharedBoardId) {
+      sharedBoardSession = null;
+      if (statusLabel && currentClassCode && nickname) {
+        statusLabel.textContent = `Class: ${currentClassCode} / ${nickname}`;
+      }
+    }
+    return;
+  }
+
+  sharedBoardSession = {
+    id: sharedBoardId,
+    title: title || "Shared board",
+  };
+  if (whiteboard && boardData && typeof whiteboard.importBoardData === "function") {
+    applyingSharedBoardRemote = true;
+    try {
+      whiteboard.importBoardData(boardData);
+    } finally {
+      applyingSharedBoardRemote = false;
+    }
+  }
+  if (statusLabel && currentClassCode) {
+    statusLabel.textContent = `共同編集に参加中: ${currentClassCode} / ${nickname || ""}`;
+  }
+});
+
+socket.on("shared-board-action", ({ sharedBoardId, action }) => {
+  if (!sharedBoardSession || sharedBoardSession.id !== sharedBoardId) return;
+  if (!whiteboard || !action || typeof whiteboard.applyAction !== "function") return;
+  applyingSharedBoardRemote = true;
+  try {
+    whiteboard.applyAction(action);
+  } finally {
+    applyingSharedBoardRemote = false;
+  }
+});
+
 socket.on("start-monitoring", ({ teacherSocketId }) => {
   console.log("Monitoring started by", teacherSocketId);
   currentTeacherSocketId = teacherSocketId;
@@ -2307,7 +2409,9 @@ function sendScreenUpdate(teacherSocketId) {
     viewport = {
       scale: whiteboard.scale,
       offsetX: whiteboard.offsetX,
-      offsetY: whiteboard.offsetY
+      offsetY: whiteboard.offsetY,
+      width: studentCanvas.getBoundingClientRect().width || studentCanvas.width,
+      height: studentCanvas.getBoundingClientRect().height || studentCanvas.height
     };
 
     // ★ ホワイトボードの実データ（ストローク＋オブジェクト）を取得
