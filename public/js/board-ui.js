@@ -52,6 +52,7 @@ export function initBoardUI() {
 
 
   let currentTool = "pen";
+  let penSettingsOpenTool = null;
 
   // ★ 前面 / 背面ボタン
   const bringToFrontBtn = document.getElementById("bringToFrontBtn");
@@ -278,14 +279,55 @@ export function initBoardUI() {
 
 
   // ========= ツールボタンの UI 更新 =========
-  function updateToolButtons(activeTool) {
+  function updateToolButtons(activeTool, options = {}) {
     currentTool = activeTool;
+    const showPenSettings = options.showPenSettings === true;
+    if (!showPenSettings && activeTool !== penSettingsOpenTool) {
+      penSettingsOpenTool = null;
+    }
 
     toolButtons.forEach(btn => {
       const t = btn.dataset.tool;
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
     });
+
+    function positionContextMenuForTool() {
+      const contextMenu = document.getElementById("contextMenu");
+      if (!contextMenu || contextMenu.classList.contains("hidden")) return;
+
+      const trigger = Array.from(toolButtons).find(btn =>
+        btn.dataset.tool === activeTool && btn.closest("#wbSidebar")
+      );
+      if (!trigger) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = contextMenu.getBoundingClientRect();
+      const gap = 28;
+      const margin = 12;
+      const triggerCenterY = triggerRect.top + triggerRect.height / 2;
+
+      let left = triggerRect.right + gap;
+      if (left + menuRect.width > window.innerWidth - margin) {
+        left = Math.max(margin, triggerRect.left - menuRect.width - gap);
+      }
+
+      const maxTop = Math.max(margin, window.innerHeight - menuRect.height - margin);
+      const top = Math.min(
+        Math.max(margin, triggerCenterY - menuRect.height / 2),
+        maxTop
+      );
+      const arrowTop = Math.min(
+        Math.max(18, triggerCenterY - top - 8),
+        Math.max(18, menuRect.height - 26)
+      );
+
+      contextMenu.style.left = `${left}px`;
+      contextMenu.style.top = `${top}px`;
+      contextMenu.style.bottom = "auto";
+      contextMenu.style.transform = "none";
+      contextMenu.style.setProperty("--context-arrow-top", `${arrowTop}px`);
+    }
 
     // スタンプ・図形ツール以外ではパレットを閉じる
     if (activeTool !== "stamp" && stampPalette) {
@@ -303,9 +345,16 @@ export function initBoardUI() {
     const penSettings = document.getElementById("penSettings");
     if (penSettings) {
       if (activeTool === "pen" || activeTool === "highlighter") {
-        penSettings.classList.remove("hidden");
-        showMenu = true;
+        if (showPenSettings) {
+          penSettingsOpenTool = activeTool;
+          penSettings.classList.remove("hidden");
+          showMenu = true;
+        } else {
+          penSettingsOpenTool = null;
+          penSettings.classList.add("hidden");
+        }
       } else {
+        penSettingsOpenTool = null;
         penSettings.classList.add("hidden");
       }
     }
@@ -332,6 +381,8 @@ export function initBoardUI() {
     if (contextMenu) {
       if (showMenu) {
         contextMenu.classList.remove("hidden");
+        positionContextMenuForTool();
+        requestAnimationFrame(positionContextMenuForTool);
       } else {
         contextMenu.classList.add("hidden");
       }
@@ -563,8 +614,12 @@ export function initBoardUI() {
 
       // shape / stamp 以外はそのままツールにセット
       if (tool !== "shape" && tool !== "stamp") {
+        const isPaletteTool = tool === "pen" || tool === "highlighter";
+        const isActivePaletteTool = isPaletteTool && currentTool === tool;
+        const showPenSettings = isActivePaletteTool && penSettingsOpenTool !== tool;
+
         wb.setTool(tool);
-        updateToolButtons(tool);
+        updateToolButtons(tool, { showPenSettings });
 
         // ★ 蛍光ペンは毎回黄色を初期色にしておく
         if (tool === "highlighter" && typeof wb.setHighlighterColor === "function") {
@@ -1191,6 +1246,7 @@ export function initBoardUI() {
 
       // サイドバーが閉じたときにコンテキストメニューも隠す
       if (sidebar.classList.contains("collapsed") && contextMenu) {
+        penSettingsOpenTool = null;
         contextMenu.classList.add("hidden");
       }
     });

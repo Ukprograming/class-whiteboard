@@ -151,6 +151,11 @@ boardProxyPaths.forEach((routePath) => {
 // 教員と生徒の接続情報を保持（ホワイトボード用）
 // classes = { classCode: { teacherSocketId, students: { socketId: { nickname } } } }
 const classes = {};
+const chatTemplateColors = {
+  question: "#f97316",
+  repeat: "#22c55e",
+  check: "#8b5cf6",
+};
 
 // ▼ ノート確認用の状態管理
 // notebookClasses = { [classCode]: { [studentId]: { latestImageData } } }
@@ -368,6 +373,12 @@ io.on("connection", (socket) => {
     const { classCode, nickname } = payload || {};
     // text / message 両対応
     const message = payload?.message || payload?.text;
+    const templateKind = Object.prototype.hasOwnProperty.call(
+      chatTemplateColors,
+      payload?.templateKind
+    )
+      ? payload.templateKind
+      : "";
     if (!classCode || !message) return;
 
     const cls = classes[classCode];
@@ -387,6 +398,8 @@ io.on("connection", (socket) => {
       toSocketId: teacherId,
       classCode,
       message,
+      templateKind,
+      templateColor: templateKind ? chatTemplateColors[templateKind] : "",
       timestamp: Date.now(),
     });
   });

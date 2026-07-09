@@ -1,0 +1,6 @@
+{
+  "name": "Class Whiteboard",
+  "description": "生徒と先生をつなぐ、インタラクティブなクラスホワイトボード・ノート提出システム",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

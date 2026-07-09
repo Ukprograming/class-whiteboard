@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js";
+import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -71,6 +71,16 @@ const chatSendBtn = document.getElementById("chatSendBtn");
 const chatTemplateButtons = Array.from(
   document.querySelectorAll("[data-chat-template]")
 );
+const CHAT_TEMPLATE_KINDS = ["question", "repeat", "check"];
+
+function getChatTemplateKind(btn) {
+  if (!btn) return "";
+  const explicitKind = btn.dataset.chatTemplateKind || "";
+  if (CHAT_TEMPLATE_KINDS.includes(explicitKind)) return explicitKind;
+  return CHAT_TEMPLATE_KINDS.find(kind =>
+    btn.classList.contains(`chat-template-btn--${kind}`)
+  ) || "";
+}
 
 // ★ 教員からの書き込み受け入れバー
 const annotationAcceptBar = document.getElementById("annotationAcceptBar");
@@ -1103,8 +1113,11 @@ if (chatCloseBtn) {
 }
 
 // 生徒 → 教員 チャット送信
-function studentSendChat(templateText = "") {
+function studentSendChat(templateText = "", templateKind = "") {
   const presetText = typeof templateText === "string" ? templateText : "";
+  const normalizedTemplateKind = CHAT_TEMPLATE_KINDS.includes(templateKind)
+    ? templateKind
+    : "";
 
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してからチャットを送信してください。");
@@ -1125,13 +1138,15 @@ function studentSendChat(templateText = "") {
   socket.emit("student-chat-to-teacher", {
     classCode: currentClassCode,
     nickname,
-    message: text
+    message: text,
+    templateKind: normalizedTemplateKind
   });
 
   chatMessages.push({
     from: "me",
     nickname: null,
     text,
+    templateKind: normalizedTemplateKind,
     timestamp: Date.now()
   });
   renderStudentChatMessages();
@@ -1153,7 +1168,10 @@ if (chatSendBtn && chatInput) {
 
 chatTemplateButtons.forEach(btn => {
   btn.addEventListener("click", () => {
-    studentSendChat(btn.dataset.chatTemplate || btn.textContent || "");
+    studentSendChat(
+      btn.dataset.chatTemplate || btn.textContent || "",
+      getChatTemplateKind(btn)
+    );
   });
 });
 

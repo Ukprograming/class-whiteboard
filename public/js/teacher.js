@@ -1,5 +1,5 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js";
+import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 import { Whiteboard } from "./whiteboard.js";
 
 const teacherBoard = initBoardUI();
@@ -154,6 +154,8 @@ const chatHistories = {}; // { [socketId]: [ { from, nickname, text, timestamp }
 const studentNameMap = {};
 // ★追加：未読メッセージがある生徒の socketId 一覧
 const unreadStudentIds = new Set();
+const unreadTemplateKindsByStudentId = new Map();
+const CHAT_TEMPLATE_KINDS = ["question", "repeat", "check"];
 let activeChatTargetSocketId = null;
 
 let studentListForBoardScope = []; // [{ socketId, nickname }, ...]
@@ -1231,6 +1233,15 @@ function setTeacherViewMode(mode) {
     el.style.display = "none";
   };
 
+  const closeContextMenu = () => {
+    if (!contextMenu) return;
+    contextMenu.classList.add("hidden");
+    contextMenu.style.display = "";
+    contextMenu.querySelectorAll(".context-section").forEach(section => {
+      section.classList.add("hidden");
+    });
+  };
+
   // ★★★ ここで「生徒キャプチャ開始／停止」を制御 ★★★
   // currentClassCode が入っているときだけサーバーに通知する
   if (currentClassCode) {
@@ -1259,7 +1270,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを表示
     if (sidebar) show(sidebar);
     if (bottomTools) show(bottomTools);
-    if (contextMenu) show(contextMenu);
+    closeContextMenu();
   } else if (mode === "student") {
     // 生徒画面タイルを表示
     hide(boardContainer);
@@ -1276,7 +1287,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
-    if (contextMenu) hide(contextMenu);
+    closeContextMenu();
   } else if (mode === "notebook") {
     // ノート確認ビューを表示
     hide(boardContainer);
@@ -1293,7 +1304,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
-    if (contextMenu) hide(contextMenu);
+    closeContextMenu();
   }
 }
 
@@ -1826,6 +1837,7 @@ function renderTiles() {
   Object.entries(latestThumbnails).forEach(([socketId, info]) => {
     const tile = document.createElement("div");
     tile.className = "tile";
+    tile.dataset.studentSocketId = socketId;
 
     const img = document.createElement("img");
     img.src = info.dataUrl;
@@ -1836,6 +1848,28 @@ function renderTiles() {
     meta.textContent = info.nickname;
 
     tile.appendChild(img);
+
+    if (unreadStudentIds.has(socketId)) {
+      const chatAlertBtn = document.createElement("button");
+      chatAlertBtn.type = "button";
+      chatAlertBtn.className = "student-tile-chat-alert";
+      const templateKind = normalizeChatTemplateKind(
+        unreadTemplateKindsByStudentId.get(socketId) || ""
+      );
+      if (templateKind) {
+        chatAlertBtn.classList.add(`chat-template-notice--${templateKind}`);
+      }
+      const dotClass = templateKind ? ` chat-template-notice--${templateKind}` : "";
+      chatAlertBtn.title = `${info.nickname || "生徒"}のチャットを開く`;
+      chatAlertBtn.setAttribute("aria-label", `${info.nickname || "生徒"}のチャットを開く`);
+      chatAlertBtn.innerHTML = `<span class="material-symbols-rounded">chat</span><span class="chat-notify-dot show${dotClass}"></span>`;
+      chatAlertBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openChatForStudent(socketId);
+      });
+      tile.appendChild(chatAlertBtn);
+    }
+
     tile.appendChild(meta);
 
     tile.addEventListener("click", () => {
@@ -1922,21 +1956,50 @@ if (modalBackdrop && modalCloseBtn) {
 // ========= チャット機能 =========
 
 // ★ バッジ表示/非表示を一元管理
+function normalizeChatTemplateKind(kind) {
+  return CHAT_TEMPLATE_KINDS.includes(kind) ? kind : "";
+}
+
+function getCurrentUnreadTemplateKind() {
+  const kinds = [...unreadTemplateKindsByStudentId.values()]
+    .map(normalizeChatTemplateKind)
+    .filter(Boolean);
+  return kinds[kinds.length - 1] || "";
+}
+
+function updateChatTemplateNoticeClass(kind) {
+  if (!chatToggleBtn || !chatNotifyDot) return;
+  const normalizedKind = normalizeChatTemplateKind(kind);
+  CHAT_TEMPLATE_KINDS.forEach(templateKind => {
+    const className = `chat-template-notice--${templateKind}`;
+    chatToggleBtn.classList.remove(className);
+    chatNotifyDot.classList.remove(className);
+  });
+  if (normalizedKind) {
+    const className = `chat-template-notice--${normalizedKind}`;
+    chatToggleBtn.classList.add(className);
+    chatNotifyDot.classList.add(className);
+  }
+}
+
 function updateChatBadge() {
   if (!chatToggleBtn || !chatNotifyDot) return;
 
   if (unreadStudentIds.size > 0) {
     chatToggleBtn.classList.add("has-unread");
+    updateChatTemplateNoticeClass(getCurrentUnreadTemplateKind());
     chatNotifyDot.classList.remove("hidden");
     chatNotifyDot.style.display = "block";
   } else {
     chatToggleBtn.classList.remove("has-unread");
+    updateChatTemplateNoticeClass("");
     chatNotifyDot.classList.add("hidden");
     chatNotifyDot.style.display = "none";
   }
 
   // chatUnreadCount は「未読の生徒数」として扱う
   chatUnreadCount = unreadStudentIds.size;
+  renderTiles();
 }
 
 function setChatPanelOpen(open) {
@@ -1961,6 +2024,7 @@ function renderChatMessagesForTarget(targetSocketId) {
   // ★ 宛先が指定されているときは「その生徒を既読扱い」にする
   if (targetSocketId) {
     unreadStudentIds.delete(targetSocketId);
+    unreadTemplateKindsByStudentId.delete(targetSocketId);
     updateChatBadge();
   }
 
@@ -2038,6 +2102,31 @@ function renderChatMessagesForTarget(targetSocketId) {
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
 }
 
+function openChatForStudent(socketId) {
+  if (!socketId) return;
+  activeChatTargetSocketId = socketId;
+  if (chatTargetSelect) {
+    let option = Array.from(chatTargetSelect.options).find(
+      opt => opt.value === socketId
+    );
+    if (!option) {
+      option = document.createElement("option");
+      option.value = socketId;
+      option.textContent =
+        studentNameMap[socketId] ||
+        latestThumbnails[socketId]?.nickname ||
+        socketId;
+      chatTargetSelect.appendChild(option);
+    }
+    if (option) {
+      option.selected = true;
+    }
+  }
+  setChatPanelOpen(true);
+  renderChatMessagesForTarget(socketId);
+  if (chatInput) chatInput.focus();
+}
+
 
 if (chatToggleBtn && chatPanel) {
   chatToggleBtn.addEventListener("click", () => {
@@ -2113,6 +2202,7 @@ socket.on("chat-message", payload => {
   const fromNickname = payload.fromNickname || "生徒";
   const text = payload.message;
   const timestamp = payload.timestamp || Date.now();
+  const templateKind = normalizeChatTemplateKind(payload.templateKind || "");
 
   // ★ニックネームを記録（未読一覧表示に使う）
   studentNameMap[fromId] = fromNickname;
@@ -2121,6 +2211,7 @@ socket.on("chat-message", payload => {
     from: "them",
     nickname: fromNickname,
     text,
+    templateKind,
     timestamp
   });
 
@@ -2130,6 +2221,11 @@ socket.on("chat-message", payload => {
   } else {
     // ★別の生徒 or パネル閉じている → 未読扱い
     unreadStudentIds.add(fromId);
+    if (templateKind) {
+      unreadTemplateKindsByStudentId.set(fromId, templateKind);
+    } else {
+      unreadTemplateKindsByStudentId.delete(fromId);
+    }
     updateChatBadge();
 
     // パネルが開いている場合は、現在表示中の画面に
