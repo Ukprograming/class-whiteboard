@@ -1066,6 +1066,8 @@ function updateModeUI() {
     resizeCanvasToContainer();
   }
 
+  updateNotebookCaptureLayout();
+
   // チャット入力の有効/無効（特定のモードでのみ有効）
   if (chatInput && chatSendBtn) {
     const canChat = CHAT_ENABLED_MODES.includes(viewMode);
@@ -1788,6 +1790,7 @@ if (startCameraBtn) {
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       currentStream = stream;
+      updateNotebookCaptureLayout();
 
       if (videoEl) {
         videoEl.srcObject = stream;
@@ -2194,6 +2197,12 @@ function stopNotebookCamera() {
     currentStream.getTracks().forEach((t) => t.stop());
     currentStream = null;
   }
+  updateNotebookCaptureLayout();
+}
+
+function updateNotebookCaptureLayout() {
+  if (!notebookLayoutEl) return;
+  notebookLayoutEl.classList.toggle("camera-active", !!currentStream);
 }
 
 // ページ読み込み時
@@ -2276,6 +2285,8 @@ socket.on("teacher-joined-session", ({ teacherSocketId }) => {
 socket.on("teacher-whiteboard-action", ({ action }) => {
   if (!whiteboard) return;
   whiteboard.applyAction(action);
+  // 教師の書き込みも次回の全体同期に含め、モーダルを開き直しても保持する。
+  forceNextBoardSync = true;
 });
 
 // ★ ホワイトボード操作の送信フック設定
@@ -2448,23 +2459,13 @@ function sendScreenUpdate(teacherSocketId) {
     };
 
     // ★ ホワイトボードの実データ（ストローク＋オブジェクト）を取得
-    // ただし、教員のアノテーションは除外（教員側で別途管理）
+    // 教師の書き込みも同じボードの内容として同期する。
     // ★ 変更：初回送信済み かつ 強制同期フラグが立っていない場合は、boardData を送らない（nullにする）
     const shouldSendBoardData = !hasSentInitialBoardData || forceNextBoardSync;
 
     if (shouldSendBoardData) {
       const allData = whiteboard.getSnapshot();
-      boardData = {
-        ...allData,
-        pages: (allData.pages || []).map(page => ({
-          ...page,
-          boardData: {
-            ...page.boardData,
-            strokes: (page.boardData?.strokes || []).filter(s => !s.isTeacherAnnotation),
-            objects: (page.boardData?.objects || []).filter(o => !o.isTeacherAnnotation)
-          }
-        }))
-      };
+      boardData = { ...allData };
       // 送信したらフラグ更新
       hasSentInitialBoardData = true;
       forceNextBoardSync = false;

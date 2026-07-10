@@ -4272,6 +4272,22 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   background-size: 240px 240px, 240px 240px, auto;
 }
 
+/* カメラ未起動時はフィードバックだけを大きく表示する。 */
+.student-notebook-layout:not(.camera-active) .student-notebook-content {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.student-notebook-layout:not(.camera-active) .video-section,
+.student-notebook-layout:not(.camera-active) .preview-section {
+  display: none;
+}
+
+.student-notebook-layout:not(.camera-active) .feedback-section {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .student-notebook-toolbar,
 .video-section,
 .preview-section,

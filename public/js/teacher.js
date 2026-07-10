@@ -50,6 +50,7 @@ const tileGrid = document.getElementById("tileGrid");
 const modalBackdrop = document.getElementById("studentModalBackdrop");
 const modalBoardContainer = document.getElementById("studentModalBoardContainer");
 const modalShareToStudentBtn = document.getElementById("modalShareToStudentBtn");
+const modalRestoreFeedbackBtn = document.getElementById("modalRestoreFeedbackBtn");
 
 // 下レイヤー：生徒の画面・ノート画像を描くキャンバス
 let modalCanvas = document.getElementById("studentModalCanvas");
@@ -99,6 +100,9 @@ let modalSelectedStamp = null;
 
 // ★ 生徒ごとの最新ボードデータを保持（初期同期 & 再描画用）
 const latestBoardDataByStudent = {};
+// 画面共有・ノート提出へ送ったフィードバックは、このブラウザを開いている間だけ保持する。
+const sentFeedbackByStudent = new Map();
+let modalShowingSavedFeedback = false;
 // ★ 生徒ごとの最新モード（"whiteboard" | "screen" | "notebook"）を保持
 const latestModeByStudent = {};
 const latestViewportByStudent = {};
@@ -1766,8 +1770,7 @@ socket.on("student-board-state", ({ studentSocketId, boardData }) => {
     modalBoard.render();
   }
 
-  // ★ ここで「初期同期済み」にする
-  // The first viewport-aware student-screen-update will finish initial alignment.
+  modalHasInitialBoardData = true;
 });
 
 
@@ -1813,7 +1816,10 @@ socket.on(
     if (viewport) {
       latestViewportByStudent[studentSocketId] = viewport;
     }
-    modalCurrentStudentMode = effectiveMode;
+    if (currentMonitoringStudentSocketId === studentSocketId) {
+      modalCurrentStudentMode = effectiveMode;
+      updateModalRestoreFeedbackButton();
+    }
 
     // ★ 追加：モードに応じてグリッド表示切り替え
     if (modalBoard && currentMonitoringStudentSocketId === studentSocketId) {
@@ -1835,6 +1841,11 @@ socket.on(
       if (!dataUrl || effectiveMode !== "notebook") {
         return;
       }
+    }
+
+    // 保存済みフィードバックを表示中は、ライブ画面で下レイヤーを上書きしない。
+    if (modalShowingSavedFeedback && currentMonitoringStudentSocketId === studentSocketId) {
+      return;
     }
 
     // モーダルタイトルにモードを表示
@@ -2012,6 +2023,9 @@ function startMonitoringStudent(studentSocketId, nickname) {
 
   // 今回選択した生徒を「現在監視中」として記録
   currentMonitoringStudentSocketId = studentSocketId;
+  modalCurrentStudentMode = latestModeByStudent[studentSocketId] || "whiteboard";
+  modalShowingSavedFeedback = false;
+  updateModalRestoreFeedbackButton();
 
   // ★ 初期同期フラグをリセット
   modalHasInitialBoardData = false;
@@ -2170,6 +2184,67 @@ function stopMonitoringStudent() {
   }
 }
 
+function updateModalRestoreFeedbackButton() {
+  if (!modalRestoreFeedbackBtn) return;
+
+  const canRestore =
+    !!currentMonitoringStudentSocketId &&
+    modalCurrentStudentMode !== "whiteboard" &&
+    sentFeedbackByStudent.has(currentMonitoringStudentSocketId);
+
+  modalRestoreFeedbackBtn.hidden = !canRestore;
+  modalRestoreFeedbackBtn.textContent = modalShowingSavedFeedback
+    ? "ライブ画面に戻る"
+    : "送ったフィードバックを表示";
+}
+
+function drawSavedFeedbackInModal(imageData) {
+  if (!modalCanvas || !modalCtx || !imageData) return;
+
+  const img = new Image();
+  img.onload = () => {
+    const { width: cw, height: ch } = modalCanvas;
+    if (!cw || !ch) return;
+    const scale = Math.min(cw / img.width, ch / img.height);
+    const drawW = img.width * scale;
+    const drawH = img.height * scale;
+    modalCtx.clearRect(0, 0, cw, ch);
+    modalCtx.drawImage(img, (cw - drawW) / 2, (ch - drawH) / 2, drawW, drawH);
+    if (modalOverlayCanvas) {
+      modalOverlayCanvas.getContext("2d")?.clearRect(
+        0,
+        0,
+        modalOverlayCanvas.width,
+        modalOverlayCanvas.height
+      );
+    }
+  };
+  img.src = imageData;
+}
+
+if (modalRestoreFeedbackBtn) {
+  modalRestoreFeedbackBtn.addEventListener("click", () => {
+    const studentSocketId = currentMonitoringStudentSocketId;
+    if (!studentSocketId) return;
+
+    if (modalShowingSavedFeedback) {
+      modalShowingSavedFeedback = false;
+      updateModalRestoreFeedbackButton();
+      socket.emit("request-highres", {
+        classCode: currentClassCode,
+        studentSocketId
+      });
+      return;
+    }
+
+    const feedback = sentFeedbackByStudent.get(studentSocketId);
+    if (!feedback) return;
+    modalShowingSavedFeedback = true;
+    drawSavedFeedbackInModal(feedback.imageData);
+    updateModalRestoreFeedbackButton();
+  });
+}
+
 /**
  * 生徒一覧タイルを描画。
  * - サムネイル画像クリックで:
@@ -2242,8 +2317,10 @@ if (modalBackdrop && modalCloseBtn) {
     modalBackdrop.classList.remove("show");
     modalBackdrop.style.display = "none";
 
-    // ★★ ここが重要：監視状態とmodal関連をすべてリセット ★★
-    currentMonitoringStudentSocketId = null;
+    // 監視を終了してから対象の生徒IDをリセットする。
+    stopMonitoringStudent();
+    modalShowingSavedFeedback = false;
+    updateModalRestoreFeedbackButton();
     if (modalChatInput) modalChatInput.value = "";
     renderModalChatMessagesForTarget("");
 
@@ -2274,18 +2351,6 @@ if (modalBackdrop && modalCloseBtn) {
     if (notebookShareTimeoutId) {
       clearTimeout(notebookShareTimeoutId);
       notebookShareTimeoutId = null;
-    }
-
-    stopMonitoringStudent();
-
-    // ★ 追加: 閉じる直前に「ノート画像 + 先生書き込み」を合成して生徒へ送る
-    const merged = mergeStudentModalCanvases();
-    if (merged && currentClassCode && currentMonitoringStudentSocketId) {
-      socket.emit("teacherShareToStudent", {
-        classCode: currentClassCode,
-        studentSocketId: currentMonitoringStudentSocketId,
-        mergedDataURL: merged
-      });
     }
 
   };
@@ -2983,6 +3048,16 @@ function sendAnnotatedImageToStudentFromModal() {
     studentSocketId: currentMonitoringStudentSocketId,
     imageData: merged
   });
+
+  if (modalCurrentStudentMode !== "whiteboard") {
+    sentFeedbackByStudent.set(currentMonitoringStudentSocketId, {
+      imageData: merged,
+      mode: modalCurrentStudentMode,
+      sentAt: Date.now()
+    });
+    modalShowingSavedFeedback = false;
+    updateModalRestoreFeedbackButton();
+  }
 
   // お好みでトースト風のログ
   console.log(
