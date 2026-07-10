@@ -8,6 +8,10 @@ import { STAMP_PRESETS, drawStamp } from "./stamps.js";
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
 const IMAGE_EXPORT_QUALITY = 0.95;   // JPEG 品質（0〜1）
+const PDF_DISPLAY_SCALE = 1.5;
+const PDF_RENDER_SCALE = 2.5;
+const PDF_EXPORT_MAX_SIZE = 2048;
+const PDF_WEBP_QUALITY = 0.9;
 
 export class Whiteboard {
   constructor({ canvas }) {
@@ -729,16 +733,27 @@ export class Whiteboard {
           this.addPage(`PDF ${pageNum}`);
         }
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.5 });
+        const displayViewport = page.getViewport({ scale: PDF_DISPLAY_SCALE });
+        const requestedRenderViewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+        const requestedLongestEdge = Math.max(
+          requestedRenderViewport.width,
+          requestedRenderViewport.height
+        );
+        const renderScale = requestedLongestEdge > PDF_EXPORT_MAX_SIZE
+          ? PDF_RENDER_SCALE * (PDF_EXPORT_MAX_SIZE / requestedLongestEdge)
+          : PDF_RENDER_SCALE;
+        const renderViewport = page.getViewport({ scale: renderScale });
 
         const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = viewport.width;
-        pageCanvas.height = viewport.height;
+        pageCanvas.width = Math.max(1, Math.round(renderViewport.width));
+        pageCanvas.height = Math.max(1, Math.round(renderViewport.height));
         const pageCtx = pageCanvas.getContext("2d");
+        pageCtx.imageSmoothingEnabled = true;
+        pageCtx.imageSmoothingQuality = "high";
 
         await page.render({
           canvasContext: pageCtx,
-          viewport
+          viewport: renderViewport
         }).promise;
 
         const id = this.nextObjectId++;
@@ -747,13 +762,17 @@ export class Whiteboard {
           kind: "image",
           x: 0,
           y: layout === "stack" ? currentY : 0,
-          width: viewport.width,
-          height: viewport.height,
-          image: pageCanvas
+          width: displayViewport.width,
+          height: displayViewport.height,
+          image: pageCanvas,
+          sourceType: "pdf-page",
+          cachedImageDataUrl: null,
+          cachedImageWidth: 0,
+          cachedImageHeight: 0
         };
         this._addObject(obj);
 
-        if (layout === "stack") currentY += viewport.height + pageMargin;
+        if (layout === "stack") currentY += displayViewport.height + pageMargin;
 
         this.scale = 1;
         this.offsetX = 40;
@@ -1259,6 +1278,41 @@ export class Whiteboard {
     return { dataUrl, width: outW, height: outH };
   }
 
+  _encodePdfPageForExport(source, maxSize = PDF_EXPORT_MAX_SIZE) {
+    if (!source) return null;
+
+    const sourceWidth = Number(source.naturalWidth || source.videoWidth || source.width || 0);
+    const sourceHeight = Number(source.naturalHeight || source.videoHeight || source.height || 0);
+    if (!sourceWidth || !sourceHeight) return null;
+
+    const longest = Math.max(sourceWidth, sourceHeight);
+    const scale = longest > maxSize ? maxSize / longest : 1;
+    const outW = Math.max(1, Math.round(sourceWidth * scale));
+    const outH = Math.max(1, Math.round(sourceHeight * scale));
+
+    const c = document.createElement("canvas");
+    c.width = outW;
+    c.height = outH;
+    const ctx = c.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    try {
+      ctx.drawImage(source, 0, 0, outW, outH);
+    } catch (e) {
+      return null;
+    }
+
+    const pngDataUrl = c.toDataURL("image/png");
+    const webpDataUrl = c.toDataURL("image/webp", PDF_WEBP_QUALITY);
+    const webpSupported = webpDataUrl.startsWith("data:image/webp");
+    const dataUrl = webpSupported && webpDataUrl.length < pngDataUrl.length
+      ? webpDataUrl
+      : pngDataUrl;
+
+    return { dataUrl, width: outW, height: outH };
+  }
+
   exportBoardData() {
     this._syncActivePage();
     return {
@@ -1336,12 +1390,32 @@ export class Whiteboard {
       }
 
       if (o.kind === "image" && o.image) {
-        const encoded = this._encodeImageForExport(
-          o.image,
-          o.width,
-          o.height,
-          MAX_IMAGE_EXPORT_SIZE
-        );
+        if (o.sourceType === "pdf-page") {
+          base.sourceType = "pdf-page";
+        }
+
+        let encoded = null;
+        if (o.sourceType === "pdf-page" && o.cachedImageDataUrl) {
+          encoded = {
+            dataUrl: o.cachedImageDataUrl,
+            width: o.cachedImageWidth || o.image.naturalWidth || o.image.width,
+            height: o.cachedImageHeight || o.image.naturalHeight || o.image.height
+          };
+        } else if (o.sourceType === "pdf-page") {
+          encoded = this._encodePdfPageForExport(o.image, PDF_EXPORT_MAX_SIZE);
+          if (encoded) {
+            o.cachedImageDataUrl = encoded.dataUrl;
+            o.cachedImageWidth = encoded.width;
+            o.cachedImageHeight = encoded.height;
+          }
+        } else {
+          encoded = this._encodeImageForExport(
+            o.image,
+            o.width,
+            o.height,
+            MAX_IMAGE_EXPORT_SIZE
+          );
+        }
         if (encoded) {
           base.imageDataUrl = encoded.dataUrl;
           base.imageWidth = encoded.width;
@@ -1529,10 +1603,16 @@ export class Whiteboard {
       }
 
       if (o.kind === "image") {
+        obj.sourceType = o.sourceType === "pdf-page" ? "pdf-page" : null;
         if (o.imageDataUrl) {
           const img = new Image();
           img.src = o.imageDataUrl;
           obj.image = img;
+          if (obj.sourceType === "pdf-page") {
+            obj.cachedImageDataUrl = o.imageDataUrl;
+            obj.cachedImageWidth = o.imageWidth || 0;
+            obj.cachedImageHeight = o.imageHeight || 0;
+          }
         } else {
           obj.image = null;
         }
@@ -3439,6 +3519,11 @@ export class Whiteboard {
 
       if (kind === "image" && obj.image) {
         ctx.save();
+
+        if (obj.sourceType === "pdf-page") {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+        }
 
         const angle = obj.rotation || 0;
         if (angle) {
