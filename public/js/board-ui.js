@@ -76,6 +76,7 @@ export function initBoardUI() {
   const clearBtn = document.getElementById("clearBtn");
   const zoomInBtn = document.getElementById("zoomInBtn");
   const zoomOutBtn = document.getElementById("zoomOutBtn");
+  const gridToggleBtn = document.getElementById("gridToggleBtn");
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
   const deleteBtn = document.getElementById("deleteBtn");
@@ -93,6 +94,22 @@ export function initBoardUI() {
   wb.onZoomChange = () => {
     updateZoomLabelFromWB();
   };
+
+  function updateGridToggle() {
+    if (!gridToggleBtn) return;
+    const isVisible = !!wb.showGrid;
+    gridToggleBtn.classList.toggle("is-on", isVisible);
+    gridToggleBtn.setAttribute("aria-checked", String(isVisible));
+    gridToggleBtn.title = isVisible ? "グリッドを非表示" : "グリッドを表示";
+  }
+
+  if (gridToggleBtn) {
+    gridToggleBtn.addEventListener("click", () => {
+      wb.setShowGrid(!wb.showGrid);
+      updateGridToggle();
+    });
+    updateGridToggle();
+  }
 
   // 初期表示を反映
   updateZoomLabelFromWB();
@@ -940,13 +957,71 @@ export function initBoardUI() {
     });
   }
 
+  function choosePdfImportMode(pageCount) {
+    return new Promise(resolve => {
+      const overlay = document.createElement("div");
+      overlay.className = "pdf-import-dialog-overlay";
+      overlay.setAttribute("role", "presentation");
+
+      const dialog = document.createElement("section");
+      dialog.className = "pdf-import-dialog";
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-labelledby", "pdfImportDialogTitle");
+
+      const title = document.createElement("h2");
+      title.id = "pdfImportDialogTitle";
+      title.textContent = "PDFの読み込み方法";
+      const description = document.createElement("p");
+      description.textContent = `${pageCount}ページのPDFです。貼り付け方を選んでください。`;
+      const choices = document.createElement("div");
+      choices.className = "pdf-import-dialog-choices";
+
+      const stackButton = document.createElement("button");
+      stackButton.type = "button";
+      stackButton.className = "pdf-import-choice";
+      stackButton.innerHTML = "<strong>1枚のホワイトボードに並べる</strong><span>すべてのPDFページを縦に並べて貼り付けます。</span>";
+      const separateButton = document.createElement("button");
+      separateButton.type = "button";
+      separateButton.className = "pdf-import-choice";
+      separateButton.innerHTML = "<strong>ホワイトボードのページに分ける</strong><span>PDF 1ページごとに、ホワイトボードのページを1枚ずつ作成します。</span>";
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "pdf-import-cancel";
+      cancelButton.textContent = "キャンセル";
+
+      choices.append(stackButton, separateButton);
+      dialog.append(title, description, choices, cancelButton);
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      const close = result => {
+        document.removeEventListener("keydown", onKeydown);
+        overlay.remove();
+        resolve(result);
+      };
+      const onKeydown = event => {
+        if (event.key === "Escape") close(null);
+      };
+
+      stackButton.addEventListener("click", () => close("stack"));
+      separateButton.addEventListener("click", () => close("separate"));
+      cancelButton.addEventListener("click", () => close(null));
+      overlay.addEventListener("click", event => {
+        if (event.target === overlay) close(null);
+      });
+      document.addEventListener("keydown", onKeydown);
+      stackButton.focus();
+    });
+  }
+
   // ========= PDF 読み込み =========
   if (pdfInput) {
     pdfInput.addEventListener("change", async e => {
       const file = e.target.files[0];
       if (!file) return;
       try {
-        await wb.loadPdfFile(file);
+        await wb.loadPdfFile(file, { onMultiplePages: choosePdfImportMode });
       } catch (err) {
         console.error("PDF load error", err);
         alert("PDF の読み込みに失敗しました。");

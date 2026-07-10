@@ -705,20 +705,29 @@ export class Whiteboard {
     });
   }
 
-  async loadPdfFile(file) {
-    const url = URL.createObjectURL(file);
+  async loadPdfFile(file, { layout = "stack", onMultiplePages = null } = {}) {
+    const pdfData = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = pdfjsLib.getDocument({ data: pdfData });
 
     try {
-      const loadingTask = pdfjsLib.getDocument(url);
       const pdf = await loadingTask.promise;
+      if (pdf.numPages > 1 && typeof onMultiplePages === "function") {
+        layout = await onMultiplePages(pdf.numPages);
+        if (!layout) return { cancelled: true };
+      }
+      layout = layout === "separate" ? "separate" : "stack";
 
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;
 
       const pageMargin = 40;
       let currentY = 0;
+      const initialPageId = this.activePageId;
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        if (layout === "separate" && pageNum > 1) {
+          this.addPage(`PDF ${pageNum}`);
+        }
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale: 1.5 });
 
@@ -737,24 +746,29 @@ export class Whiteboard {
           id,
           kind: "image",
           x: 0,
-          y: currentY,
+          y: layout === "stack" ? currentY : 0,
           width: viewport.width,
           height: viewport.height,
           image: pageCanvas
         };
         this._addObject(obj);
 
-        currentY += viewport.height + pageMargin;
+        if (layout === "stack") currentY += viewport.height + pageMargin;
+
+        this.scale = 1;
+        this.offsetX = 40;
+        this.offsetY = 40;
       }
 
-      this.scale = 1;
-      this.offsetX = 40;
-      this.offsetY = 40;
+      if (layout === "separate" && this.activePageId !== initialPageId) {
+        this.selectPage(initialPageId);
+      }
 
       this.render();
       if (this.onAction) this.onAction({ type: "refresh" });
+      return { layout, pageCount: pdf.numPages };
     } finally {
-      URL.revokeObjectURL(url);
+      loadingTask.destroy?.();
     }
   }
 
@@ -3113,7 +3127,7 @@ export class Whiteboard {
     );
 
     if (this.showGrid) {
-      const gridStep = 200;
+      const gridStep = 240;
       const invScale = 1 / this.scale;
       const left = -this.offsetX * invScale;
       const top = -this.offsetY * invScale;
@@ -3124,18 +3138,24 @@ export class Whiteboard {
       const startY = Math.floor(top / gridStep) * gridStep;
       const endY = Math.ceil(bottom / gridStep) * gridStep;
 
-      ctx.strokeStyle = "#eeeeee";
-      ctx.lineWidth = 1 / this.scale;
+      // Draw in device pixels so the grid stays crisp on every zoom level and DPR.
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.strokeStyle = "rgba(115, 139, 152, 0.34)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = startX; x <= endX; x += gridStep) {
-        ctx.moveTo(x + 0.5, startY);
-        ctx.lineTo(x + 0.5, endY);
+        const screenX = Math.round((x * this.scale + this.offsetX) * dpr) + 0.5;
+        ctx.moveTo(screenX, 0);
+        ctx.lineTo(screenX, h);
       }
       for (let y = startY; y <= endY; y += gridStep) {
-        ctx.moveTo(startX, y + 0.5);
-        ctx.lineTo(endX, y + 0.5);
+        const screenY = Math.round((y * this.scale + this.offsetY) * dpr) + 0.5;
+        ctx.moveTo(0, screenY);
+        ctx.lineTo(w, screenY);
       }
       ctx.stroke();
+      ctx.restore();
     }
 
     if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {

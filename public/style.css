@@ -2288,7 +2288,8 @@ body {
 }
 
 .board-container {
-  background: transparent;
+  /* The canvas is transparent; keep the app-shell pattern from showing through when the grid is off. */
+  background: #ffffff;
 }
 
 .floating-topbar {
@@ -2551,6 +2552,151 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.grid-toggle {
+  min-height: 40px;
+  padding: 4px 7px 4px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #53636e;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.grid-toggle:hover {
+  background: #edf5f7;
+}
+
+.grid-toggle .app-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.grid-toggle-indicator {
+  width: 26px;
+  height: 16px;
+  padding: 2px;
+  border-radius: 999px;
+  background: #b7c6ce;
+  display: flex;
+  align-items: center;
+  transition: background 0.16s ease;
+}
+
+.grid-toggle-indicator::after {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(42, 58, 70, 0.25);
+  content: "";
+  transition: transform 0.16s ease;
+}
+
+.grid-toggle.is-on {
+  color: #167b7d;
+}
+
+.grid-toggle.is-on .grid-toggle-indicator {
+  background: var(--cw-accent-strong);
+}
+
+.grid-toggle.is-on .grid-toggle-indicator::after {
+  transform: translateX(10px);
+}
+
+.pdf-import-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 34, 45, 0.38);
+}
+
+.pdf-import-dialog {
+  width: min(520px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(183, 200, 211, 0.92);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: var(--cw-shadow);
+}
+
+.pdf-import-dialog h2 {
+  margin: 0;
+  color: var(--cw-text);
+  font-size: 21px;
+}
+
+.pdf-import-dialog p {
+  margin: 10px 0 18px;
+  color: var(--cw-muted);
+  line-height: 1.65;
+}
+
+.pdf-import-dialog-choices {
+  display: grid;
+  gap: 10px;
+}
+
+.pdf-import-choice {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid var(--cw-line);
+  border-radius: 12px;
+  background: #f9fbfc;
+  color: var(--cw-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pdf-import-choice:hover,
+.pdf-import-choice:focus-visible {
+  border-color: var(--cw-accent);
+  background: #edf7f8;
+  box-shadow: 0 0 0 3px rgba(47, 143, 190, 0.16);
+  outline: none;
+}
+
+.pdf-import-choice strong,
+.pdf-import-choice span {
+  display: block;
+}
+
+.pdf-import-choice strong {
+  font-size: 15px;
+}
+
+.pdf-import-choice span {
+  margin-top: 4px;
+  color: var(--cw-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pdf-import-cancel {
+  display: block;
+  margin: 16px auto 0;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cw-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.pdf-import-cancel:hover {
+  background: #eef3f6;
 }
 
 #zoomLevel {
@@ -3356,7 +3502,8 @@ body {
 }
 
 .board-container {
-  background: transparent;
+  /* Keep the app-shell pattern behind the board from being visible through the transparent canvas. */
+  background: #ffffff;
 }
 
 .floating-topbar {
