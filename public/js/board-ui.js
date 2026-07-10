@@ -20,6 +20,54 @@ export function initBoardUI() {
 
   canvas.whiteboardInstance = wb;
 
+  const pageTabsEl = document.getElementById("pageTabs");
+  const pageAddBtn = document.getElementById("pageAddBtn");
+  const pageRenameBtn = document.getElementById("pageRenameBtn");
+  const pageDeleteBtn = document.getElementById("pageDeleteBtn");
+
+  function renderPageTabs({ pages = wb.getPages(), activePageId = wb.activePageId } = {}) {
+    if (!pageTabsEl) return;
+    pageTabsEl.innerHTML = "";
+    pages.forEach(page => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "page-tab";
+      button.textContent = page.name;
+      button.title = page.name;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", page.id === activePageId ? "true" : "false");
+      button.classList.toggle("active", page.id === activePageId);
+      button.addEventListener("click", () => wb.selectPage(page.id));
+      pageTabsEl.appendChild(button);
+    });
+    if (pageDeleteBtn) pageDeleteBtn.disabled = pages.length <= 1;
+  }
+
+  wb.onPagesChange = renderPageTabs;
+  renderPageTabs();
+
+  if (pageAddBtn) {
+    pageAddBtn.addEventListener("click", () => wb.addPage());
+  }
+  if (pageRenameBtn) {
+    pageRenameBtn.addEventListener("click", () => {
+      const active = wb.getPages().find(page => page.id === wb.activePageId);
+      if (!active) return;
+      const name = window.prompt("ページ名を入力してください", active.name);
+      if (name === null) return;
+      wb.renamePage(active.id, name);
+    });
+  }
+  if (pageDeleteBtn) {
+    pageDeleteBtn.addEventListener("click", () => {
+      const active = wb.getPages().find(page => page.id === wb.activePageId);
+      if (!active || wb.getPages().length <= 1) return;
+      if (window.confirm(`「${active.name}」を削除しますか？`)) {
+        wb.deletePage(active.id);
+      }
+    });
+  }
+
 
   // ========= ツールボタン =========
   const toolButtons = document.querySelectorAll("[data-tool]");
@@ -85,6 +133,7 @@ export function initBoardUI() {
 
   // PDF出力ボタン（先生・生徒共通）
   const exportPdfBtn = document.getElementById("exportPdfBtn");
+  const exportPngBtn = document.getElementById("exportPngBtn");
 
   // ペン色・太さ / 付箋カラー
   const penColorButtons = document.querySelectorAll("[data-pen-color]");
@@ -1133,7 +1182,21 @@ export function initBoardUI() {
   // ========= PDF 出力（編集範囲のみ） =========
   if (exportPdfBtn) {
     exportPdfBtn.addEventListener("click", () => {
-      exportBoardToPdf(canvas);
+      void exportBoardToPdf();
+    });
+  }
+
+  if (exportPngBtn) {
+    exportPngBtn.addEventListener("click", async () => {
+      const allPages = window.confirm("全ページをPNG出力しますか？\nキャンセルを選ぶと現在のページだけを出力します。");
+      const pages = await wb.capturePageCanvases(allPages);
+      const stamp = new Date().toISOString().slice(0, 19).replace("T", "_").replace(/:/g, "-");
+      pages.forEach((page, index) => {
+        const link = document.createElement("a");
+        link.href = page.canvas.toDataURL("image/png");
+        link.download = `whiteboard-${stamp}-${String(index + 1).padStart(2, "0")}-${page.name}.png`;
+        link.click();
+      });
     });
   }
 
@@ -1247,34 +1310,55 @@ export function initBoardUI() {
     pdf.save(filename);
   }
 
-  function exportBoardToPdf(canvas) {
-    const bounds = detectContentBoundsFromCanvas(canvas);
-    if (!bounds) {
-      alert("出力する内容がありません。");
-      return;
-    }
-
+  function cropCanvasForExport(source) {
+    const bounds = detectContentBoundsFromCanvas(source);
+    if (!bounds) return null;
     const off = document.createElement("canvas");
     off.width = bounds.width;
     off.height = bounds.height;
-
     const ctx = off.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, off.width, off.height);
+    ctx.drawImage(source, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, off.width, off.height);
+    return off;
+  }
 
-    ctx.drawImage(
-      canvas,
-      bounds.x,
-      bounds.y,
-      bounds.width,
-      bounds.height,
-      0,
-      0,
-      bounds.width,
-      bounds.height
-    );
+  function saveCanvasesAsPdf(canvases) {
+    const jspdf = window.jspdf;
+    if (!jspdf || !jspdf.jsPDF) {
+      alert("PDF出力ライブラリ(jsPDF)が読み込まれていません。");
+      return;
+    }
+    const { jsPDF } = jspdf;
+    const firstLandscape = canvases[0].width >= canvases[0].height;
+    const pdf = new jsPDF({ orientation: firstLandscape ? "l" : "p", unit: "mm", format: "a4" });
+    canvases.forEach((page, index) => {
+      const landscape = page.width >= page.height;
+      if (index > 0) pdf.addPage("a4", landscape ? "l" : "p");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const scale = Math.min((pageWidth - margin * 2) / page.width, (pageHeight - margin * 2) / page.height);
+      const width = page.width * scale;
+      const height = page.height * scale;
+      pdf.addImage(page.toDataURL("image/png"), "PNG", (pageWidth - width) / 2, (pageHeight - height) / 2, width, height);
+    });
+    pdf.save(`whiteboard-${new Date().toISOString().slice(0, 19).replace("T", "_").replace(/:/g, "-")}.pdf`);
+  }
 
-    saveCanvasAsPdf(off);
+  async function exportBoardToPdf() {
+    const allPages = window.confirm("全ページをPDF出力しますか？\nキャンセルを選ぶと現在のページだけを出力します。");
+    const pages = await wb.capturePageCanvases(allPages);
+    const cropped = pages.map(page => cropCanvasForExport(page.canvas)).filter(Boolean);
+    if (!cropped.length) {
+      alert("出力する内容がありません。");
+      return;
+    }
+    if (cropped.length === 1) {
+      saveCanvasAsPdf(cropped[0]);
+      return;
+    }
+    saveCanvasesAsPdf(cropped);
   }
 
   // ========= サイドバー折りたたみ =========

@@ -22,6 +22,19 @@
     <canvas id="whiteboard"></canvas>
   </div>
 
+  <nav class="page-toolbar" aria-label="ホワイトボードのページ">
+    <div id="pageTabs" class="page-tabs" role="tablist"></div>
+    <button id="pageAddBtn" class="page-tool-btn" type="button" title="ページを追加" aria-label="ページを追加">
+      <span class="material-symbols-rounded">add</span>
+    </button>
+    <button id="pageRenameBtn" class="page-tool-btn" type="button" title="ページ名を変更" aria-label="ページ名を変更">
+      <span class="material-symbols-rounded">edit</span>
+    </button>
+    <button id="pageDeleteBtn" class="page-tool-btn" type="button" title="現在のページを削除" aria-label="現在のページを削除">
+      <span class="material-symbols-rounded">delete</span>
+    </button>
+  </nav>
+
   <!-- 生徒画面確認ビュー (全画面オーバーレイ) -->
   <div id="studentViewContainer" class="student-view full-screen hidden">
     <div class="view-header">
@@ -308,6 +321,13 @@
     </div>
     <div id="chatMessages" class="chat-messages"></div>
     <footer class="chat-input-area">
+      <div class="chat-reaction-bar" aria-label="リアクション">
+        <button type="button" data-chat-reaction="thumbs_up" title="いいね">👍</button>
+        <button type="button" data-chat-reaction="clap" title="拍手">👏</button>
+        <button type="button" data-chat-reaction="ok" title="了解">👌</button>
+        <button type="button" data-chat-reaction="idea" title="ひらめき">💡</button>
+        <button type="button" data-chat-reaction="question" title="質問">❓</button>
+      </div>
       <input id="chatInput" type="text" placeholder="メッセージ..." autocomplete="off" />
       <button id="chatSendBtn" class="icon-btn-primary"><span class="material-symbols-rounded">send</span></button>
     </footer>
@@ -408,6 +428,13 @@
             </header>
             <div id="modalChatMessages" class="student-modal-chat-messages"></div>
             <footer class="student-modal-chat-input">
+              <div class="chat-reaction-bar chat-reaction-bar--modal" aria-label="リアクション">
+                <button type="button" data-modal-chat-reaction="thumbs_up" title="いいね">👍</button>
+                <button type="button" data-modal-chat-reaction="clap" title="拍手">👏</button>
+                <button type="button" data-modal-chat-reaction="ok" title="了解">👌</button>
+                <button type="button" data-modal-chat-reaction="idea" title="ひらめき">💡</button>
+                <button type="button" data-modal-chat-reaction="question" title="質問">❓</button>
+              </div>
               <input id="modalChatInput" type="text" placeholder="メッセージ..." autocomplete="off" />
               <button id="modalChatSendBtn" class="icon-btn-primary" title="送信" aria-label="送信">
                 <span class="material-symbols-rounded">send</span>

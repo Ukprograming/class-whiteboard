@@ -153,6 +153,8 @@ const chatMessagesEl = document.getElementById("chatMessages");
 const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
 const chatTargetSelect = document.getElementById("chatTargetSelect");
+const chatReactionButtons = Array.from(document.querySelectorAll("[data-chat-reaction]"));
+const modalChatReactionButtons = Array.from(document.querySelectorAll("[data-modal-chat-reaction]"));
 
 // チャット状態
 let chatPanelOpen = false;
@@ -164,6 +166,18 @@ const studentNameMap = {};
 const unreadStudentIds = new Set();
 const unreadTemplateKindsByStudentId = new Map();
 const CHAT_TEMPLATE_KINDS = ["question", "repeat", "check"];
+const CHAT_REACTIONS = {
+  thumbs_up: "👍",
+  clap: "👏",
+  ok: "👌",
+  idea: "💡",
+  question: "❓"
+};
+const CHAT_TEMPLATE_NOTICE = {
+  question: { icon: "help", label: "質問があります" },
+  repeat: { icon: "replay", label: "もう一度" },
+  check: { icon: "fact_check", label: "確認お願いします" }
+};
 let activeChatTargetSocketId = null;
 
 let studentListForBoardScope = []; // [{ socketId, nickname }, ...]
@@ -1519,6 +1533,7 @@ function setTeacherViewMode(mode) {
   const sidebar = document.getElementById("wbSidebar");
   const bottomTools = document.querySelector(".floating-bottom-right");
   const contextMenu = document.getElementById("contextMenu");
+  const pageToolbar = document.querySelector(".page-toolbar");
 
   const show = (el) => {
     if (!el) return;
@@ -1569,6 +1584,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを表示
     if (sidebar) show(sidebar);
     if (bottomTools) show(bottomTools);
+    if (pageToolbar) show(pageToolbar);
     closeContextMenu();
   } else if (mode === "student") {
     // 生徒画面タイルを表示
@@ -1586,6 +1602,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
+    if (pageToolbar) hide(pageToolbar);
     closeContextMenu();
   } else if (mode === "notebook") {
     // ノート確認ビューを表示
@@ -1603,6 +1620,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
+    if (pageToolbar) hide(pageToolbar);
     closeContextMenu();
   }
 }
@@ -2188,9 +2206,10 @@ function renderTiles() {
         chatAlertBtn.classList.add(`chat-template-notice--${templateKind}`);
       }
       const dotClass = templateKind ? ` chat-template-notice--${templateKind}` : "";
+      const notice = CHAT_TEMPLATE_NOTICE[templateKind] || null;
       chatAlertBtn.title = `${info.nickname || "生徒"}のチャットを開く`;
       chatAlertBtn.setAttribute("aria-label", `${info.nickname || "生徒"}のチャットを開く`);
-      chatAlertBtn.innerHTML = `<span class="material-symbols-rounded">chat</span><span class="chat-notify-dot show${dotClass}"></span>`;
+      chatAlertBtn.innerHTML = `<span class="material-symbols-rounded">${notice?.icon || "chat"}</span>${notice ? `<span class="chat-notice-label">${notice.label}</span>` : ""}<span class="chat-notify-dot show${dotClass}"></span>`;
       chatAlertBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         openChatForStudent(socketId);
@@ -2386,7 +2405,7 @@ function createChatMessageRow(message) {
   }
 
   const bubble = document.createElement("div");
-  bubble.className = "chat-message-bubble";
+  bubble.className = "chat-message-bubble" + (message.kind === "reaction" ? " chat-message-bubble--reaction" : "");
   bubble.textContent = message.text;
 
   row.appendChild(meta);
@@ -2490,7 +2509,7 @@ function renderChatMessagesForTarget(targetSocketId) {
     }
 
     const bubble = document.createElement("div");
-    bubble.className = "chat-message-bubble";
+    bubble.className = "chat-message-bubble" + (m.kind === "reaction" ? " chat-message-bubble--reaction" : "");
     bubble.textContent = m.text;
 
     row.appendChild(meta);
@@ -2573,6 +2592,15 @@ function createUnreadChatSummary(studentIds, titleText) {
     const preview = document.createElement("span");
     preview.className = "chat-unread-preview";
     preview.textContent = last?.text || "チャットを開く";
+
+    const notice = CHAT_TEMPLATE_NOTICE[templateKind] || null;
+    if (notice) {
+      const icon = document.createElement("span");
+      icon.className = "material-symbols-rounded chat-template-notice-icon";
+      icon.textContent = notice.icon;
+      name.prepend(icon);
+      preview.textContent = notice.label;
+    }
 
     btn.appendChild(name);
     btn.appendChild(preview);
@@ -2687,6 +2715,38 @@ function teacherSendModalChat() {
   }
 }
 
+function teacherSendReaction(reaction, targetSocketId = activeChatTargetSocketId, fromModal = false) {
+  if (!currentClassCode || !targetSocketId) return;
+  if (!Object.prototype.hasOwnProperty.call(CHAT_REACTIONS, reaction)) return;
+
+  const text = CHAT_REACTIONS[reaction];
+  socket.emit("teacher-chat-to-student", {
+    classCode: currentClassCode,
+    targetSocketId,
+    message: text,
+    kind: "reaction",
+    reaction
+  });
+
+  appendChatMessageToHistory(targetSocketId, {
+    from: "me",
+    nickname: null,
+    text,
+    kind: "reaction",
+    reaction,
+    timestamp: Date.now()
+  });
+
+  if (fromModal) {
+    renderModalChatMessagesForTarget(targetSocketId, { markRead: false });
+    if (chatPanelOpen && activeChatTargetSocketId === targetSocketId) {
+      renderChatMessagesForTarget(targetSocketId);
+    }
+  } else {
+    renderChatMessagesForTarget(targetSocketId);
+  }
+}
+
 if (chatSendBtn && chatInput) {
   chatSendBtn.addEventListener("click", teacherSendChat);
   chatInput.addEventListener("keydown", e => {
@@ -2707,6 +2767,18 @@ if (modalChatSendBtn && modalChatInput) {
   });
 }
 
+chatReactionButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    teacherSendReaction(btn.dataset.chatReaction || "");
+  });
+});
+
+modalChatReactionButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    teacherSendReaction(btn.dataset.modalChatReaction || "", currentMonitoringStudentSocketId, true);
+  });
+});
+
 socket.on("chat-message", payload => {
   if (!payload) return;
   if (payload.toRole !== "teacher") return;
@@ -2716,6 +2788,7 @@ socket.on("chat-message", payload => {
   const text = payload.message;
   const timestamp = payload.timestamp || Date.now();
   const templateKind = normalizeChatTemplateKind(payload.templateKind || "");
+  const kind = payload.kind === "reaction" ? "reaction" : "text";
 
   // ★ニックネームを記録（未読一覧表示に使う）
   studentNameMap[fromId] = fromNickname;
@@ -2724,6 +2797,8 @@ socket.on("chat-message", payload => {
     from: "them",
     nickname: fromNickname,
     text,
+    kind,
+    reaction: payload.reaction || "",
     templateKind,
     timestamp
   });

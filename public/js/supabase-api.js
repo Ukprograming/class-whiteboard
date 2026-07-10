@@ -308,6 +308,8 @@ function createSupabaseRealtimeBridge() {
           toSocketId: socketId,
           classCode: payload.classCode,
           message: payload.message || payload.text || "",
+          kind: payload.kind === "reaction" ? "reaction" : "text",
+          reaction: payload.reaction || "",
           templateKind: payload.templateKind || "",
           timestamp: message.timestamp || Date.now(),
         });
@@ -393,6 +395,8 @@ function createSupabaseRealtimeBridge() {
           toSocketId: socketId,
           classCode: payload.classCode,
           message: payload.message || "",
+          kind: payload.kind === "reaction" ? "reaction" : "text",
+          reaction: payload.reaction || "",
           timestamp: message.timestamp || Date.now(),
         });
         break;

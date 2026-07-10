@@ -156,6 +156,13 @@ const chatTemplateColors = {
   repeat: "#22c55e",
   check: "#8b5cf6",
 };
+const chatReactions = {
+  thumbs_up: "👍",
+  clap: "👏",
+  ok: "👌",
+  idea: "💡",
+  question: "❓",
+};
 
 // ▼ ノート確認用の状態管理
 // notebookClasses = { [classCode]: { [studentId]: { latestImageData } } }
@@ -371,8 +378,12 @@ io.on("connection", (socket) => {
   // 生徒 → 教員 チャット
   socket.on("student-chat-to-teacher", (payload) => {
     const { classCode, nickname } = payload || {};
+    const reaction = Object.prototype.hasOwnProperty.call(chatReactions, payload?.reaction)
+      ? payload.reaction
+      : "";
+    const kind = reaction ? "reaction" : "text";
     // text / message 両対応
-    const message = payload?.message || payload?.text;
+    const message = reaction ? chatReactions[reaction] : (payload?.message || payload?.text);
     const templateKind = Object.prototype.hasOwnProperty.call(
       chatTemplateColors,
       payload?.templateKind
@@ -398,6 +409,8 @@ io.on("connection", (socket) => {
       toSocketId: teacherId,
       classCode,
       message,
+      kind,
+      reaction,
       templateKind,
       templateColor: templateKind ? chatTemplateColors[templateKind] : "",
       timestamp: Date.now(),
@@ -405,7 +418,13 @@ io.on("connection", (socket) => {
   });
 
   // 教員 → 生徒 チャット
-  socket.on("teacher-chat-to-student", ({ classCode, targetSocketId, message }) => {
+  socket.on("teacher-chat-to-student", (payload = {}) => {
+    const { classCode, targetSocketId } = payload;
+    const reaction = Object.prototype.hasOwnProperty.call(chatReactions, payload.reaction)
+      ? payload.reaction
+      : "";
+    const kind = reaction ? "reaction" : "text";
+    const message = reaction ? chatReactions[reaction] : payload.message;
     if (!classCode || !targetSocketId || !message) return;
     const cls = classes[classCode];
     if (!cls) return;
@@ -425,6 +444,8 @@ io.on("connection", (socket) => {
       toSocketId: targetSocketId,
       classCode,
       message,
+      kind,
+      reaction,
       timestamp: Date.now(),
     });
   });

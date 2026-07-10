@@ -79,6 +79,16 @@ const chatTemplateButtons = Array.from(
   document.querySelectorAll("[data-chat-template]")
 );
 const CHAT_TEMPLATE_KINDS = ["question", "repeat", "check"];
+const CHAT_REACTIONS = {
+  thumbs_up: "👍",
+  clap: "👏",
+  ok: "👌",
+  idea: "💡",
+  question: "❓"
+};
+const chatReactionButtons = Array.from(
+  document.querySelectorAll("[data-chat-reaction]")
+);
 
 function getChatTemplateKind(btn) {
   if (!btn) return "";
@@ -1028,11 +1038,13 @@ function updateModeUI() {
   const sidebar = document.getElementById("wbSidebar");
   const bottomTools = document.querySelector(".floating-bottom-right");
   const contextMenu = document.getElementById("contextMenu");
+  const pageToolbar = document.querySelector(".page-toolbar");
 
   if (viewMode === "notebook") {
     if (boardContainer) boardContainer.classList.add("hidden");
     if (sidebar) sidebar.classList.add("hidden");
     if (bottomTools) bottomTools.classList.add("hidden");
+    if (pageToolbar) pageToolbar.classList.add("hidden");
     if (contextMenu) contextMenu.classList.add("hidden");
 
     if (notebookLayoutEl) {
@@ -1043,6 +1055,7 @@ function updateModeUI() {
     if (boardContainer) boardContainer.classList.remove("hidden");
     if (sidebar) sidebar.classList.remove("hidden");
     if (bottomTools) bottomTools.classList.remove("hidden");
+    if (pageToolbar) pageToolbar.classList.toggle("hidden", viewMode !== "whiteboard");
     // contextMenuはツール選択状態によるのでここでは操作しない
 
     if (notebookLayoutEl) {
@@ -1060,6 +1073,9 @@ function updateModeUI() {
     chatInput.disabled = !canChat;
     chatSendBtn.disabled = !canChat;
     chatTemplateButtons.forEach(btn => {
+      btn.disabled = !canChat;
+    });
+    chatReactionButtons.forEach(btn => {
       btn.disabled = !canChat;
     });
     chatInput.placeholder = canChat
@@ -1264,7 +1280,7 @@ function renderStudentChatMessages() {
     }
 
     const bubble = document.createElement("div");
-    bubble.className = "chat-message-bubble";
+    bubble.className = "chat-message-bubble" + (m.kind === "reaction" ? " chat-message-bubble--reaction" : "");
     bubble.textContent = m.text;
 
     row.appendChild(meta);
@@ -1293,10 +1309,13 @@ if (chatCloseBtn) {
 }
 
 // 生徒 → 教員 チャット送信
-function studentSendChat(templateText = "", templateKind = "") {
+function studentSendChat(templateText = "", templateKind = "", reaction = "") {
   const presetText = typeof templateText === "string" ? templateText : "";
   const normalizedTemplateKind = CHAT_TEMPLATE_KINDS.includes(templateKind)
     ? templateKind
+    : "";
+  const normalizedReaction = Object.prototype.hasOwnProperty.call(CHAT_REACTIONS, reaction)
+    ? reaction
     : "";
 
   if (!currentClassCode || !nickname) {
@@ -1310,16 +1329,20 @@ function studentSendChat(templateText = "", templateKind = "") {
     return;
   }
 
-  if (!chatInput && !presetText) return;
+  if (!chatInput && !presetText && !normalizedReaction) return;
 
-  const text = (presetText || chatInput.value).trim();
+  const text = normalizedReaction
+    ? CHAT_REACTIONS[normalizedReaction]
+    : (presetText || chatInput.value).trim();
   if (!text) return;
 
   socket.emit("student-chat-to-teacher", {
     classCode: currentClassCode,
     nickname,
     message: text,
-    templateKind: normalizedTemplateKind
+    templateKind: normalizedTemplateKind,
+    kind: normalizedReaction ? "reaction" : "text",
+    reaction: normalizedReaction
   });
 
   chatMessages.push({
@@ -1327,6 +1350,8 @@ function studentSendChat(templateText = "", templateKind = "") {
     nickname: null,
     text,
     templateKind: normalizedTemplateKind,
+    kind: normalizedReaction ? "reaction" : "text",
+    reaction: normalizedReaction,
     timestamp: Date.now()
   });
   renderStudentChatMessages();
@@ -1352,6 +1377,12 @@ chatTemplateButtons.forEach(btn => {
       btn.dataset.chatTemplate || btn.textContent || "",
       getChatTemplateKind(btn)
     );
+  });
+});
+
+chatReactionButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    studentSendChat("", "", btn.dataset.chatReaction || "");
   });
 });
 
@@ -1562,11 +1593,13 @@ socket.on("chat-message", payload => {
   const text = payload.message;
   const timestamp = payload.timestamp || Date.now();
 
-  chatMessages.push({
-    from: "them",
-    nickname: fromNickname,
-    text,
-    timestamp
+    chatMessages.push({
+      from: "them",
+      nickname: fromNickname,
+      text,
+      kind: payload.kind === "reaction" ? "reaction" : "text",
+      reaction: payload.reaction || "",
+      timestamp
   });
 
   if (chatPanelOpen) {
@@ -2423,8 +2456,14 @@ function sendScreenUpdate(teacherSocketId) {
       const allData = whiteboard.getSnapshot();
       boardData = {
         ...allData,
-        strokes: allData.strokes.filter(s => !s.isTeacherAnnotation),
-        objects: allData.objects.filter(o => !o.isTeacherAnnotation)
+        pages: (allData.pages || []).map(page => ({
+          ...page,
+          boardData: {
+            ...page.boardData,
+            strokes: (page.boardData?.strokes || []).filter(s => !s.isTeacherAnnotation),
+            objects: (page.boardData?.objects || []).filter(o => !o.isTeacherAnnotation)
+          }
+        }))
       };
       // 送信したらフラグ更新
       hasSentInitialBoardData = true;

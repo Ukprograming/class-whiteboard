@@ -134,7 +134,23 @@ export class Whiteboard {
     this.pendingData = null; // { strokes: [], objects: [] }
 
     // ★ 外部連携用コールバック
-    this.onAction = null; // (action) => {}
+    // Page state is stored independently; the drawing arrays remain the active page.
+    this.pages = [{ id: "page-1", name: "ページ 1", boardData: null }];
+    this.activePageId = "page-1";
+    this._pageCounter = 1;
+    this.onPagesChange = null;
+
+    // Attach the active page to every outbound realtime action.
+    this._onAction = null;
+    Object.defineProperty(this, "onAction", {
+      configurable: true,
+      get: () => this._onAction,
+      set: handler => {
+        this._onAction = typeof handler === "function"
+          ? action => handler({ ...action, pageId: action?.pageId || this.activePageId })
+          : null;
+      }
+    });
 
     this.render();
   }
@@ -197,9 +213,148 @@ export class Whiteboard {
     this.isTeacherMode = !!enabled;
   }
 
+  _newPageId() {
+    this._pageCounter += 1;
+    return `page-${Date.now()}-${this._pageCounter}`;
+  }
+
+  _blankPageData() {
+    return {
+      version: 1,
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      nextObjectId: 1,
+      strokes: [],
+      objects: [],
+      background: null
+    };
+  }
+
+  _syncActivePage() {
+    const page = this.pages.find(item => item.id === this.activePageId);
+    if (page) page.boardData = this._exportSinglePageData();
+  }
+
+  _notifyPages() {
+    if (!this.onPagesChange) return;
+    this.onPagesChange({
+      pages: this.pages.map(page => ({ id: page.id, name: page.name })),
+      activePageId: this.activePageId
+    });
+  }
+
+  getPages() {
+    return this.pages.map(page => ({ id: page.id, name: page.name }));
+  }
+
+  addPage(name = "", options = {}) {
+    const { id = this._newPageId(), emit = true } = options;
+    if (this.pages.some(page => page.id === id)) return;
+    this._syncActivePage();
+    const page = {
+      id,
+      name: String(name || `ページ ${this.pages.length + 1}`).trim() || `ページ ${this.pages.length + 1}`,
+      boardData: this._blankPageData()
+    };
+    this.pages.push(page);
+    this.activePageId = id;
+    this._importSinglePageData(page.boardData, { preserveDirty: true });
+    this._markDirty();
+    this._notifyPages();
+    if (emit && this.onAction) this.onAction({ type: "page-add", page });
+  }
+
+  renamePage(id, name, options = {}) {
+    const page = this.pages.find(item => item.id === id);
+    if (!page) return;
+    const nextName = String(name || "").trim() || `ページ ${this.pages.indexOf(page) + 1}`;
+    if (page.name === nextName) return;
+    page.name = nextName;
+    this._markDirty();
+    this._notifyPages();
+    if (options.emit !== false && this.onAction) {
+      this.onAction({ type: "page-rename", pageId: id, name: nextName });
+    }
+  }
+
+  selectPage(id, options = {}) {
+    const page = this.pages.find(item => item.id === id);
+    if (!page || id === this.activePageId) return;
+    this._syncActivePage();
+    const wasDirty = this.isBoardDirty;
+    this.activePageId = id;
+    this._importSinglePageData(page.boardData || this._blankPageData(), { preserveDirty: true });
+    if (options.markDirty !== false) this._markDirty();
+    else if (!wasDirty) this.markSaved();
+    this._notifyPages();
+    if (options.emit !== false && this.onAction) this.onAction({ type: "page-select", pageId: id });
+  }
+
+  deletePage(id, options = {}) {
+    if (this.pages.length <= 1) return;
+    const index = this.pages.findIndex(page => page.id === id);
+    if (index < 0) return;
+    this._syncActivePage();
+    this.pages.splice(index, 1);
+    if (this.activePageId === id) {
+      const next = this.pages[Math.max(0, index - 1)];
+      this.activePageId = next.id;
+      this._importSinglePageData(next.boardData || this._blankPageData(), { preserveDirty: true });
+    }
+    this._markDirty();
+    this._notifyPages();
+    if (options.emit !== false && this.onAction) this.onAction({ type: "page-delete", pageId: id });
+  }
+
+  async capturePageCanvases(allPages = false) {
+    this._syncActivePage();
+    const originalId = this.activePageId;
+    const targetIds = allPages ? this.pages.map(page => page.id) : [originalId];
+    const captures = [];
+
+    for (const pageId of targetIds) {
+      if (pageId !== this.activePageId) {
+        this.selectPage(pageId, { emit: false, markDirty: false });
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+      const copy = document.createElement("canvas");
+      copy.width = this.canvas.width;
+      copy.height = this.canvas.height;
+      copy.getContext("2d").drawImage(this.canvas, 0, 0);
+      const page = this.pages.find(item => item.id === pageId);
+      captures.push({ id: pageId, name: page?.name || "ページ", canvas: copy });
+    }
+
+    if (this.activePageId !== originalId) {
+      this.selectPage(originalId, { emit: false, markDirty: false });
+    }
+    return captures;
+  }
+
   // ★ 外部からのアクション適用（共同編集用）
   applyAction(action) {
     if (!action) return;
+
+    if (action.type === "page-add" && action.page?.id) {
+      this.addPage(action.page.name, { id: action.page.id, emit: false });
+      return;
+    }
+    if (action.type === "page-rename") {
+      this.renamePage(action.pageId, action.name, { emit: false });
+      return;
+    }
+    if (action.type === "page-select") {
+      this.selectPage(action.pageId, { emit: false, markDirty: false });
+      return;
+    }
+    if (action.type === "page-delete") {
+      this.deletePage(action.pageId, { emit: false });
+      return;
+    }
+    if (action.pageId && action.pageId !== this.activePageId) {
+      this.selectPage(action.pageId, { emit: false, markDirty: false });
+    }
 
     if (action.type === "stroke") {
       // ストローク追加
@@ -1086,6 +1241,19 @@ export class Whiteboard {
   }
 
   exportBoardData() {
+    this._syncActivePage();
+    return {
+      version: 2,
+      activePageId: this.activePageId,
+      pages: this.pages.map(page => ({
+        id: page.id,
+        name: page.name,
+        boardData: page.boardData || this._blankPageData()
+      }))
+    };
+  }
+
+  _exportSinglePageData() {
     const strokes = this.strokes.map(st => ({
       // ★ 追加：ストロークIDもエクスポート
       id: st.id != null ? st.id : null,
@@ -1198,6 +1366,28 @@ export class Whiteboard {
   importBoardData(data) {
     if (!data) return;
 
+    const rawPages = Array.isArray(data.pages) && data.pages.length
+      ? data.pages
+      : [{ id: "page-1", name: "ページ 1", boardData: data }];
+    this.pages = rawPages.map((page, index) => ({
+      id: page.id || `page-${index + 1}`,
+      name: String(page.name || `ページ ${index + 1}`).trim() || `ページ ${index + 1}`,
+      boardData: page.boardData || this._blankPageData()
+    }));
+    this._pageCounter = this.pages.length;
+    this.activePageId = this.pages.some(page => page.id === data.activePageId)
+      ? data.activePageId
+      : this.pages[0].id;
+    const activePage = this.pages.find(page => page.id === this.activePageId);
+    this._importSinglePageData(activePage.boardData, { preserveDirty: true });
+    this.isBoardDirty = false;
+    if (this.onDirtyChange) this.onDirtyChange(false);
+    this._notifyPages();
+  }
+
+  _importSinglePageData(data, options = {}) {
+    if (!data) return;
+
     this.scale = data.scale != null ? data.scale : 1;
     this.offsetX = data.offsetX != null ? data.offsetX : 0;
     this.offsetY = data.offsetY != null ? data.offsetY : 0;
@@ -1234,8 +1424,10 @@ export class Whiteboard {
     this.history = [];
     this._setSelected(null);
     // ★ 追加：読み込んだ直後は「保存済み」とみなす
-    this.isBoardDirty = false;
-    if (this.onDirtyChange) this.onDirtyChange(false);
+    if (!options.preserveDirty) {
+      this.isBoardDirty = false;
+      if (this.onDirtyChange) this.onDirtyChange(false);
+    }
     this.render();
   }
 
