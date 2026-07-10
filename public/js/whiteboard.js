@@ -882,6 +882,7 @@ export class Whiteboard {
           const before = entry.before;
           if (!stroke || !before || !before.points) return;
           stroke.points = before.points.map(p => ({ x: p.x, y: p.y }));
+          if (before.width != null) stroke.width = before.width;
         });
       }
     }
@@ -1032,16 +1033,20 @@ export class Whiteboard {
   toggleLockSelection() {
     const objs = this.multiSelectedObjects || [];
     const strokes = this.multiSelectedStrokes || [];
-    if (!objs.length && !strokes.length) return;
+    const selectedItems = [...objs, ...strokes];
+    if (!selectedItems.length) return;
 
-    const anyUnlocked =
-      objs.some(o => !o.locked) || strokes.some(s => !s.locked);
-    const newLocked = anyUnlocked ? true : false;
+    // Locked items remain selectable.  When a selection contains a locked item,
+    // the lock button is an explicit unlock action for that selection; otherwise
+    // it locks the selected items.
+    const shouldUnlock = selectedItems.some(item => item.locked);
+    selectedItems.forEach(item => {
+      item.locked = !shouldUnlock;
+    });
 
-    objs.forEach(o => { o.locked = newLocked; });
-    strokes.forEach(s => { s.locked = newLocked; });
-
+    this._markDirty();
     this.render();
+    if (this.onAction) this.onAction({ type: "refresh" });
   }
 
   pastePlainText(text) {
@@ -1647,6 +1652,142 @@ export class Whiteboard {
     return null;
   }
 
+  _getStrokeBounds(stroke) {
+    const points = stroke?.points || [];
+    if (!points.length) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const point of points) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+
+    // A single click or a perfectly horizontal/vertical stroke still needs a
+    // usable rectangle and four distinct resize handles.
+    const minSpan = Math.max(1 / this.scale, (Number(stroke.width) || 1) / 2);
+    if (maxX - minX < minSpan) {
+      const centerX = (minX + maxX) / 2;
+      minX = centerX - minSpan / 2;
+      maxX = centerX + minSpan / 2;
+    }
+    if (maxY - minY < minSpan) {
+      const centerY = (minY + maxY) / 2;
+      minY = centerY - minSpan / 2;
+      maxY = centerY + minSpan / 2;
+    }
+
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  _getSingleSelectedStroke() {
+    if (
+      this.multiSelectedObjects?.length ||
+      this.multiSelectedStrokes?.length !== 1
+    ) {
+      return null;
+    }
+    return this.multiSelectedStrokes[0] || null;
+  }
+
+  _isInsideSelectedStrokeBounds(wx, wy) {
+    const stroke = this._getSingleSelectedStroke();
+    const bounds = this._getStrokeBounds(stroke);
+    return !!(
+      stroke &&
+      !stroke.locked &&
+      bounds &&
+      wx >= bounds.x &&
+      wx <= bounds.x + bounds.width &&
+      wy >= bounds.y &&
+      wy <= bounds.y + bounds.height
+    );
+  }
+
+  _startStrokeTransform(stroke, handle, wx, wy) {
+    const bounds = this._getStrokeBounds(stroke);
+    if (!bounds) return false;
+
+    const entry = {
+      stroke,
+      points: stroke.points.map(point => ({ x: point.x, y: point.y })),
+      width: Number(stroke.width) || 1
+    };
+
+    if (handle === "rotate") {
+      const cx = bounds.x + bounds.width / 2;
+      const cy = bounds.y + bounds.height / 2;
+      this.dragStart = {
+        mode: "stroke-rotate",
+        cx,
+        cy,
+        startPointerAngle: Math.atan2(wy - cy, wx - cx),
+        strokes: [entry]
+      };
+      return true;
+    }
+
+    let anchorX = bounds.x;
+    let anchorY = bounds.y;
+    if (handle === "nw") {
+      anchorX = bounds.x + bounds.width;
+      anchorY = bounds.y + bounds.height;
+    } else if (handle === "ne") {
+      anchorX = bounds.x;
+      anchorY = bounds.y + bounds.height;
+    } else if (handle === "se") {
+      anchorX = bounds.x;
+      anchorY = bounds.y;
+    } else if (handle === "sw") {
+      anchorX = bounds.x + bounds.width;
+      anchorY = bounds.y;
+    } else {
+      return false;
+    }
+
+    this.dragStart = {
+      mode: "stroke-resize",
+      bounds,
+      anchorX,
+      anchorY,
+      strokes: [entry]
+    };
+    return true;
+  }
+
+  _startSelectionDrag(wx, wy) {
+    const objects = (this.multiSelectedObjects || [])
+      .filter(obj => !obj.locked)
+      .map(obj => ({
+        obj,
+        x: obj.x,
+        y: obj.y,
+        points: obj.points ? obj.points.map(point => ({ x: point.x, y: point.y })) : null
+      }));
+    const strokes = (this.multiSelectedStrokes || [])
+      .filter(stroke => !stroke.locked)
+      .map(stroke => ({
+        stroke,
+        points: stroke.points.map(point => ({ x: point.x, y: point.y })),
+        width: Number(stroke.width) || 1
+      }));
+
+    // A locked item can be selected, but selection alone must not start a drag.
+    if (!objects.length && !strokes.length) {
+      this.isDraggingObj = false;
+      this.dragStart = null;
+      return false;
+    }
+
+    this.isDraggingObj = true;
+    this.dragStart = { wx, wy, objects, strokes };
+    return true;
+  }
+
   _hitTestResizeHandle(sx, sy) {
     for (const h of this.handleRects) {
       if (
@@ -1723,11 +1864,9 @@ export class Whiteboard {
     this.textEditor.style.width = `${Math.max(sw, 150)}px`;
     this.textEditor.style.height = `${Math.max(sh, 40)}px`;
     this.textEditor.value = obj.text || "";
-    this.textEditor.style.fontSize = `${fontSize}px`;
+    this.textEditor.style.fontSize = `${fontSize * this.scale}px`;
     this.textEditor.style.fontFamily = fontFamily;
     this.textEditor.style.fontWeight = bold;
-    this.textEditor.style.fontSize = `${fontSize}px`;
-    this.textEditor.style.fontFamily = fontFamily;
     // ★ 追加：テキストの配置を反映
     this.textEditor.style.textAlign = obj.textAlign || "left";
     this.textEditor.style.display = "block";
@@ -2133,6 +2272,28 @@ export class Whiteboard {
       }
 
       if (this.tool === "select") {
+        const selectedStroke = this._getSingleSelectedStroke();
+        if (selectedStroke && !selectedStroke.locked) {
+          const handle = this._hitTestResizeHandle(sx, sy);
+          if (handle) {
+            this.isResizingObj = true;
+            this.resizeHandle = handle;
+            if (this._startStrokeTransform(selectedStroke, handle, wx, wy)) {
+              return;
+            }
+            this.isResizingObj = false;
+            this.resizeHandle = null;
+          }
+
+          // Once a stroke is selected, its visible selection rectangle is its
+          // drag target, not just the few pixels occupied by the ink itself.
+          if (this._isInsideSelectedStrokeBounds(wx, wy)) {
+            this._startSelectionDrag(wx, wy);
+            this.render();
+            return;
+          }
+        }
+
         if (this.multiSelectedObjects.length === 1 && this.selectedObj) {
           const handle = this._hitTestResizeHandle(sx, sy);
           if (handle) {
@@ -2291,27 +2452,7 @@ export class Whiteboard {
             }
           }
 
-          this.isDraggingObj = true;
-          this.dragStart = {
-            wx,
-            wy,
-            objects: this.multiSelectedObjects
-              .filter(o => !o.locked)
-              .map(o => ({
-                obj: o,
-                x: o.x,
-                y: o.y,
-                points: o.points
-                  ? o.points.map(p => ({ x: p.x, y: p.y }))
-                  : null
-              })),
-            strokes: this.multiSelectedStrokes
-              .filter(st => !st.locked)
-              .map(st => ({
-                stroke: st,
-                points: st.points.map(p => ({ x: p.x, y: p.y }))
-              }))
-          };
+          this._startSelectionDrag(wx, wy);
           this.render();
           return;
         }
@@ -2337,27 +2478,7 @@ export class Whiteboard {
             }
           }
 
-          this.isDraggingObj = true;
-          this.dragStart = {
-            wx,
-            wy,
-            objects: this.multiSelectedObjects
-              .filter(o => !o.locked)
-              .map(o => ({
-                obj: o,
-                x: o.x,
-                y: o.y,
-                points: o.points
-                  ? o.points.map(p => ({ x: p.x, y: p.y }))
-                  : null
-              })),
-            strokes: this.multiSelectedStrokes
-              .filter(st => !st.locked)
-              .map(st => ({
-                stroke: st,
-                points: st.points.map(p => ({ x: p.x, y: p.y }))
-              }))
-          };
+          this._startSelectionDrag(wx, wy);
           this.render();
           return;
         }
@@ -2541,9 +2662,60 @@ export class Whiteboard {
         }
 
         // オブジェクトのリサイズ
-        if (this.isResizingObj && this.selectedObj && this.dragStart) {
+        if (this.isResizingObj && this.dragStart) {
           e.preventDefault();
           const { wx, wy } = getPos(e);
+
+          if (
+            this.dragStart.mode === "stroke-rotate" &&
+            this.dragStart.strokes?.length === 1
+          ) {
+            const { cx, cy, startPointerAngle } = this.dragStart;
+            const angle = Math.atan2(wy - cy, wx - cx) - startPointerAngle;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const entry = this.dragStart.strokes[0];
+            entry.stroke.points = entry.points.map(point => {
+              const dx = point.x - cx;
+              const dy = point.y - cy;
+              return {
+                x: cx + dx * cos - dy * sin,
+                y: cy + dx * sin + dy * cos
+              };
+            });
+            this.render();
+            return;
+          }
+
+          if (
+            this.dragStart.mode === "stroke-resize" &&
+            this.dragStart.strokes?.length === 1
+          ) {
+            const { bounds, anchorX, anchorY } = this.dragStart;
+            const entry = this.dragStart.strokes[0];
+            const left = Math.min(wx, anchorX);
+            const top = Math.min(wy, anchorY);
+            const width = Math.max(1 / this.scale, Math.abs(wx - anchorX));
+            const height = Math.max(1 / this.scale, Math.abs(wy - anchorY));
+            const scaleX = width / bounds.width;
+            const scaleY = height / bounds.height;
+
+            entry.stroke.points = entry.points.map(point => ({
+              x: left + (point.x - bounds.x) * scaleX,
+              y: top + (point.y - bounds.y) * scaleY
+            }));
+            // A stroke has one scalar width.  The geometric mean keeps its
+            // apparent thickness proportional during uniform resizing and
+            // gives a stable result for non-uniform corner drags.
+            entry.stroke.width = Math.max(
+              0.1,
+              entry.width * Math.sqrt(Math.abs(scaleX * scaleY))
+            );
+            this.render();
+            return;
+          }
+
+          if (!this.selectedObj) return;
           const obj = this.selectedObj;
 
           // ★ ① 回転ハンドルをドラッグ中
@@ -2839,7 +3011,10 @@ export class Whiteboard {
                 const afterPts = stroke.points || [];
 
                 let moved = false;
-                if (beforePts.length !== afterPts.length) {
+                if (
+                  beforePts.length !== afterPts.length ||
+                  (entry.width != null && stroke.width !== entry.width)
+                ) {
                   moved = true;
                 } else {
                   for (let i = 0; i < beforePts.length; i++) {
@@ -2856,10 +3031,12 @@ export class Whiteboard {
                   changedStrokes.push({
                     stroke,
                     before: {
-                      points: beforePts.map(p => ({ x: p.x, y: p.y }))
+                      points: beforePts.map(p => ({ x: p.x, y: p.y })),
+                      width: entry.width
                     },
                     after: {
-                      points: afterPts.map(p => ({ x: p.x, y: p.y }))
+                      points: afterPts.map(p => ({ x: p.x, y: p.y })),
+                      width: stroke.width
                     }
                   });
                 }
@@ -3708,7 +3885,9 @@ export class Whiteboard {
         const fontSize = obj.fontSize || 16;
         const fontFamily = obj.fontFamily || "system-ui";
         const bold = obj.bold ? "bold " : "";
-        ctx.font = `${bold}${fontSize / this.scale}px ${fontFamily}`;
+        // The canvas already has the board zoom transform applied.  Keeping
+        // these values in world units makes text zoom with its text box.
+        ctx.font = `${bold}${fontSize}px ${fontFamily}`;
         ctx.textBaseline = "top";
 
         // ★ 追加：文字色（textColor）優先
@@ -3724,11 +3903,11 @@ export class Whiteboard {
         }
         ctx.fillStyle = textColor;
 
-        const padding = 8 / this.scale;
+        const padding = 8;
         const lineHeight = 1.4;
 
         // ★ 自動改行：ボックス幅に合わせてテキストを折り返す
-        const maxTextWidth = Math.max(10 / this.scale, width - padding * 2);
+        const maxTextWidth = Math.max(10, width - padding * 2);
         const rawLines = (obj.text || "").split("\n");
         const lines = [];
 
@@ -3779,7 +3958,7 @@ export class Whiteboard {
           }
 
           ctx.fillText(line, tx, ty);
-          ty += (fontSize / this.scale) * lineHeight;
+          ty += fontSize * lineHeight;
         }
 
         // リンクの下線（配置に合わせる）
@@ -3787,7 +3966,7 @@ export class Whiteboard {
           const text = obj.text || "";
           const tw = ctx.measureText(text).width;
           let ux1, ux2;
-          const uy = ty - (fontSize / this.scale) * 0.2;
+          const uy = ty - fontSize * 0.2;
 
           if (align === "center") {
             const cx = x + width / 2;
@@ -3843,22 +4022,8 @@ export class Whiteboard {
       ctx.setLineDash([4 / this.scale, 2 / this.scale]);
 
       for (const st of this.multiSelectedStrokes) {
-        if (!st.points || st.points.length === 0) continue;
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of st.points) {
-          if (p.x < minX) minX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y > maxY) maxY = p.y;
-        }
-        if (minX !== Infinity) {
-          ctx.strokeRect(
-            minX,
-            minY,
-            maxX - minX,
-            maxY - minY
-          );
-        }
+        const bounds = this._getStrokeBounds(st);
+        if (bounds) ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
       }
 
       ctx.setLineDash([]);
@@ -3875,10 +4040,68 @@ export class Whiteboard {
     ) {
       this._drawResizeHandles(ctx, this.selectedObj);
     }
+    const selectedStroke = this._getSingleSelectedStroke();
+    if (this.tool === "select" && selectedStroke) {
+      this._drawStrokeResizeHandles(ctx, selectedStroke);
+    }
   }
 
 
   // ★ 選択中オブジェクトのリサイズ＆回転ハンドル描画
+  _drawStrokeResizeHandles(ctx, stroke) {
+    if (!stroke || stroke.locked) return;
+    const bounds = this._getStrokeBounds(stroke);
+    if (!bounds) return;
+
+    const { x, y, width, height } = bounds;
+    const handleSizePx = 10;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
+    const sizeWorld = handleSizePx / (this.scale * dpr);
+    const halfWorld = sizeWorld / 2;
+    const corners = [
+      { name: "nw", wx: x, wy: y },
+      { name: "ne", wx: x + width, wy: y },
+      { name: "se", wx: x + width, wy: y + height },
+      { name: "sw", wx: x, wy: y + height }
+    ];
+
+    for (const corner of corners) {
+      const screen = this._worldToScreen(corner.wx, corner.wy);
+      this.handleRects.push({
+        name: corner.name,
+        x: screen.x - handleSizePx / 2,
+        y: screen.y - handleSizePx / 2,
+        size: handleSizePx
+      });
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.fillRect(corner.wx - halfWorld, corner.wy - halfWorld, sizeWorld, sizeWorld);
+      ctx.strokeRect(corner.wx - halfWorld, corner.wy - halfWorld, sizeWorld, sizeWorld);
+      ctx.restore();
+    }
+
+    const rotateWx = x + width / 2;
+    const rotateWy = y - 40 / this.scale;
+    const rotateScreen = this._worldToScreen(rotateWx, rotateWy);
+    this.handleRects.push({
+      name: "rotate",
+      x: rotateScreen.x - handleSizePx / 2,
+      y: rotateScreen.y - handleSizePx / 2,
+      size: handleSizePx
+    });
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 1 / this.scale;
+    ctx.beginPath();
+    ctx.arc(rotateWx, rotateWy, sizeWorld * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   _drawResizeHandles(ctx, obj) {
     if (!obj) return;
     if (obj.locked) return;
