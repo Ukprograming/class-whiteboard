@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=multi-tab-presence-20260711";
 
 const form = document.querySelector("[data-teacher-login-form]");
 const emailInput = document.getElementById("teacherEmail");
@@ -55,7 +55,9 @@ if (form && supabaseEnabled) {
       }
 
       await authApi.signInTeacher(email, password);
-      window.location.href = "./teacher.html";
+      // The local Express server keeps the legacy session gate. This marker
+      // lets the Supabase path load the page; teacher.js verifies the session.
+      window.location.href = "./teacher.html?auth=supabase";
     } catch (error) {
       console.error(error);
       setMessage(error.message || "ログインに失敗しました。");

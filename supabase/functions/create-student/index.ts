@@ -51,8 +51,10 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: {
+      app_metadata: {
         role: "student",
+      },
+      user_metadata: {
         class_code: classCode,
         student_login_id: studentLoginId,
         display_name: displayName,
@@ -70,6 +72,7 @@ Deno.serve(async (req) => {
     });
 
     if (profileError) {
+      await admin.auth.admin.deleteUser(authData.user.id);
       return jsonResponse({ ok: false, message: profileError.message }, 400);
     }
 
@@ -87,6 +90,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (studentError) {
+      await admin.auth.admin.deleteUser(authData.user.id);
       return jsonResponse({ ok: false, message: studentError.message }, 400);
     }
 

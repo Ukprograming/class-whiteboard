@@ -40,6 +40,7 @@
     <div class="view-header">
       <h2>生徒画面確認</h2>
       <p id="studentsInfo" class="students-info">接続中の生徒: 0人</p>
+      <p class="students-info-note">現在ログインしている生徒だけが表示されます。登録済みの生徒は「クラス・生徒管理」で確認できます。</p>
     </div>
     <div id="tileGrid" class="tile-grid">
       <!-- teacher.js が .tile を追加 -->
@@ -70,6 +71,7 @@
           <button id="teacherOpenSaveDialogBtn"><span class="material-symbols-rounded">save</span> 保存...</button>
           <button id="teacherOverwriteSaveBtn" class="topbar-btn">上書き保存</button>
           <button id="teacherOpenLoadDialogBtn"><span class="material-symbols-rounded">folder_open</span> 開く...</button>
+          <button id="teacherManageClassesBtn"><span class="material-symbols-rounded">group</span> クラス・生徒管理</button>
           <button id="teacherSharedBoardToggleBtn"><span class="material-symbols-rounded">groups</span> 共同編集を開始</button>
           <hr>
           <button id="exportPdfBtn"><span class="material-symbols-rounded">picture_as_pdf</span> PDF出力</button>
@@ -381,6 +383,48 @@
     </div>
   </div>
 
+  <div id="classManagementBackdrop" class="modal-backdrop" style="display: none;" aria-hidden="true">
+    <section class="modal class-management-modal" role="dialog" aria-modal="true" aria-labelledby="classManagementTitle">
+      <header class="modal-header">
+        <div>
+          <h2 id="classManagementTitle">クラス・生徒管理</h2>
+          <p id="classManagementStatus" class="class-management-status">Supabase を設定すると利用できます。</p>
+        </div>
+        <button id="classManagementCloseBtn" class="close-btn" type="button">閉じる</button>
+      </header>
+      <div class="modal-body class-management-body">
+        <section class="class-management-section">
+          <h3>クラスを作成</h3>
+          <form id="classManagementCreateClassForm" class="class-management-form">
+            <label>クラス名<input id="classManagementClassName" required maxlength="80" placeholder="例：物理 2年A組" /></label>
+            <label>クラスコード<input id="classManagementClassCode" required minlength="4" maxlength="32" autocomplete="off" placeholder="例：PHYSICS2A" /></label>
+            <button type="submit" class="share-btn">クラスを作成</button>
+          </form>
+        </section>
+
+        <section class="class-management-section">
+          <h3>生徒を追加</h3>
+          <p class="class-management-guide">生徒に渡すログイン情報は「対象クラスのクラスコード・生徒ID・初期パスワード」の3つです。表示名はログインには使いません。</p>
+          <form id="classManagementCreateStudentForm" class="class-management-form">
+            <label>対象クラス<select id="classManagementClassSelect" required></select></label>
+            <label>生徒ID（ログイン用）<input id="classManagementStudentLoginId" required maxlength="48" autocomplete="off" placeholder="例：s001" /></label>
+            <label>表示名（画面表示用）<input id="classManagementStudentName" required maxlength="80" autocomplete="off" placeholder="例：佐藤 太郎" /></label>
+            <label>初期パスワード<input id="classManagementStudentPassword" type="password" required minlength="6" autocomplete="new-password" placeholder="6文字以上" /></label>
+            <button type="submit" class="share-btn">生徒を追加</button>
+          </form>
+        </section>
+
+        <section class="class-management-section">
+          <div class="class-management-section-heading">
+            <h3>登録済みの生徒</h3>
+            <button id="classManagementRefreshBtn" type="button" class="icon-btn-text">更新</button>
+          </div>
+          <div id="classManagementStudentList" class="class-management-student-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+  </div>
+
   <!-- 生徒画面拡大モーダル -->
   <div id="studentModalBackdrop" class="student-modal-backdrop">
     <div class="student-modal-frame">
@@ -463,9 +507,10 @@
 
   <!-- socket.io -->
   <script src="./js/app-config.js"></script>
+  <script src="./js/app-config.local.js"></script>
   <script src="./socket.io/socket.io.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=toolbar-chat-templates"></script>
+  <script type="module" src="./js/teacher.js?v=multi-tab-presence-20260711"></script>
 </body>
 
 </html>

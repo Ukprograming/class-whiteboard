@@ -1,7 +1,22 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 import { Whiteboard } from "./whiteboard.js";
-import { boardApi, createRealtimeBridge } from "./supabase-api.js";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=multi-tab-presence-20260711";
+
+async function requireSupabaseTeacher() {
+  if (!supabaseEnabled) return;
+  try {
+    const profile = await authApi.getProfile();
+    if (profile?.role === "teacher") return;
+  } catch (error) {
+    console.error("Failed to verify teacher session", error);
+  }
+  await authApi.signOut();
+  window.location.replace("./teacher-login.html");
+  throw new Error("Teacher login is required.");
+}
+
+await requireSupabaseTeacher();
 
 const teacherBoard = initBoardUI();
 window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
@@ -254,6 +269,8 @@ let applyingSharedBoardRemote = false;
 
 // ========= 共同編集対象の生徒 socketId =========
 let currentMonitoringStudentSocketId = null;
+let currentTeacherViewMode = "whiteboard";
+let connectedStudentSocketIds = new Set();
 
 // 生徒画面確認用サムネイル
 let latestThumbnails = {}; // { socketId: { nickname, dataUrl } }
@@ -265,6 +282,21 @@ let notebookStudents = {}; // { studentId: { latestImageData } }
 const teacherOpenSaveDialogBtn = document.getElementById("teacherOpenSaveDialogBtn");
 const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogBtn");
 const teacherSharedBoardToggleBtn = document.getElementById("teacherSharedBoardToggleBtn");
+const teacherManageClassesBtn = document.getElementById("teacherManageClassesBtn");
+const classManagementBackdrop = document.getElementById("classManagementBackdrop");
+const classManagementCloseBtn = document.getElementById("classManagementCloseBtn");
+const classManagementStatus = document.getElementById("classManagementStatus");
+const classManagementCreateClassForm = document.getElementById("classManagementCreateClassForm");
+const classManagementCreateStudentForm = document.getElementById("classManagementCreateStudentForm");
+const classManagementClassName = document.getElementById("classManagementClassName");
+const classManagementClassCode = document.getElementById("classManagementClassCode");
+const classManagementClassSelect = document.getElementById("classManagementClassSelect");
+const classManagementStudentLoginId = document.getElementById("classManagementStudentLoginId");
+const classManagementStudentName = document.getElementById("classManagementStudentName");
+const classManagementStudentPassword = document.getElementById("classManagementStudentPassword");
+const classManagementStudentList = document.getElementById("classManagementStudentList");
+const classManagementRefreshBtn = document.getElementById("classManagementRefreshBtn");
+let managedClasses = [];
 
 let boardDialogOverlay = null;
 let boardDialogMode = "save";           // "save" or "load"
@@ -1373,6 +1405,183 @@ if (teacherSharedBoardToggleBtn) {
   setSharedBoardButtonState();
 }
 
+function setClassManagementStatus(message, isError = false) {
+  if (!classManagementStatus) return;
+  classManagementStatus.textContent = message;
+  classManagementStatus.classList.toggle("is-error", isError);
+}
+
+function setClassManagementBusy(isBusy) {
+  [classManagementCreateClassForm, classManagementCreateStudentForm]
+    .filter(Boolean)
+    .forEach((form) => {
+      form.querySelectorAll("input, select, button").forEach((element) => {
+        element.disabled = isBusy;
+      });
+    });
+  if (classManagementRefreshBtn) classManagementRefreshBtn.disabled = isBusy;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>'\"]/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    "\"": "&quot;",
+  }[char]));
+}
+
+async function renderManagedStudents() {
+  if (!classManagementStudentList || !classManagementClassSelect?.value) return;
+  classManagementStudentList.innerHTML = '<p class="class-management-empty">読み込み中…</p>';
+  const students = await managementApi.listStudents(classManagementClassSelect.value);
+  if (students.length === 0) {
+    classManagementStudentList.innerHTML = '<p class="class-management-empty">このクラスには、まだ生徒がいません。</p>';
+    return;
+  }
+  classManagementStudentList.innerHTML = students.map((student) => `
+    <div class="class-management-student-row">
+      <div><strong>${escapeHtml(student.display_name)}</strong><span>${escapeHtml(student.student_login_id)}</span></div>
+      <button type="button" class="icon-btn-text" data-reset-student-id="${student.id}" data-reset-student-name="${escapeHtml(student.display_name)}">パスワード再設定</button>
+    </div>
+  `).join("");
+}
+
+async function refreshClassManagement() {
+  if (!supabaseEnabled) {
+    setClassManagementStatus("Supabase の公開設定を入力してから利用できます。", true);
+    return;
+  }
+  setClassManagementBusy(true);
+  try {
+    const previouslySelectedClassId = classManagementClassSelect?.value;
+    managedClasses = await managementApi.listClasses();
+    if (classManagementClassSelect) {
+      classManagementClassSelect.innerHTML = managedClasses.length
+        ? managedClasses.map((klass) => `<option value="${klass.id}">${escapeHtml(klass.class_code)} — ${escapeHtml(klass.name)}</option>`).join("")
+        : '<option value="">先にクラスを作成してください</option>';
+      if (previouslySelectedClassId && managedClasses.some((klass) => klass.id === previouslySelectedClassId)) {
+        classManagementClassSelect.value = previouslySelectedClassId;
+      }
+    }
+    if (managedClasses.length > 0) {
+      await renderManagedStudents();
+      setClassManagementStatus("クラスと生徒を管理できます。");
+    } else {
+      if (classManagementStudentList) classManagementStudentList.innerHTML = '<p class="class-management-empty">まずクラスを作成してください。</p>';
+      setClassManagementStatus("クラスを1つ作成すると、生徒を追加できます。");
+    }
+  } catch (error) {
+    setClassManagementStatus(error.message || "管理情報を取得できませんでした。", true);
+  } finally {
+    setClassManagementBusy(false);
+  }
+}
+
+function openClassManagement() {
+  if (!classManagementBackdrop) return;
+  classManagementBackdrop.style.display = "flex";
+  classManagementBackdrop.classList.add("show");
+  classManagementBackdrop.setAttribute("aria-hidden", "false");
+  void refreshClassManagement();
+}
+
+function closeClassManagement() {
+  if (!classManagementBackdrop) return;
+  classManagementStudentPassword.value = "";
+  classManagementBackdrop.classList.remove("show");
+  classManagementBackdrop.style.display = "none";
+  classManagementBackdrop.setAttribute("aria-hidden", "true");
+}
+
+if (teacherManageClassesBtn) teacherManageClassesBtn.addEventListener("click", openClassManagement);
+if (classManagementCloseBtn) classManagementCloseBtn.addEventListener("click", closeClassManagement);
+if (classManagementBackdrop) {
+  classManagementBackdrop.addEventListener("click", (event) => {
+    if (event.target === classManagementBackdrop) closeClassManagement();
+  });
+}
+if (classManagementRefreshBtn) classManagementRefreshBtn.addEventListener("click", () => void refreshClassManagement());
+if (classManagementClassSelect) classManagementClassSelect.addEventListener("change", () => void renderManagedStudents());
+
+if (classManagementCreateClassForm) {
+  classManagementCreateClassForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setClassManagementBusy(true);
+    try {
+      const result = await managementApi.createClass({
+        name: classManagementClassName.value.trim(),
+        classCode: classManagementClassCode.value.trim(),
+      });
+      classManagementClassName.value = "";
+      classManagementClassCode.value = "";
+      if (classCodeInput) classCodeInput.value = result.class.class_code;
+      setClassManagementStatus(`「${result.class.name}」を作成しました。`);
+      await refreshClassManagement();
+    } catch (error) {
+      setClassManagementStatus(error.message || "クラスを作成できませんでした。", true);
+    } finally {
+      setClassManagementBusy(false);
+    }
+  });
+}
+
+if (classManagementCreateStudentForm) {
+  classManagementCreateStudentForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const selectedClass = managedClasses.find((klass) => klass.id === classManagementClassSelect.value);
+    if (!selectedClass) {
+      setClassManagementStatus("先に対象クラスを選択してください。", true);
+      return;
+    }
+    setClassManagementBusy(true);
+    try {
+      const loginStudentId = classManagementStudentLoginId.value.trim();
+      const initialPassword = classManagementStudentPassword.value;
+      const result = await managementApi.createStudent({
+        classCode: selectedClass.class_code,
+        studentLoginId: loginStudentId,
+        displayName: classManagementStudentName.value.trim(),
+        password: initialPassword,
+      });
+      classManagementStudentLoginId.value = "";
+      classManagementStudentName.value = "";
+      classManagementStudentPassword.value = "";
+      setClassManagementStatus(
+        `「${result.student.display_name}」を追加しました。生徒に伝える情報: クラスコード ${selectedClass.class_code} / 生徒ID ${loginStudentId.toLowerCase()} / 初期パスワード ${initialPassword}`
+      );
+      await renderManagedStudents();
+    } catch (error) {
+      setClassManagementStatus(error.message || "生徒を追加できませんでした。", true);
+    } finally {
+      setClassManagementBusy(false);
+    }
+  });
+}
+
+if (classManagementStudentList) {
+  classManagementStudentList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-reset-student-id]");
+    if (!button) return;
+    const password = window.prompt(`${button.dataset.resetStudentName} さんの新しいパスワード（6文字以上）`);
+    if (!password) return;
+    if (password.length < 6) {
+      setClassManagementStatus("パスワードは6文字以上にしてください。", true);
+      return;
+    }
+    setClassManagementBusy(true);
+    try {
+      await managementApi.resetStudentPassword({ studentId: button.dataset.resetStudentId, password });
+      setClassManagementStatus("生徒のパスワードを再設定しました。");
+    } catch (error) {
+      setClassManagementStatus(error.message || "パスワードを再設定できませんでした。", true);
+    } finally {
+      setClassManagementBusy(false);
+    }
+  });
+}
+
 let role = null;
 
 // ----- 退室ボタン処理（新規追加）-----
@@ -1533,6 +1742,7 @@ setModalTool("pen");
 // ========= ビュー切り替え：ホワイトボード / 生徒画面 / ノート確認 =========
 function setTeacherViewMode(mode) {
   if (!boardContainer || !studentViewContainer || !notebookViewContainer) return;
+  currentTeacherViewMode = mode;
 
   const sidebar = document.getElementById("wbSidebar");
   const bottomTools = document.querySelector(".floating-bottom-right");
@@ -1653,6 +1863,24 @@ setTeacherViewMode("whiteboard");
 
 socket.on("student-list-update", (list) => {
   const normalizedList = list || [];
+  const nextStudentSocketIds = new Set(
+    normalizedList.map((student) => student?.socketId).filter(Boolean)
+  );
+  const hasNewlyConnectedStudent = Array.from(nextStudentSocketIds).some(
+    (socketId) => !connectedStudentSocketIds.has(socketId)
+  );
+
+  Object.keys(latestThumbnails).forEach((socketId) => {
+    if (!nextStudentSocketIds.has(socketId)) {
+      delete latestThumbnails[socketId];
+    }
+  });
+  connectedStudentSocketIds = nextStudentSocketIds;
+
+  // Notify students who join after the teacher has already opened screen view.
+  if (hasNewlyConnectedStudent && currentTeacherViewMode === "student" && currentClassCode) {
+    socket.emit("student-view-start", { classCode: currentClassCode });
+  }
 
   if (studentsInfo) {
     studentsInfo.textContent = `接続中の生徒: ${normalizedList.length}人`;
@@ -1668,6 +1896,7 @@ socket.on("student-list-update", (list) => {
     studentNameMap[s.socketId] = s.nickname || s.socketId;
   });
   updateModalChatTargetLabel();
+  renderTiles();
 
   // チャット宛先セレクト更新
   if (chatTargetSelect) {

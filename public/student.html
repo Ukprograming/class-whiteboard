@@ -412,24 +412,41 @@
     <div class="login-box">
       <h2>生徒用ホワイトボード ログイン</h2>
       <form id="studentLoginForm">
+        <p class="student-login-help">
+          先生から伝えられた「クラスコード」「生徒ID」「パスワード」を入力してください。表示名は入力しません。
+        </p>
+        <label id="loginSavedAccountLabel">
+          保存済みのログイン情報
+          <select id="loginSavedAccount">
+            <option value="">新しく入力する</option>
+          </select>
+          <span class="student-login-field-hint">この端末にはクラスコードと生徒IDだけを保存します。</span>
+        </label>
         <label>
           クラスコード
           <input id="loginClassCode" type="text" placeholder="例: ABC123" required />
         </label>
         <label>
-          ニックネーム
-          <input id="loginNickname" type="text" placeholder="名前" required />
+          生徒ID
+          <input id="loginNickname" type="text" placeholder="例: s001" autocomplete="username" required />
+          <span class="student-login-field-hint">先生が登録時に設定した生徒IDです。表示名ではありません。</span>
         </label>
-        <button type="submit">参加する</button>
+        <label>
+          パスワード
+          <input id="loginStudentPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <button type="submit">ログインして参加</button>
+        <p id="studentLoginMessage" class="login-message" aria-live="polite"></p>
       </form>
     </div>
   </div>
 
   <!-- socket.io -->
   <script src="./js/app-config.js"></script>
+  <script src="./js/app-config.local.js"></script>
   <script src="./socket.io/socket.io.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/student.js?v=toolbar-chat-templates"></script>
+  <script type="module" src="./js/student.js?v=multi-tab-presence-20260711"></script>
 
 </body>
 

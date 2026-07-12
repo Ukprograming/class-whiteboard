@@ -25,8 +25,10 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: {
+      app_metadata: {
         role: "teacher",
+      },
+      user_metadata: {
         display_name: displayName || email,
       },
     });
@@ -42,6 +44,8 @@ Deno.serve(async (req) => {
     });
 
     if (profileError) {
+      // Avoid leaving an Auth user that cannot be used by the application.
+      await supabase.auth.admin.deleteUser(data.user.id);
       return jsonResponse({ ok: false, message: profileError.message }, 400);
     }
 

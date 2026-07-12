@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js";
+} from "./supabase-api.js?v=multi-tab-presence-20260711";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -219,9 +219,17 @@ function resizeCanvasToContainer() {
 const studentLoginForm = document.getElementById("studentLoginForm");
 const studentLoginOverlay = document.getElementById("studentLoginOverlay");
 const loginClassCodeInput = document.getElementById("loginClassCode");
-const loginNicknameInput = document.getElementById("loginNickname");
+const loginStudentIdInput = document.getElementById("loginNickname");
 let loginStudentPasswordInput = document.getElementById("loginStudentPassword");
 let loginSavedAccountSelect = document.getElementById("loginSavedAccount");
+const loginSavedAccountLabel = document.getElementById("loginSavedAccountLabel");
+const studentLoginMessage = document.getElementById("studentLoginMessage");
+
+function setStudentLoginMessage(message, isError = false) {
+  if (!studentLoginMessage) return;
+  studentLoginMessage.textContent = message || "";
+  studentLoginMessage.classList.toggle("is-error", isError);
+}
 
 function ensureStudentPasswordLoginControls() {
   if (!studentLoginForm) return;
@@ -254,7 +262,8 @@ if (studentLoginForm) {
 
   if (loginSavedAccountSelect) {
     const hints = getStudentLoginHints();
-    loginSavedAccountSelect.innerHTML = `<option value="">New login</option>`;
+    loginSavedAccountSelect.innerHTML = `<option value="">新しく入力する</option>`;
+    if (loginSavedAccountLabel) loginSavedAccountLabel.hidden = hints.length === 0;
     hints.forEach((hint, index) => {
       const option = document.createElement("option");
       option.value = String(index);
@@ -265,7 +274,7 @@ if (studentLoginForm) {
       const hint = hints[Number(loginSavedAccountSelect.value)];
       if (!hint) return;
       if (loginClassCodeInput) loginClassCodeInput.value = hint.classCode || "";
-      if (loginNicknameInput) loginNicknameInput.value = hint.studentLoginId || "";
+      if (loginStudentIdInput) loginStudentIdInput.value = hint.studentLoginId || "";
       if (loginStudentPasswordInput) loginStudentPasswordInput.value = "";
       if (loginStudentPasswordInput) loginStudentPasswordInput.focus();
     });
@@ -274,43 +283,50 @@ if (studentLoginForm) {
   studentLoginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = loginClassCodeInput.value.trim();
-    const name = loginNicknameInput.value.trim();
+    const studentLoginId = loginStudentIdInput.value.trim();
     const password = loginStudentPasswordInput ? loginStudentPasswordInput.value : "";
 
-    if (!code || !name) {
-      alert("クラスコードとニックネームを入力してください。");
+    if (!code || !studentLoginId) {
+      setStudentLoginMessage("クラスコードと生徒IDを入力してください。", true);
       return;
     }
 
     if (supabaseEnabled && !password) {
-      alert("Password is required.");
+      setStudentLoginMessage("パスワードを入力してください。", true);
       return;
     }
 
+    let signedInStudent = null;
     if (supabaseEnabled) {
+      setStudentLoginMessage("ログインしています…");
       try {
-        await authApi.signInStudent({
+        signedInStudent = await authApi.signInStudent({
           classCode: code,
-          studentLoginId: name,
+          studentLoginId,
           password,
         });
       } catch (err) {
         console.error("Supabase student login failed:", err);
-        alert("Login failed: " + (err.message || err));
+        setStudentLoginMessage(err.message || "ログインできませんでした。", true);
         return;
       }
     }
 
-    currentClassCode = code;
-    nickname = name;
+    const canonicalClassCode = signedInStudent?.classCode || code;
+    const canonicalStudentId = signedInStudent?.studentLoginId || studentLoginId;
+    currentClassCode = canonicalClassCode;
+    nickname = canonicalStudentId;
 
     // サーバーへ参加リクエスト
-    socket.emit("join-class", { classCode: code, nickname: name });
+    socket.emit("join-class", { classCode: canonicalClassCode, nickname: canonicalStudentId });
     if (supabaseEnabled) {
       if (studentLoginOverlay) studentLoginOverlay.classList.add("hidden");
-      if (statusLabel) statusLabel.textContent = `Class: ${code} / ${name}`;
-      joinedNotebookClassCode = code;
-      notebookStudentId = name;
+      const displayLabel = signedInStudent?.displayName
+        ? `${signedInStudent.displayName}（ID: ${canonicalStudentId}）`
+        : canonicalStudentId;
+      if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
+      joinedNotebookClassCode = canonicalClassCode;
+      notebookStudentId = canonicalStudentId;
       updateModeUI();
     }
   });
@@ -356,7 +372,7 @@ socket.on("join-error", (msg) => {
 // 自分の役割フォルダ（classCode + nickname）配下のフォルダ一覧
 async function fetchFolderList() {
   if (!currentClassCode || !nickname) {
-    throw new Error("クラスコードとニックネームが設定されていません。");
+    throw new Error("クラスコードと生徒IDが設定されていません。");
   }
 
   const payload = {
@@ -404,7 +420,7 @@ async function fetchFolderList() {
 // 指定フォルダ内のファイル一覧取得
 async function fetchFileList(folderPath) {
   if (!currentClassCode || !nickname) {
-    throw new Error("クラスコードとニックネームが設定されていません。");
+    throw new Error("クラスコードと生徒IDが設定されていません。");
   }
 
   const payload = {

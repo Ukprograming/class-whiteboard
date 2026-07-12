@@ -16,7 +16,13 @@ the static frontend.
 
 ## Public Config
 
-Edit `public/js/app-config.js` before publishing to GitHub Pages:
+For a local-only trial, create `public/js/app-config.local.js` instead. It is
+loaded after the default config and ignored by Git, so the trial project is not
+accidentally published as the shared default. It may contain only the public
+project URL and publishable key.
+
+Edit `public/js/app-config.js` only when deliberately publishing a Supabase
+configuration to GitHub Pages:
 
 ```js
 window.CLASS_WHITEBOARD_CONFIG = {
@@ -58,6 +64,35 @@ set it explicitly if your local or deployment environment needs it.
 4. Set Edge Function secrets.
 5. Fill `public/js/app-config.js`.
 6. Publish `public/` with GitHub Pages.
+
+## Local Trial Flow
+
+1. Start the app with `npm.cmd start` and open `http://localhost:3000/teacher-login`.
+2. Choose teacher account creation, enter a teacher email/password and the
+   temporary teacher invite code, then sign in.
+3. In the teacher page, open **File → クラス・生徒管理**. Create one test
+   class, then create one or two test students with individual passwords.
+4. Start the class using its class code, then open `http://localhost:3000/student.html`
+   in another tab and sign in as a test student. Authentication is tab-scoped,
+   so teacher and multiple student accounts can be tested in separate tabs.
+
+The teacher's student-screen view shows only students who are currently signed
+in and connected. The complete registered roster remains available under
+**File → クラス・生徒管理**. After an auth-storage update, reload every open
+teacher/student tab and sign in again once.
+
+The management panel never saves student passwords locally. For an initial
+free-tier test, keep board snapshots small and use screen-monitoring only when
+needed.
+
+Student login field mapping:
+
+| Teacher management field | Student login field |
+| --- | --- |
+| Selected class's class code | クラスコード |
+| 生徒ID（ログイン用） | 生徒ID |
+| 初期パスワード | パスワード |
+| 表示名（画面表示用） | Not entered at login |
 
 ## Login Model
 

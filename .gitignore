@@ -1,2 +1,3 @@
 node_modules/
 .npm-cache/
+public/js/app-config.local.js

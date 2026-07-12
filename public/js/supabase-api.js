@@ -11,12 +11,32 @@ const EDGE_FUNCTION_BASE_URL = (
 
 export const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
+function getAuthStorage() {
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    console.warn("Session storage is unavailable; the login session will not persist.", error);
+    return undefined;
+  }
+}
+
+function getAuthStorageKey() {
+  const pageName = String(window.location.pathname || "")
+    .split("/")
+    .pop()
+    .toLowerCase();
+  const roleScope = pageName.startsWith("student") ? "student" : "teacher";
+  return `class-whiteboard-${roleScope}-auth`;
+}
+
 export const supabase = supabaseEnabled
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      storage: getAuthStorage(),
+      storageKey: getAuthStorageKey(),
     },
   })
   : null;
@@ -517,19 +537,46 @@ export const authApi = {
 
   async signInStudent({ classCode, studentLoginId, password }) {
     assertSupabase();
-    const email = studentAuthEmail(classCode, studentLoginId);
+    const normalizedClassCode = normalizeClassCode(classCode);
+    const normalizedStudentLoginId = normalizeStudentLoginId(studentLoginId);
+    const email = studentAuthEmail(normalizedClassCode, normalizedStudentLoginId);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) {
+      throw new Error("クラスコード、生徒ID、またはパスワードが一致しません。表示名ではなく、先生が設定した生徒IDを入力してください。");
+    }
+
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("id, class_id, student_login_id, display_name, active")
+      .eq("auth_user_id", data.user.id)
+      .eq("student_login_id", normalizedStudentLoginId)
+      .eq("active", true)
+      .maybeSingle();
+
+    const { data: klass, error: classError } = student
+      ? await supabase
+        .from("classes")
+        .select("id, class_code")
+        .eq("id", student.class_id)
+        .eq("class_code", normalizedClassCode)
+        .maybeSingle()
+      : { data: null, error: null };
+
+    if (studentError || classError || !student || !klass) {
+      await supabase.auth.signOut();
+      throw new Error("この生徒IDは、入力したクラスに登録されていません。先生から伝えられた情報を確認してください。");
+    }
 
     saveStudentLoginHint({
-      classCode: normalizeClassCode(classCode),
-      studentLoginId: normalizeStudentLoginId(studentLoginId),
+      classCode: klass.class_code,
+      studentLoginId: student.student_login_id,
     });
 
     return {
       ...data,
-      classCode: normalizeClassCode(classCode),
-      studentLoginId: normalizeStudentLoginId(studentLoginId),
+      classCode: klass.class_code,
+      studentLoginId: student.student_login_id,
+      displayName: student.display_name,
     };
   },
 
@@ -581,8 +628,27 @@ export const managementApi = {
   createClass(payload) {
     return callFunction("create-class", payload);
   },
+  async listClasses() {
+    assertSupabase();
+    const { data, error } = await supabase
+      .from("classes")
+      .select("id, class_code, name, archived, created_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
   createStudent(payload) {
     return callFunction("create-student", payload);
+  },
+  async listStudents(classId) {
+    assertSupabase();
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, student_login_id, display_name, active")
+      .eq("class_id", classId)
+      .order("student_login_id", { ascending: true });
+    if (error) throw error;
+    return data || [];
   },
   resetStudentPassword(payload) {
     return callFunction("reset-student-password", payload);

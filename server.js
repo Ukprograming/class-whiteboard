@@ -50,6 +50,7 @@ app.get("/teacher-login", (req, res) => {
 });
 
 app.get(["/teacher", "/teacher.html"], (req, res) => {
+  if (req.query.auth === "supabase") return res.sendFile(TEACHER_PAGE);
   if (!isTeacherLoggedIn(req)) return res.redirect("/teacher-login");
   return res.sendFile(TEACHER_PAGE);
 });
