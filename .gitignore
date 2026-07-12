@@ -1,3 +1,9 @@
 node_modules/
 .npm-cache/
+
+.env
+.env.*
+!.env.example
+supabase/functions/.env
+
 public/js/app-config.local.js

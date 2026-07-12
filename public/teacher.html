@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <link href="./style.css?v=toolbar-chat-templates" rel="stylesheet" />
@@ -505,12 +506,12 @@
   </div>
 
 
-  <!-- socket.io -->
+  <!-- Supabase config; Socket.IO is loaded only for the legacy fallback. -->
   <script src="./js/app-config.js"></script>
-  <script src="./js/app-config.local.js"></script>
-  <script src="./socket.io/socket.io.js"></script>
+  <script src="./js/local-config-loader.js"></script>
+  <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=multi-tab-presence-20260711"></script>
+  <script type="module" src="./js/teacher.js?v=pages-staging-20260712"></script>
 </body>
 
 </html>

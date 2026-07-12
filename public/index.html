@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Class Whiteboard テスト環境</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f3f7fb; color: #17212b; }
+    main { width: min(560px, calc(100% - 32px)); padding: 32px; box-sizing: border-box; border: 1px solid #dce5ec; border-radius: 18px; background: #fff; box-shadow: 0 18px 50px rgba(31, 50, 66, .1); }
+    .badge { display: inline-flex; padding: 5px 10px; border-radius: 999px; background: #fff3d6; color: #7a5200; font-size: 13px; font-weight: 700; }
+    h1 { margin: 14px 0 8px; font-size: clamp(25px, 5vw, 34px); }
+    p { color: #52616d; line-height: 1.7; }
+    nav { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
+    a { display: grid; place-items: center; min-height: 52px; border-radius: 12px; text-decoration: none; font-weight: 750; }
+    a:first-child { background: #1769aa; color: #fff; }
+    a:last-child { border: 1px solid #b9c9d5; color: #24465f; background: #f8fbfd; }
+    small { display: block; margin-top: 22px; color: #73818b; line-height: 1.6; }
+    @media (max-width: 520px) { nav { grid-template-columns: 1fr; } main { padding: 24px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">STAGING / 小規模テスト専用</span>
+    <h1>Class Whiteboard</h1>
+    <p>GitHub Pages と Supabase 無料枠で動作するテスト環境です。実在する生徒の個人情報は登録しないでください。</p>
+    <nav aria-label="ログイン先">
+      <a href="./teacher-login.html">教員としてログイン</a>
+      <a href="./student.html">生徒としてログイン</a>
+    </nav>
+    <small>推奨テスト規模: 教員1名・生徒3名以内・1回45分以内。画面確認やノート撮影は必要な時間だけ使用してください。</small>
+  </main>
+</body>
+</html>

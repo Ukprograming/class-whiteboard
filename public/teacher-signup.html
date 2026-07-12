@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>教員アカウント作成 | Class Whiteboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="./style.css?v=teacher-auth-split-20260712" rel="stylesheet" />
+</head>
+
+<body class="app-root">
+  <main class="login-container teacher-login-card">
+    <p class="login-product-name">Class Whiteboard</p>
+    <h1>教員アカウント作成</h1>
+    <p class="login-page-description">初回登録時のみ、教員用招待コードが必要です。</p>
+    <form data-teacher-signup-form>
+      <label>
+        表示名
+        <input id="teacherDisplayName" type="text" name="displayName" autocomplete="name" required />
+      </label>
+      <label>
+        教員メール
+        <input id="teacherEmail" type="email" name="email" autocomplete="username" required />
+      </label>
+      <label>
+        パスワード
+        <input id="teacherPassword" type="password" name="password" placeholder="6文字以上" autocomplete="new-password" minlength="6" required />
+      </label>
+      <label>
+        教員用招待コード
+        <input id="teacherInviteCode" type="password" name="inviteCode" autocomplete="off" required />
+      </label>
+      <button type="submit">アカウントを作成</button>
+      <a class="login-secondary-action login-secondary-link" href="./teacher-login.html">通常ログインに戻る</a>
+      <p id="teacherSignupMessage" class="login-message" aria-live="polite"></p>
+    </form>
+  </main>
+  <script src="./js/app-config.js"></script>
+  <script src="./js/local-config-loader.js"></script>
+  <script type="module" src="./js/teacher-signup.js?v=teacher-auth-split-20260712"></script>
+</body>
+
+</html>

@@ -1,9 +1,13 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
 const SUPABASE_ANON_KEY = (config.supabaseAnonKey || "").trim();
 const STORAGE_BUCKET = (config.storageBucket || "class-whiteboard").trim();
+const MAX_REALTIME_PAYLOAD_BYTES = Math.max(
+  64000,
+  Number(config.maxRealtimePayloadBytes) || 180000
+);
 const EDGE_FUNCTION_BASE_URL = (
   config.edgeFunctionBaseUrl ||
   (SUPABASE_URL ? `${SUPABASE_URL}/functions/v1` : "")
@@ -290,17 +294,28 @@ function createSupabaseRealtimeBridge() {
       classCode: normalizeClassCode(payload?.classCode || state.classCode),
     };
 
+    const outboundPayload = {
+      eventName,
+      payload: enriched,
+      senderSocketId: socketId,
+      senderRole: state.role,
+      senderNickname: state.nickname,
+      timestamp: Date.now(),
+    };
+    const outboundBytes = new TextEncoder().encode(JSON.stringify(outboundPayload)).byteLength;
+    if (outboundBytes > MAX_REALTIME_PAYLOAD_BYTES) {
+      console.warn(
+        `[realtime] ${eventName} was not sent because it exceeds the staging payload limit ` +
+        `(${outboundBytes} > ${MAX_REALTIME_PAYLOAD_BYTES} bytes).`
+      );
+      dispatch("realtime-payload-too-large", { eventName, bytes: outboundBytes });
+      return;
+    }
+
     await state.channel.send({
       type: "broadcast",
       event: "socket-event",
-      payload: {
-        eventName,
-        payload: enriched,
-        senderSocketId: socketId,
-        senderRole: state.role,
-        senderNickname: state.nickname,
-        timestamp: Date.now(),
-      },
+      payload: outboundPayload,
     });
   }
 

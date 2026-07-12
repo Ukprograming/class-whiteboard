@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=multi-tab-presence-20260711";
+} from "./supabase-api.js?v=pages-staging-20260712";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -106,6 +106,20 @@ const discardAnnotationBtn = document.getElementById("discardAnnotationBtn");
 
 let monitorIntervalId = null;
 let pendingAnnotationData = null;
+const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
+const FREE_TIER_MODE = runtimeConfig.freeTierMode !== false;
+const MAX_REALTIME_IMAGE_BYTES = Math.min(
+  150000,
+  Math.max(64000, (Number(runtimeConfig.maxRealtimePayloadBytes) || 180000) - 20000)
+);
+const MONITORING_INTERVAL_MS = Math.max(
+  5000,
+  Number(runtimeConfig.monitoringIntervalMs) || 8000
+);
+const NOTEBOOK_INTERVAL_MS = Math.max(
+  7000,
+  Number(runtimeConfig.notebookIntervalMs) || 12000
+);
 
 // チャット状態
 let chatPanelOpen = false;
@@ -125,7 +139,10 @@ let sharedBoardSession = null;
 let applyingSharedBoardRemote = false;
 
 let captureTimerId = null;
-const CAPTURE_INTERVAL_MS = 3000;
+const CAPTURE_INTERVAL_MS = Math.max(
+  7000,
+  Number(runtimeConfig.thumbnailIntervalMs) || 12000
+);
 
 // キャプチャモード：'whiteboard' or 'screen'
 let captureMode = "whiteboard";
@@ -136,6 +153,40 @@ let currentStream = null; // ノート提出用カメラの MediaStream
 
 let screenStream = null;
 let screenVideo = null;
+
+function estimateDataUrlBytes(dataUrl) {
+  const commaIndex = String(dataUrl || "").indexOf(",");
+  if (commaIndex < 0) return 0;
+  return Math.ceil((dataUrl.length - commaIndex - 1) * 0.75);
+}
+
+function encodeCanvasForRealtime(sourceCanvas, options = {}) {
+  if (!sourceCanvas?.width || !sourceCanvas?.height) return null;
+  const maxWidth = Math.min(sourceCanvas.width, Number(options.maxWidth) || 720);
+  const minWidth = Math.min(maxWidth, Number(options.minWidth) || 240);
+  let targetWidth = maxWidth;
+  let quality = Number(options.quality) || 0.62;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const scale = targetWidth / sourceCanvas.width;
+    const output = document.createElement("canvas");
+    output.width = Math.max(1, Math.round(targetWidth));
+    output.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+    const outputContext = output.getContext("2d");
+    outputContext.imageSmoothingEnabled = true;
+    outputContext.imageSmoothingQuality = "high";
+    outputContext.fillStyle = "#ffffff";
+    outputContext.fillRect(0, 0, output.width, output.height);
+    outputContext.drawImage(sourceCanvas, 0, 0, output.width, output.height);
+    const dataUrl = output.toDataURL("image/jpeg", quality);
+    if (estimateDataUrlBytes(dataUrl) <= MAX_REALTIME_IMAGE_BYTES) return dataUrl;
+    targetWidth = Math.max(minWidth, Math.floor(targetWidth * 0.78));
+    quality = Math.max(0.42, quality - 0.08);
+  }
+
+  console.warn("Realtime image was skipped because it could not be compressed safely.");
+  return null;
+}
 
 async function loadActiveSharedBoard(classCode) {
   if (!boardApi.enabled || !whiteboard || !classCode) return;
@@ -1447,7 +1498,8 @@ function sendWhiteboardThumbnail() {
       thumbHeight
     );
 
-    const dataUrl = off.toDataURL("image/jpeg", 0.6);
+    const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
+    if (!dataUrl) return;
 
     socket.emit("student-thumbnail", {
       classCode: currentClassCode,
@@ -1489,7 +1541,8 @@ function sendWhiteboardThumbnail() {
     thumbHeight
   );
 
-  const dataUrl = off.toDataURL("image/jpeg", 0.6);
+  const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
+  if (!dataUrl) return;
 
   socket.emit("student-thumbnail", {
     classCode: currentClassCode,
@@ -1548,7 +1601,8 @@ function sendHighres() {
       targetHeight
     );
 
-    const dataUrl = off.toDataURL("image/jpeg", 0.85);
+    const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 960, quality: 0.72 });
+    if (!dataUrl) return;
 
     socket.emit("student-highres", {
       classCode: currentClassCode,
@@ -1588,7 +1642,8 @@ function sendHighres() {
     targetHeight
   );
 
-  const dataUrl = off.toDataURL("image/jpeg", 0.85);
+  const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 960, quality: 0.72 });
+  if (!dataUrl) return;
 
   socket.emit("student-highres", {
     classCode: currentClassCode,
@@ -1822,7 +1877,7 @@ if (startCameraBtn) {
 
       // ノート画像送信ループ開始（3秒おき）
       if (captureIntervalIdNotebook) clearInterval(captureIntervalIdNotebook);
-      captureIntervalIdNotebook = setInterval(captureAndSendImage, 3000);
+      captureIntervalIdNotebook = setInterval(captureAndSendImage, NOTEBOOK_INTERVAL_MS);
     } catch (e) {
       console.error(e);
       alert("カメラの起動に失敗しました");
@@ -2108,11 +2163,15 @@ function captureAndSendImage() {
 
   // 高画質モード中のみ PNG、それ以外は JPEG(0.5)
   let dataUrl;
-  if (highQualityMode) {
+  if (highQualityMode && !FREE_TIER_MODE) {
     dataUrl = previewCanvas.toDataURL("image/png");
   } else {
-    dataUrl = previewCanvas.toDataURL("image/jpeg", 0.5);
+    dataUrl = encodeCanvasForRealtime(previewCanvas, {
+      maxWidth: highQualityMode ? 960 : 720,
+      quality: highQualityMode ? 0.72 : 0.52,
+    });
   }
+  if (!dataUrl) return;
 
   socket.emit("studentImageUpdate", {
     classCode: joinedNotebookClassCode,
@@ -2354,6 +2413,9 @@ socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active })
     id: sharedBoardId,
     title: title || "Shared board",
   };
+  if (!boardData && currentClassCode) {
+    void loadActiveSharedBoard(currentClassCode);
+  }
   if (whiteboard && boardData && typeof whiteboard.importBoardData === "function") {
     applyingSharedBoardRemote = true;
     try {
@@ -2401,7 +2463,7 @@ socket.on("start-monitoring", ({ teacherSocketId }) => {
 
   monitorIntervalId = setInterval(() => {
     sendScreenUpdate(teacherSocketId);
-  }, 3000); // 頻度を落とす（3秒）
+  }, MONITORING_INTERVAL_MS); // 無料枠向けに送信頻度を制限
 });
 
 // ★ モニタリング終了通知
@@ -2439,7 +2501,7 @@ function sendScreenUpdate(teacherSocketId) {
 
     const ctx = off.getContext("2d");
     ctx.drawImage(screenVideo, 0, 0, off.width, off.height);
-    dataUrl = off.toDataURL("image/jpeg", 0.6);
+    dataUrl = encodeCanvasForRealtime(off, { maxWidth: 720, quality: 0.58 });
 
     // 画面共有時はビューポートリセット（全体表示）
     viewport = { scale: 1, offsetX: 0, offsetY: 0 };
@@ -2456,7 +2518,7 @@ function sendScreenUpdate(teacherSocketId) {
     }
 
     // ここでは中画質 JPEG で送信（高画質が必要な場合は別途 studentImageUpdate / PNG を使用）
-    dataUrl = previewCanvas.toDataURL("image/jpeg", 0.7);
+    dataUrl = encodeCanvasForRealtime(previewCanvas, { maxWidth: 720, quality: 0.6 });
 
     // ノート画像なのでビューポートは固定
     viewport = { scale: 1, offsetX: 0, offsetY: 0 };
@@ -2464,7 +2526,7 @@ function sendScreenUpdate(teacherSocketId) {
   } else {
     // === ホワイトボードモード（viewMode === "whiteboard" 他） ===
     if (!whiteboard) return;
-    dataUrl = whiteboard.exportPngDataUrl();
+    dataUrl = encodeCanvasForRealtime(studentCanvas, { maxWidth: 720, quality: 0.6 });
 
     viewport = {
       scale: whiteboard.scale,
@@ -2489,6 +2551,8 @@ function sendScreenUpdate(teacherSocketId) {
       boardData = null;
     }
   }
+
+  if (!dataUrl) return;
 
   socket.emit("student-screen-update", {
     classCode: currentClassCode,

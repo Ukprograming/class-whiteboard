@@ -1,39 +1,49 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=multi-tab-presence-20260711";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260712";
+import {
+  getSelectedTeacherClass,
+  getTeacherClassHints,
+  setSelectedTeacherClass,
+} from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
 
 const form = document.querySelector("[data-teacher-login-form]");
 const emailInput = document.getElementById("teacherEmail");
 const passwordInput = document.getElementById("teacherPassword");
-const inviteInput = document.getElementById("teacherInviteCode");
-const displayNameInput = document.getElementById("teacherDisplayName");
-const authModeInput = document.getElementById("teacherAuthMode");
-const authModeToggle = document.getElementById("teacherAuthModeToggle");
+const classSelect = document.getElementById("teacherClassSelect");
+const classHelp = document.getElementById("teacherClassHelp");
 const messageEl = document.getElementById("teacherLoginMessage");
 
-function setMessage(message) {
-  if (messageEl) messageEl.textContent = message || "";
+function setMessage(message, isError = false) {
+  if (!messageEl) return;
+  messageEl.textContent = message || "";
+  messageEl.classList.toggle("is-error", isError);
 }
 
-function setMode(mode) {
-  if (!authModeInput) return;
-  const nextMode = mode === "signup" ? "signup" : "signin";
-  authModeInput.value = nextMode;
-  document.body.dataset.teacherAuthMode = nextMode;
-  if (inviteInput) inviteInput.required = nextMode === "signup";
-  if (displayNameInput) displayNameInput.required = nextMode === "signup";
-  if (authModeToggle) {
-    authModeToggle.textContent = nextMode === "signup"
-      ? "ログインに戻る"
-      : "教員アカウントを作成";
+function renderSavedClasses() {
+  if (!classSelect) return;
+  const classes = getTeacherClassHints();
+  const selectedClass = getSelectedTeacherClass();
+  classSelect.innerHTML = '<option value="">ログイン後にクラスを作成・選択</option>';
+  for (const item of classes) {
+    const option = document.createElement("option");
+    option.value = item.classCode;
+    option.textContent = item.label || item.classCode;
+    classSelect.append(option);
+  }
+  if (classes.some((item) => item.classCode === selectedClass)) {
+    classSelect.value = selectedClass;
+  }
+  if (classHelp) {
+    classHelp.textContent = classes.length > 0
+      ? `${classes.length}件のクラスをこの端末に保存しています。`
+      : "保存済みクラスはありません。ログイン後にクラスを作成できます。";
   }
 }
 
-if (authModeToggle) {
-  authModeToggle.addEventListener("click", () => {
-    setMode(authModeInput?.value === "signup" ? "signin" : "signup");
-  });
-}
+renderSavedClasses();
 
-setMode("signin");
+if (new URLSearchParams(window.location.search).get("registered") === "1") {
+  setMessage("教員アカウントを作成しました。通常ログインしてください。");
+}
 
 if (form && supabaseEnabled) {
   form.addEventListener("submit", async (event) => {
@@ -42,30 +52,20 @@ if (form && supabaseEnabled) {
 
     const email = emailInput?.value.trim();
     const password = passwordInput?.value || "";
-    const mode = authModeInput?.value === "signup" ? "signup" : "signin";
 
     try {
-      if (mode === "signup") {
-        await authApi.signUpTeacher({
-          email,
-          password,
-          displayName: displayNameInput?.value.trim() || email,
-          inviteCode: inviteInput?.value.trim(),
-        });
-      }
-
       await authApi.signInTeacher(email, password);
+      setSelectedTeacherClass(classSelect?.value);
       // The local Express server keeps the legacy session gate. This marker
       // lets the Supabase path load the page; teacher.js verifies the session.
       window.location.href = "./teacher.html?auth=supabase";
     } catch (error) {
       console.error(error);
-      setMessage(error.message || "ログインに失敗しました。");
+      setMessage(error.message || "ログインに失敗しました。", true);
     }
   });
 } else if (form && !supabaseEnabled) {
+  form.action = "/teacher/login";
   if (emailInput) emailInput.required = false;
-  if (inviteInput) inviteInput.required = false;
-  if (displayNameInput) displayNameInput.required = false;
   setMessage("Supabase未設定のため、既存サーバーのログインを使います。");
 }

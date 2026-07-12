@@ -3453,7 +3453,8 @@ select:focus {
 }
 
 .login-box input,
-.teacher-login-card input {
+.teacher-login-card input,
+.teacher-login-card select {
   width: 100%;
   min-height: 50px;
   padding: 12px 14px;
@@ -3467,14 +3468,6 @@ select:focus {
   font-size: 18px;
 }
 
-.teacher-signup-only {
-  display: none;
-}
-
-body[data-teacher-auth-mode="signup"] .teacher-signup-only {
-  display: flex;
-}
-
 .login-secondary-action {
   width: 100%;
   min-height: 44px;
@@ -3484,6 +3477,31 @@ body[data-teacher-auth-mode="signup"] .teacher-signup-only {
   border-radius: 10px;
   font-weight: 750;
   cursor: pointer;
+}
+
+.login-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.login-page-description,
+.login-field-help {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.login-page-description {
+  margin-top: 8px;
+}
+
+.login-field-help {
+  margin-top: -10px;
+  text-align: left;
 }
 
 .login-message {

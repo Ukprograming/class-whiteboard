@@ -10,6 +10,14 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const signupEnabled = Deno.env.get("TEACHER_SIGNUP_ENABLED") === "true";
+    if (!signupEnabled) {
+      return jsonResponse({
+        ok: false,
+        message: "Teacher signup is disabled in this environment",
+      }, 403);
+    }
+
     const inviteCode = Deno.env.get("TEACHER_INVITE_CODE");
     const { email, password, displayName, inviteCode: providedCode } = await req.json();
 

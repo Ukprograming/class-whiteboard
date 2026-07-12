@@ -9,6 +9,9 @@ const moduleFiles = [
   "public/js/stamps.js",
   "public/js/student.js",
   "public/js/teacher.js",
+  "public/js/teacher-class-storage.js",
+  "public/js/teacher-login.js",
+  "public/js/teacher-signup.js",
   "public/js/ui-icons.js",
   "public/js/whiteboard.js",
 ];

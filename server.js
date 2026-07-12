@@ -15,6 +15,7 @@ const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "teacher1234";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const TEACHER_PAGE = path.join(PUBLIC_DIR, "teacher.html");
 const TEACHER_LOGIN_PAGE = path.join(PUBLIC_DIR, "teacher-login.html");
+const TEACHER_SIGNUP_PAGE = path.join(PUBLIC_DIR, "teacher-signup.html");
 
 const app = express();
 
@@ -47,6 +48,10 @@ function normalizeText(value) {
 
 app.get("/teacher-login", (req, res) => {
   res.sendFile(TEACHER_LOGIN_PAGE);
+});
+
+app.get("/teacher-signup", (req, res) => {
+  res.sendFile(TEACHER_SIGNUP_PAGE);
 });
 
 app.get(["/teacher", "/teacher.html"], (req, res) => {

@@ -1,7 +1,12 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 import { Whiteboard } from "./whiteboard.js";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=multi-tab-presence-20260711";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260712";
+import {
+  getSelectedTeacherClass,
+  saveTeacherClassHints,
+  setSelectedTeacherClass,
+} from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return;
@@ -260,7 +265,15 @@ let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
 
-const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = 15000;
+const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
+const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = Math.max(
+  30000,
+  Number(runtimeConfig.sharedBoardSnapshotIntervalMs) || 60000
+);
+const TEACHER_FEEDBACK_INTERVAL_MS = Math.max(
+  5000,
+  Number(runtimeConfig.monitoringIntervalMs) || 8000
+);
 let sharedBoardSession = null;
 let sharedBoardSnapshotTimerId = null;
 let sharedBoardSaveInFlight = false;
@@ -363,7 +376,7 @@ async function publishSharedBoardSnapshot(reason = "manual") {
     classCode: currentClassCode,
     sharedBoardId: sharedBoardSession.id,
     title: sharedBoardSession.title,
-    boardData,
+    boardData: null,
     active: true,
     reason,
   });
@@ -400,7 +413,7 @@ async function startSharedBoard() {
     classCode: currentClassCode,
     sharedBoardId: result.sharedBoardId,
     title: result.title,
-    boardData,
+    boardData: null,
     active: true,
     reason: "start",
   });
@@ -493,8 +506,30 @@ socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active })
 });
 
 async function autoJoinClassFromSession() {
+  if (supabaseEnabled) {
+    try {
+      const classes = await managementApi.listClasses();
+      saveTeacherClassHints(classes);
+      const selectedCode = getSelectedTeacherClass();
+      const selectedClass = classes.find(
+        (klass) => String(klass.class_code || "").toUpperCase() === selectedCode
+      );
+      if (!selectedClass) return;
+
+      const code = selectedClass.class_code;
+      currentClassCode = code;
+      if (classCodeInput) classCodeInput.value = code;
+      if (statusLabel) statusLabel.textContent = `クラスコード ${code} で待機中…`;
+      socket.emit("join-teacher", { classCode: code });
+      socket.emit("teacher-start-class", { classCode: code });
+      socket.emit("joinAsTeacher", { classCode: code });
+    } catch (error) {
+      console.error("Failed to load the selected teacher class", error);
+    }
+    return;
+  }
   try {
-    const res = await fetch("/api/teacher/session", {
+    const res = await fetch("./api/teacher/session", {
       method: "GET",
       headers: { "Content-Type": "application/json" }
     });
@@ -548,6 +583,21 @@ autoJoinClassFromSession();
 async function fetchStudentNicknameList() {
   if (!currentClassCode) {
     throw new Error("クラスコードが設定されていません。");
+  }
+
+  if (supabaseEnabled) {
+    const classes = await managementApi.listClasses();
+    const selectedClass = classes.find(
+      (klass) => String(klass.class_code || "").toUpperCase() === String(currentClassCode).toUpperCase()
+    );
+    if (!selectedClass) return [];
+    const students = await managementApi.listStudents(selectedClass.id);
+    return students
+      .filter((student) => student.active !== false)
+      .map((student) => ({
+        nickname: student.student_login_id || student.display_name || "",
+      }))
+      .filter((student) => student.nickname);
   }
 
   const res = await fetch(`${BOARD_API_BASE}/students`, {
@@ -1457,6 +1507,7 @@ async function refreshClassManagement() {
   try {
     const previouslySelectedClassId = classManagementClassSelect?.value;
     managedClasses = await managementApi.listClasses();
+    saveTeacherClassHints(managedClasses);
     if (classManagementClassSelect) {
       classManagementClassSelect.innerHTML = managedClasses.length
         ? managedClasses.map((klass) => `<option value="${klass.id}">${escapeHtml(klass.class_code)} — ${escapeHtml(klass.name)}</option>`).join("")
@@ -1516,6 +1567,8 @@ if (classManagementCreateClassForm) {
       });
       classManagementClassName.value = "";
       classManagementClassCode.value = "";
+      saveTeacherClassHints(result.class);
+      setSelectedTeacherClass(result.class.class_code);
       if (classCodeInput) classCodeInput.value = result.class.class_code;
       setClassManagementStatus(`「${result.class.name}」を作成しました。`);
       await refreshClassManagement();
@@ -1610,7 +1663,7 @@ if (leaveClassBtn) {
     }
 
     // ★ ログイン画面へ移動（URLはプロジェクトに合わせて変更）
-    window.location.href = "/teacher-login.html";
+    window.location.href = "./teacher-login.html";
   });
 }
 
@@ -3526,7 +3579,7 @@ function startSharing() {
       studentId: currentStudentId,
       imageData: data
     });
-  }, 3000);
+  }, TEACHER_FEEDBACK_INTERVAL_MS);
 }
 
 function stopSharing() {

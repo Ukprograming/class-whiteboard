@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow" />
   <title>教員ログイン | Class Whiteboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="./style.css?v=toolbar-chat-templates" rel="stylesheet" />
@@ -12,36 +13,31 @@
   <main class="login-container teacher-login-card">
     <p class="login-product-name">Class Whiteboard</p>
     <h1>教員ログイン</h1>
-    <form method="POST" action="/teacher/login" data-teacher-login-form>
-      <input id="teacherAuthMode" type="hidden" value="signin" />
+    <p class="login-page-description">登録済みの教員アカウントでログインします。</p>
+    <form method="POST" action="./teacher-login.html" data-teacher-login-form>
       <label>
         教員メール
         <input id="teacherEmail" type="email" name="email" autocomplete="username" required />
-      </label>
-      <label class="teacher-signup-only">
-        表示名
-        <input id="teacherDisplayName" type="text" name="displayName" autocomplete="name" />
       </label>
       <label>
         パスワード
         <input id="teacherPassword" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required />
       </label>
-      <label class="teacher-signup-only">
-        教員用招待コード
-        <input id="teacherInviteCode" type="password" name="inviteCode" autocomplete="off" />
-      </label>
       <label>
-        クラスコード
-        <input type="text" name="classCode" placeholder="例: ABC123" />
+        担当クラス
+        <select id="teacherClassSelect" name="classCode">
+          <option value="">ログイン後にクラスを作成・選択</option>
+        </select>
       </label>
+      <p id="teacherClassHelp" class="login-field-help">この端末で作成・取得したクラスが表示されます。</p>
       <button type="submit">ログイン</button>
-      <button id="teacherAuthModeToggle" type="button" class="login-secondary-action">教員アカウントを作成</button>
+      <a class="login-secondary-action login-secondary-link" href="./teacher-signup.html">初回の教員アカウント作成</a>
       <p id="teacherLoginMessage" class="login-message" aria-live="polite"></p>
     </form>
   </main>
   <script src="./js/app-config.js"></script>
-  <script src="./js/app-config.local.js"></script>
-  <script type="module" src="./js/teacher-login.js?v=multi-tab-presence-20260711"></script>
+  <script src="./js/local-config-loader.js"></script>
+  <script type="module" src="./js/teacher-login.js?v=teacher-auth-split-20260712"></script>
 </body>
 
 </html>
