@@ -3,6 +3,7 @@
 const express = require("express");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const session = require("express-session");
 
@@ -10,8 +11,15 @@ const GAS_ENDPOINT =
   process.env.GAS_ENDPOINT ||
   "https://script.google.com/macros/s/AKfycbwiG9RIoKoowqfuPhzckfDeqQjIN-YqXK_i6RWwBLc6g2GJU3FT7WZgLHzfd28Ulh8H/exec";
 const PORT = process.env.PORT || 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || "some-random-secret";
-const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "teacher1234";
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "";
+const LEGACY_REALTIME_ENABLED = process.env.ENABLE_LEGACY_REALTIME === "true";
+const LEGACY_GAS_PROXY_ENABLED = process.env.ENABLE_LEGACY_GAS_PROXY === "true";
+if (LEGACY_REALTIME_ENABLED && (!process.env.SESSION_SECRET || !TEACHER_PASSWORD)) {
+  throw new Error(
+    "ENABLE_LEGACY_REALTIME=true requires SESSION_SECRET and TEACHER_PASSWORD."
+  );
+}
 const PUBLIC_DIR = path.join(__dirname, "public");
 const TEACHER_PAGE = path.join(PUBLIC_DIR, "teacher.html");
 const TEACHER_LOGIN_PAGE = path.join(PUBLIC_DIR, "teacher-login.html");
@@ -21,17 +29,27 @@ const app = express();
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(
-  session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-  })
-);
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: "lax",
+  },
+});
+app.use(sessionMiddleware);
 
 const server = http.createServer(app);
 const io = new Server(server, {
   maxHttpBufferSize: 1e7, // 約10MB（socket.io経由の画像転送の上限）
+});
+io.engine.use(sessionMiddleware);
+io.use((socket, next) => {
+  if (!LEGACY_REALTIME_ENABLED) {
+    return next(new Error("Legacy realtime is disabled."));
+  }
+  return next();
 });
 
 /* =========================
@@ -61,6 +79,9 @@ app.get(["/teacher", "/teacher.html"], (req, res) => {
 });
 
 app.post("/teacher/login", (req, res) => {
+  if (!TEACHER_PASSWORD) {
+    return res.status(503).send("Legacy teacher login is disabled. Configure TEACHER_PASSWORD to enable it.");
+  }
   const { password, classCode } = req.body;
   if (password === TEACHER_PASSWORD) {
     req.session.isTeacher = true;
@@ -147,7 +168,15 @@ const boardProxyPaths = [
 ];
 
 boardProxyPaths.forEach((routePath) => {
-  app.post(routePath, proxyToGas);
+  app.post(routePath, (req, res, next) => {
+    if (!LEGACY_GAS_PROXY_ENABLED) {
+      return res.status(503).json({
+        ok: false,
+        message: "Legacy GAS proxy is disabled.",
+      });
+    }
+    return next();
+  }, proxyToGas);
 });
 
 /* =========================
@@ -211,6 +240,38 @@ io.on("connection", (socket) => {
   let notebookJoinedClassCode = null;
   let notebookStudentId = null;
 
+  function isAuthenticatedTeacher() {
+    return !!socket.request.session?.isTeacher;
+  }
+
+  function isTeacherForClass(classCode) {
+    const code = normalizeText(classCode || joinedClassCode);
+    const cls = classes[code];
+    return !!(
+      code &&
+      isAuthenticatedTeacher() &&
+      role === "teacher" &&
+      joinedClassCode === code &&
+      cls?.teacherSocketId === socket.id
+    );
+  }
+
+  function isStudentForClass(classCode) {
+    const code = normalizeText(classCode || joinedClassCode);
+    const cls = classes[code];
+    return !!(
+      code &&
+      role === "student" &&
+      joinedClassCode === code &&
+      cls?.students?.[socket.id]
+    );
+  }
+
+  function isStudentTargetInClass(classCode, targetSocketId) {
+    const code = normalizeText(classCode || joinedClassCode);
+    return !!(code && targetSocketId && classes[code]?.students?.[targetSocketId]);
+  }
+
   function leaveCurrentWhiteboardClass() {
     if (!joinedClassCode) return;
 
@@ -268,6 +329,10 @@ io.on("connection", (socket) => {
   socket.on("join-teacher", ({ classCode }) => {
     const code = normalizeText(classCode);
     if (!code) return;
+    if (!isAuthenticatedTeacher()) {
+      socket.emit("join-error", "Teacher authentication is required.");
+      return;
+    }
 
     // すでに別のクラスに入っている場合は、そのクラスから抜ける
     if (joinedClassCode && joinedClassCode !== code) {
@@ -319,7 +384,7 @@ io.on("connection", (socket) => {
   // === 生徒のモード変更（ホワイトボード / 画面共有 / ノート提出 など） ===
   socket.on("student-mode-change", ({ classCode, mode }) => {
     const code = classCode || joinedClassCode;
-    if (!code || !mode) return;
+    if (!code || !mode || !isStudentForClass(code)) return;
 
     const cls = classes[code];
     if (!cls || !cls.students[socket.id]) return;
@@ -347,7 +412,7 @@ io.on("connection", (socket) => {
   // === 生徒画面確認モード ON/OFF（通信量削減用） ===
   socket.on("student-view-start", ({ classCode }) => {
     const code = classCode || joinedClassCode;
-    if (!code) return;
+    if (!code || !isTeacherForClass(code)) return;
 
     const cls = classes[code];
     if (!cls) return;
@@ -364,7 +429,7 @@ io.on("connection", (socket) => {
 
   socket.on("student-view-stop", ({ classCode }) => {
     const code = classCode || joinedClassCode;
-    if (!code) return;
+    if (!code || !isTeacherForClass(code)) return;
 
     const cls = classes[code];
     if (!cls) return;
@@ -383,7 +448,7 @@ io.on("connection", (socket) => {
 
   // 生徒 → 教員 チャット
   socket.on("student-chat-to-teacher", (payload) => {
-    const { classCode, nickname } = payload || {};
+    const { classCode } = payload || {};
     const reaction = Object.prototype.hasOwnProperty.call(chatReactions, payload?.reaction)
       ? payload.reaction
       : "";
@@ -396,10 +461,11 @@ io.on("connection", (socket) => {
     )
       ? payload.templateKind
       : "";
-    if (!classCode || !message) return;
+    if (!classCode || !message || !isStudentForClass(classCode)) return;
 
     const cls = classes[classCode];
     if (!cls || !cls.teacherSocketId) return;
+    const nickname = cls.students[socket.id].nickname;
 
     const teacherId = cls.teacherSocketId;
 
@@ -431,7 +497,13 @@ io.on("connection", (socket) => {
       : "";
     const kind = reaction ? "reaction" : "text";
     const message = reaction ? chatReactions[reaction] : payload.message;
-    if (!classCode || !targetSocketId || !message) return;
+    if (
+      !classCode ||
+      !targetSocketId ||
+      !message ||
+      !isTeacherForClass(classCode) ||
+      !isStudentTargetInClass(classCode, targetSocketId)
+    ) return;
     const cls = classes[classCode];
     if (!cls) return;
 
@@ -458,14 +530,16 @@ io.on("connection", (socket) => {
 
   // 生徒 → 教員：縮小キャプチャ
   socket.on("student-thumbnail", ({ classCode, nickname, dataUrl, mode, viewport }) => {
+    if (!isStudentForClass(classCode)) return;
     const cls = classes[classCode];
     if (!cls || !cls.teacherSocketId) return;
+    const verifiedNickname = cls.students[socket.id].nickname;
     console.log(
       `[thumb] student-thumbnail class=${classCode}, from=${nickname}(${socket.id}), size=${dataUrl ? dataUrl.length : 0}`
     );
     io.to(cls.teacherSocketId).emit("student-thumbnail", {
       socketId: socket.id,
-      nickname,
+      nickname: verifiedNickname,
       dataUrl,
       mode,
       viewport,
@@ -474,7 +548,11 @@ io.on("connection", (socket) => {
 
   // 教員 → 生徒：中画質リクエスト
   socket.on("request-highres", ({ classCode, studentSocketId }) => {
-    if (!studentSocketId) return;
+    if (
+      !studentSocketId ||
+      !isTeacherForClass(classCode) ||
+      !isStudentTargetInClass(classCode, studentSocketId)
+    ) return;
     console.log(
       `[highres] request-highres class=${classCode}, teacher=${socket.id} -> student=${studentSocketId}`
     );
@@ -483,14 +561,16 @@ io.on("connection", (socket) => {
 
   // 生徒 → 教員：中画質画像送信
   socket.on("student-highres", ({ classCode, nickname, dataUrl }) => {
+    if (!isStudentForClass(classCode)) return;
     const cls = classes[classCode];
     if (!cls || !cls.teacherSocketId) return;
+    const verifiedNickname = cls.students[socket.id].nickname;
     console.log(
       `[highres] student-highres class=${classCode}, from=${nickname}(${socket.id}), size=${dataUrl ? dataUrl.length : 0}`
     );
     io.to(cls.teacherSocketId).emit("student-highres", {
       socketId: socket.id,
-      nickname,
+      nickname: verifiedNickname,
       dataUrl,
     });
   });
@@ -503,7 +583,12 @@ io.on("connection", (socket) => {
   socket.on("start-monitoring", ({ classCode, studentSocketId }) => {
     const code = classCode || joinedClassCode;
     const targetSocketId = studentSocketId;
-    if (!code || !targetSocketId) return;
+    if (
+      !code ||
+      !targetSocketId ||
+      !isTeacherForClass(code) ||
+      !isStudentTargetInClass(code, targetSocketId)
+    ) return;
 
     console.log(
       `[monitor] start-monitoring class=${code}, teacher=${socket.id} -> student=${targetSocketId}`
@@ -520,7 +605,12 @@ io.on("connection", (socket) => {
   socket.on("stop-monitoring", ({ classCode, studentSocketId }) => {
     const code = classCode || joinedClassCode;
     const targetSocketId = studentSocketId;
-    if (!code || !targetSocketId) return;
+    if (
+      !code ||
+      !targetSocketId ||
+      !isTeacherForClass(code) ||
+      !isStudentTargetInClass(code, targetSocketId)
+    ) return;
 
     console.log(
       `[monitor] stop-monitoring class=${code}, teacher=${socket.id} -> student=${targetSocketId}`
@@ -533,7 +623,12 @@ io.on("connection", (socket) => {
 
   // 生徒 → 教員：ボードの全状態（初期同期用）
   socket.on("student-board-state", ({ targetTeacherSocketId, boardData }) => {
-    if (!targetTeacherSocketId || !boardData) return;
+    if (
+      !targetTeacherSocketId ||
+      !boardData ||
+      !isStudentForClass(joinedClassCode) ||
+      classes[joinedClassCode]?.teacherSocketId !== targetTeacherSocketId
+    ) return;
     console.log(
       `[monitor] student-board-state from=${socket.id} -> teacher=${targetTeacherSocketId}`
     );
@@ -547,7 +642,12 @@ io.on("connection", (socket) => {
   socket.on(
     "student-screen-update",
     ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, isSync }) => {
-      if (!teacherSocketId || !classCode) return;
+      if (
+        !teacherSocketId ||
+        !classCode ||
+        !isStudentForClass(classCode) ||
+        classes[classCode]?.teacherSocketId !== teacherSocketId
+      ) return;
       console.log(
         `[monitor] student-screen-update class=${classCode}, student=${socket.id} -> teacher=${teacherSocketId}, mode=${mode}, imgSize=${dataUrl ? dataUrl.length : 0}`
       );
@@ -568,7 +668,12 @@ io.on("connection", (socket) => {
     "teacher-whiteboard-action",
     ({ targetSocketId, targetStudentSocketId, action }) => {
       const dest = targetSocketId || targetStudentSocketId;
-      if (!dest || !action) return;
+      if (
+        !dest ||
+        !action ||
+        !isTeacherForClass(joinedClassCode) ||
+        !isStudentTargetInClass(joinedClassCode, dest)
+      ) return;
       console.log(
         `[monitor] teacher-whiteboard-action from=${socket.id} -> student=${dest}`
       );
@@ -580,7 +685,12 @@ io.on("connection", (socket) => {
 
   // 生徒 → 教員：ホワイトボード操作（リアルタイム）
   socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action }) => {
-    if (!targetTeacherSocketId || !action) return;
+    if (
+      !targetTeacherSocketId ||
+      !action ||
+      !isStudentForClass(joinedClassCode) ||
+      classes[joinedClassCode]?.teacherSocketId !== targetTeacherSocketId
+    ) return;
     console.log(
       `[monitor] student-whiteboard-action from=${socket.id} -> teacher=${targetTeacherSocketId}`
     );
@@ -592,7 +702,12 @@ io.on("connection", (socket) => {
 
   // ★★ 教員 → 生徒：アノテーション更新（オブジェクトの同期）
   socket.on("teacher-annotation-update", ({ classCode, targetSocketId, annotationData }) => {
-    if (!targetSocketId || !annotationData) return;
+    if (
+      !targetSocketId ||
+      !annotationData ||
+      !isTeacherForClass(classCode) ||
+      !isStudentTargetInClass(classCode, targetSocketId)
+    ) return;
     console.log(
       `[monitor] teacher-annotation-update class=${classCode}, teacher=${socket.id} -> student=${targetSocketId}, objects=${Array.isArray(annotationData) ? annotationData.length : "?"
       }`
@@ -610,36 +725,37 @@ io.on("connection", (socket) => {
 
   // 生徒: ノート確認クラスに参加
   socket.on("joinAsStudent", ({ classCode, studentId }) => {
-    if (!classCode || !studentId) return;
+    if (!classCode || !studentId || !isStudentForClass(classCode)) return;
+    const verifiedStudentId = classes[classCode].students[socket.id].nickname;
 
     notebookJoinedClassCode = classCode;
-    notebookStudentId = studentId;
+    notebookStudentId = verifiedStudentId;
 
     // このソケット ↔ 生徒ID の紐付け
-    notebookSocketToStudent[socket.id] = { classCode, studentId };
+    notebookSocketToStudent[socket.id] = { classCode, studentId: verifiedStudentId };
 
     // 生徒ソケットIDを記録
     if (!notebookStudentSockets[classCode]) {
       notebookStudentSockets[classCode] = {};
     }
-    notebookStudentSockets[classCode][studentId] = socket.id;
+    notebookStudentSockets[classCode][verifiedStudentId] = socket.id;
 
     // 生徒の状態を初期化（まだ画像なし）
     if (!notebookClasses[classCode]) {
       notebookClasses[classCode] = {};
     }
 
-    const isNewStudent = !notebookClasses[classCode][studentId];
-    notebookClasses[classCode][studentId] = {
-      latestImageData: notebookClasses[classCode][studentId]
-        ? notebookClasses[classCode][studentId].latestImageData
+    const isNewStudent = !notebookClasses[classCode][verifiedStudentId];
+    notebookClasses[classCode][verifiedStudentId] = {
+      latestImageData: notebookClasses[classCode][verifiedStudentId]
+        ? notebookClasses[classCode][verifiedStudentId].latestImageData
         : null,
     };
 
     // 新規参加のときだけ教員に通知
     if (isNewStudent) {
       io.to(`notebook:${classCode}:teachers`).emit("studentJoined", {
-        studentId,
+        studentId: verifiedStudentId,
         classCode,
       });
       console.log(
@@ -650,7 +766,7 @@ io.on("connection", (socket) => {
 
   // 教員: ノート確認クラスに参加
   socket.on("joinAsTeacher", ({ classCode }) => {
-    if (!classCode) return;
+    if (!classCode || !isTeacherForClass(classCode)) return;
 
     // 教員用の部屋に参加
     socket.join(`notebook:${classCode}:teachers`);
@@ -671,12 +787,13 @@ io.on("connection", (socket) => {
 
   // 生徒: 3秒ごとのノート画像送信
   socket.on("studentImageUpdate", ({ classCode, studentId, imageData }) => {
-    if (!classCode || !studentId || !imageData) return;
+    if (!classCode || !studentId || !imageData || !isStudentForClass(classCode)) return;
+    const verifiedStudentId = classes[classCode].students[socket.id].nickname;
 
     if (!notebookClasses[classCode]) {
       notebookClasses[classCode] = {};
     }
-    notebookClasses[classCode][studentId] = { latestImageData: imageData };
+    notebookClasses[classCode][verifiedStudentId] = { latestImageData: imageData };
 
     console.log(
       `[notebook] studentImageUpdate class=${classCode}, studentId=${studentId}, size=${imageData.length}`
@@ -684,14 +801,14 @@ io.on("connection", (socket) => {
 
     // 教員全員に「この生徒の画像が更新された」と通知
     io.to(`notebook:${classCode}:teachers`).emit("studentImageUpdated", {
-      studentId,
+      studentId: verifiedStudentId,
       imageData,
     });
   });
 
   // 教員→生徒: 高画質モード ON/OFF
   socket.on("teacherSetHighQuality", ({ classCode, studentId, enabled }) => {
-    if (!classCode || !studentId) return;
+    if (!classCode || !studentId || !isTeacherForClass(classCode)) return;
     const map = notebookStudentSockets[classCode];
     if (!map) return;
     const targetSocketId = map[studentId];
@@ -709,12 +826,12 @@ io.on("connection", (socket) => {
   socket.on(
     "teacherShareToStudent",
     ({ classCode, studentId, studentSocketId, imageData }) => {
-      if (!classCode || !imageData) return;
+      if (!classCode || !imageData || !isTeacherForClass(classCode)) return;
 
       let targetSocketId = null;
 
       // ① 生徒画面モーダルなど「socketId 直接指定」の場合
-      if (studentSocketId) {
+      if (studentSocketId && isStudentTargetInClass(classCode, studentSocketId)) {
         targetSocketId = studentSocketId;
       }
 

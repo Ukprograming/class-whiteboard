@@ -12,6 +12,35 @@ const EDGE_FUNCTION_BASE_URL = (
   config.edgeFunctionBaseUrl ||
   (SUPABASE_URL ? `${SUPABASE_URL}/functions/v1` : "")
 ).replace(/\/$/, "");
+const TEACHER_REALTIME_EVENTS = new Set([
+  "teacher-start-class",
+  "student-view-start",
+  "student-view-stop",
+  "teacher-chat-to-student",
+  "request-highres",
+  "start-monitoring",
+  "stop-monitoring",
+  "teacher-whiteboard-action",
+  "teacher-annotation-update",
+  "teacherSetHighQuality",
+  "teacherShareToStudent",
+]);
+const STUDENT_REALTIME_EVENTS = new Set([
+  "student-mode-change",
+  "student-chat-to-teacher",
+  "student-thumbnail",
+  "student-highres",
+  "student-board-state",
+  "student-screen-update",
+  "student-whiteboard-action",
+  "studentImageUpdate",
+  "student-screen-share-started",
+  "student-screen-share-stopped",
+]);
+const SHARED_REALTIME_EVENTS = new Set([
+  "shared-board-action",
+  "shared-board-snapshot",
+]);
 
 export const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -147,22 +176,18 @@ function createSupabaseRealtimeBridge() {
       case "join-class":
       case "join-student":
       case "joinAsStudent":
-        void joinRealtime("student", payload);
-        return;
+        return joinRealtime("student", payload);
       case "join-teacher":
       case "joinAsTeacher":
-        void joinRealtime("teacher", payload);
-        return;
+        return joinRealtime("teacher", payload);
       case "leave-class":
-        void leaveRealtime();
-        return;
+        return leaveRealtime();
       case "student-mode-change":
         state.mode = payload.mode || state.mode;
         void trackPresence();
-        void sendRealtimeEvent(eventName, payload);
-        return;
+        return sendRealtimeEvent(eventName, payload);
       default:
-        void sendRealtimeEvent(eventName, payload);
+        return sendRealtimeEvent(eventName, payload);
     }
   }
 
@@ -171,6 +196,20 @@ function createSupabaseRealtimeBridge() {
     if (!classCode) {
       dispatch("join-error", "Class code is required.");
       return;
+    }
+
+    let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      dispatch("join-error", sessionError?.message || "Login is required.");
+      return false;
+    }
+    if (sessionData.session.user?.app_metadata?.role !== role) {
+      const refreshed = await supabase.auth.refreshSession();
+      if (refreshed.error || refreshed.data.session?.user?.app_metadata?.role !== role) {
+        dispatch("join-error", "The signed-in account is not authorized for this role.");
+        return false;
+      }
+      sessionData = refreshed.data;
     }
 
     const nickname = String(
@@ -281,12 +320,12 @@ function createSupabaseRealtimeBridge() {
       try {
         await state.ready;
       } catch {
-        return;
+        return false;
       }
     }
     if (!state.channel) {
       console.warn("[realtime] event ignored before class join", eventName);
-      return;
+      return false;
     }
 
     const enriched = {
@@ -309,14 +348,26 @@ function createSupabaseRealtimeBridge() {
         `(${outboundBytes} > ${MAX_REALTIME_PAYLOAD_BYTES} bytes).`
       );
       dispatch("realtime-payload-too-large", { eventName, bytes: outboundBytes });
-      return;
+      return false;
     }
 
-    await state.channel.send({
-      type: "broadcast",
-      event: "socket-event",
-      payload: outboundPayload,
-    });
+    try {
+      const result = await state.channel.send({
+        type: "broadcast",
+        event: "socket-event",
+        payload: outboundPayload,
+      });
+      if (result && result !== "ok") {
+        console.warn(`[realtime] ${eventName} send returned ${result}.`);
+        dispatch("realtime-send-failed", { eventName, result });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error(`[realtime] ${eventName} send failed.`, error);
+      dispatch("realtime-send-failed", { eventName, error });
+      return false;
+    }
   }
 
   function handleRemoteEvent(message) {
@@ -324,6 +375,14 @@ function createSupabaseRealtimeBridge() {
     if (normalizeClassCode(message.payload?.classCode || state.classCode) !== state.classCode) return;
 
     const eventName = message.eventName;
+    const senderRole = message.senderRole;
+    const roleAllowed = SHARED_REALTIME_EVENTS.has(eventName) ||
+      (senderRole === "teacher" && TEACHER_REALTIME_EVENTS.has(eventName)) ||
+      (senderRole === "student" && STUDENT_REALTIME_EVENTS.has(eventName));
+    if (!roleAllowed) {
+      console.warn(`[realtime] rejected ${eventName || "unknown"} from role ${senderRole || "unknown"}.`);
+      return;
+    }
     const payload = message.payload || {};
     if (state.role === "teacher") {
       handleTeacherInbound(eventName, payload, message);
@@ -370,6 +429,7 @@ function createSupabaseRealtimeBridge() {
         dispatch("student-board-state", {
           studentSocketId: message.senderSocketId,
           boardData: payload.boardData,
+          boardSnapshotPath: payload.boardSnapshotPath,
         });
         break;
       case "student-whiteboard-action":
@@ -388,6 +448,7 @@ function createSupabaseRealtimeBridge() {
           viewport: payload.viewport,
           mode: payload.mode,
           boardData: payload.boardData,
+          boardSnapshotPath: payload.boardSnapshotPath,
           isSync: payload.isSync,
         });
         break;
@@ -882,6 +943,48 @@ export const boardApi = {
       fileName: data.name,
       boardData,
     };
+  },
+
+  async saveRealtimeBoardSnapshot(payload) {
+    assertSupabase();
+    const owner = await resolveOwner({
+      ...payload,
+      role: "student",
+    });
+    if (owner.ownerKind !== "student" || !owner.studentId) {
+      throw new Error("Student login is required.");
+    }
+
+    const boardJson = JSON.stringify(payload.boardData || {});
+    const blob = new Blob([boardJson], { type: "application/json" });
+    const snapshotPath = `students/${owner.studentId}/realtime/${owner.classId}.json`;
+    const upload = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(snapshotPath, blob, {
+        contentType: "application/json",
+        upsert: true,
+      });
+    if (upload.error) throw upload.error;
+
+    return {
+      ok: true,
+      snapshotPath,
+      sizeBytes: blob.size,
+    };
+  },
+
+  async loadRealtimeBoardSnapshot(snapshotPath) {
+    assertSupabase();
+    const normalizedPath = String(snapshotPath || "").trim();
+    if (!/^students\/[0-9a-f-]+\/realtime\/[0-9a-f-]+\.json$/i.test(normalizedPath)) {
+      throw new Error("Invalid realtime board snapshot path.");
+    }
+
+    const download = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .download(normalizedPath);
+    if (download.error) throw download.error;
+    return JSON.parse(await download.data.text());
   },
 
   async saveSharedBoardSnapshot(payload) {

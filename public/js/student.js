@@ -108,9 +108,13 @@ let monitorIntervalId = null;
 let pendingAnnotationData = null;
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const FREE_TIER_MODE = runtimeConfig.freeTierMode !== false;
+const REALTIME_PAYLOAD_LIMIT_BYTES = Math.max(
+  64000,
+  Number(runtimeConfig.maxRealtimePayloadBytes) || 180000
+);
 const MAX_REALTIME_IMAGE_BYTES = Math.min(
-  150000,
-  Math.max(64000, (Number(runtimeConfig.maxRealtimePayloadBytes) || 180000) - 20000)
+  120000,
+  Math.max(48000, REALTIME_PAYLOAD_LIMIT_BYTES - 60000)
 );
 const MONITORING_INTERVAL_MS = Math.max(
   5000,
@@ -154,10 +158,8 @@ let currentStream = null; // ノート提出用カメラの MediaStream
 let screenStream = null;
 let screenVideo = null;
 
-function estimateDataUrlBytes(dataUrl) {
-  const commaIndex = String(dataUrl || "").indexOf(",");
-  if (commaIndex < 0) return 0;
-  return Math.ceil((dataUrl.length - commaIndex - 1) * 0.75);
+function estimateRealtimeStringBytes(value) {
+  return new TextEncoder().encode(String(value || "")).byteLength;
 }
 
 function encodeCanvasForRealtime(sourceCanvas, options = {}) {
@@ -179,7 +181,7 @@ function encodeCanvasForRealtime(sourceCanvas, options = {}) {
     outputContext.fillRect(0, 0, output.width, output.height);
     outputContext.drawImage(sourceCanvas, 0, 0, output.width, output.height);
     const dataUrl = output.toDataURL("image/jpeg", quality);
-    if (estimateDataUrlBytes(dataUrl) <= MAX_REALTIME_IMAGE_BYTES) return dataUrl;
+    if (estimateRealtimeStringBytes(dataUrl) <= MAX_REALTIME_IMAGE_BYTES) return dataUrl;
     targetWidth = Math.max(minWidth, Math.floor(targetWidth * 0.78));
     quality = Math.max(0.42, quality - 0.08);
   }
@@ -213,13 +215,15 @@ async function loadActiveSharedBoard(classCode) {
   }
 }
 
-function publishSharedBoardSnapshotFromStudent(reason = "refresh") {
+async function publishSharedBoardSnapshotFromStudent(reason = "refresh") {
   if (!sharedBoardSession || !whiteboard || !currentClassCode) return;
-  socket.emit("shared-board-snapshot", {
+  const syncPayload = await createBoardSyncPayload();
+  if (!syncPayload) return;
+  await socket.emit("shared-board-snapshot", {
     classCode: currentClassCode,
     sharedBoardId: sharedBoardSession.id,
     title: sharedBoardSession.title,
-    boardData: whiteboard.exportBoardData(),
+    ...syncPayload,
     active: true,
     reason,
   });
@@ -2344,16 +2348,44 @@ let currentTeacherSocketId = null;
 let hasSentInitialBoardData = false;
 let forceNextBoardSync = false;
 
+async function createBoardSyncPayload() {
+  if (!whiteboard || !currentClassCode || !nickname) return null;
+  const boardData = whiteboard.exportBoardData();
+  if (!boardApi.enabled) {
+    return { boardData, boardSnapshotPath: null };
+  }
+
+  try {
+    const result = await boardApi.saveRealtimeBoardSnapshot({
+      classCode: currentClassCode,
+      nickname,
+      boardData,
+    });
+    return {
+      boardData: null,
+      boardSnapshotPath: result.snapshotPath,
+    };
+  } catch (error) {
+    console.error("Failed to store realtime board snapshot:", error);
+    return null;
+  }
+}
+
+async function sendBoardStateToTeacher(teacherSocketId) {
+  const syncPayload = await createBoardSyncPayload();
+  if (!syncPayload || !teacherSocketId) return false;
+  const sent = await socket.emit("student-board-state", {
+    targetTeacherSocketId: teacherSocketId,
+    ...syncPayload,
+  });
+  return sent !== false;
+}
+
 
 // ★ 教員が共同編集セッションに参加
 socket.on("teacher-joined-session", ({ teacherSocketId }) => {
   if (!whiteboard) return;
-  // 現在のボード状態を全送信（背景含む）
-  const boardData = whiteboard.exportBoardData();
-  socket.emit("student-board-state", {
-    targetTeacherSocketId: teacherSocketId,
-    boardData
-  });
+  void sendBoardStateToTeacher(teacherSocketId);
 });
 
 // ★ 教員からのホワイトボード操作受信
@@ -2369,7 +2401,7 @@ if (whiteboard) {
   whiteboard.onAction = (action) => {
     if (sharedBoardSession && !applyingSharedBoardRemote) {
       if (action?.type === "refresh") {
-        publishSharedBoardSnapshotFromStudent("refresh");
+        void publishSharedBoardSnapshotFromStudent("refresh");
       } else {
         socket.emit("shared-board-action", {
           classCode: currentClassCode,
@@ -2447,22 +2479,15 @@ socket.on("start-monitoring", ({ teacherSocketId }) => {
   forceNextBoardSync = false;
 
   // ★ 共同編集開始時に、現在のボード状態を教員に送る
-  if (whiteboard) {
-    const boardData = whiteboard.exportBoardData();
-    socket.emit("student-board-state", {
-      targetTeacherSocketId: teacherSocketId,
-      boardData
-    });
-  }
 
   // 既存のサムネイル送信ループ
   if (monitorIntervalId) clearInterval(monitorIntervalId);
 
   // 初回即時送信
-  sendScreenUpdate(teacherSocketId);
+  void sendScreenUpdate(teacherSocketId);
 
   monitorIntervalId = setInterval(() => {
-    sendScreenUpdate(teacherSocketId);
+    void sendScreenUpdate(teacherSocketId);
   }, MONITORING_INTERVAL_MS); // 無料枠向けに送信頻度を制限
 });
 
@@ -2476,12 +2501,14 @@ socket.on("stop-monitoring", () => {
   }
 });
 
-function sendScreenUpdate(teacherSocketId) {
+async function sendScreenUpdate(teacherSocketId) {
   if (!currentClassCode) return;
 
   let dataUrl;
   let viewport;
   let boardData = null; // ★ ホワイトボードの実データ（必要に応じて）
+  let boardSnapshotPath = null;
+  let shouldCommitBoardSync = false;
 
   // ★ モードは viewMode で分岐する
   if (viewMode === "screen") {
@@ -2542,19 +2569,19 @@ function sendScreenUpdate(teacherSocketId) {
     const shouldSendBoardData = !hasSentInitialBoardData || forceNextBoardSync;
 
     if (shouldSendBoardData) {
-      const allData = whiteboard.getSnapshot();
-      boardData = { ...allData };
-      // 送信したらフラグ更新
-      hasSentInitialBoardData = true;
-      forceNextBoardSync = false;
-    } else {
-      boardData = null;
+      const syncPayload = await createBoardSyncPayload();
+      if (syncPayload) {
+        boardData = syncPayload.boardData;
+        boardSnapshotPath = syncPayload.boardSnapshotPath;
+        shouldCommitBoardSync = true;
+      }
     }
   }
 
   if (!dataUrl) return;
+  if (currentTeacherSocketId !== teacherSocketId) return;
 
-  socket.emit("student-screen-update", {
+  const sent = await socket.emit("student-screen-update", {
     classCode: currentClassCode,
     teacherSocketId,
     dataUrl,
@@ -2563,8 +2590,13 @@ function sendScreenUpdate(teacherSocketId) {
     //   "whiteboard" | "screen" | "notebook"
     mode: viewMode,
     boardData, // ★ ホワイトボードモードのときのみ有効（差分更新時は null）
-    isSync: !!boardData // ★ 受け取り側で「全データ同期」かどうかを判断するためのフラグ
+    boardSnapshotPath,
+    isSync: !!(boardData || boardSnapshotPath)
   });
+  if (sent !== false && shouldCommitBoardSync) {
+    hasSentInitialBoardData = true;
+    forceNextBoardSync = false;
+  }
 }
 
 

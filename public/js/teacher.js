@@ -260,6 +260,7 @@ function applyStudentViewportToModalBoard(viewport) {
 }
 
 let currentClassCode = null;
+let role = null;
 // 今開いているボードの Drive ファイルID（なければ null）
 let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
@@ -481,7 +482,7 @@ socket.on("shared-board-action", ({ sharedBoardId, action }) => {
   }
 });
 
-socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active }) => {
+socket.on("shared-board-snapshot", async ({ sharedBoardId, title, boardData: incomingBoardData, boardSnapshotPath, active }) => {
   if (!sharedBoardId) return;
   if (active === false) {
     if (sharedBoardSession?.id === sharedBoardId) {
@@ -491,6 +492,7 @@ socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active })
     }
     return;
   }
+  const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
   if (!teacherBoard || !boardData || typeof teacherBoard.importBoardData !== "function") return;
   sharedBoardSession = {
     id: sharedBoardId,
@@ -503,7 +505,41 @@ socket.on("shared-board-snapshot", ({ sharedBoardId, title, boardData, active })
     applyingSharedBoardRemote = false;
   }
   setSharedBoardButtonState();
+  if (boardSnapshotPath) {
+    const saved = await saveSharedBoardSnapshot(boardData, true);
+    if (saved) {
+      await socket.emit("shared-board-snapshot", {
+        classCode: currentClassCode,
+        sharedBoardId: saved.sharedBoardId,
+        title: saved.title,
+        boardData: null,
+        active: true,
+        reason: "student-refresh",
+      });
+    }
+  }
 });
+
+async function activateTeacherClass(classCode) {
+  const code = String(classCode || "").trim().toUpperCase();
+  if (!code) return false;
+
+  if (currentClassCode && currentClassCode !== code) {
+    await stopSharedBoard();
+    await socket.emit("leave-class");
+  }
+
+  currentClassCode = code;
+  role = "teacher";
+  setSelectedTeacherClass(code);
+  if (classCodeInput) classCodeInput.value = code;
+  if (statusLabel) statusLabel.textContent = `クラスコード ${code} で待機中…`;
+
+  await socket.emit("join-teacher", { classCode: code });
+  await socket.emit("teacher-start-class", { classCode: code });
+  await socket.emit("joinAsTeacher", { classCode: code });
+  return true;
+}
 
 async function autoJoinClassFromSession() {
   if (supabaseEnabled) {
@@ -516,13 +552,7 @@ async function autoJoinClassFromSession() {
       );
       if (!selectedClass) return;
 
-      const code = selectedClass.class_code;
-      currentClassCode = code;
-      if (classCodeInput) classCodeInput.value = code;
-      if (statusLabel) statusLabel.textContent = `クラスコード ${code} で待機中…`;
-      socket.emit("join-teacher", { classCode: code });
-      socket.emit("teacher-start-class", { classCode: code });
-      socket.emit("joinAsTeacher", { classCode: code });
+      await activateTeacherClass(selectedClass.class_code);
     } catch (error) {
       console.error("Failed to load the selected teacher class", error);
     }
@@ -1568,8 +1598,7 @@ if (classManagementCreateClassForm) {
       classManagementClassName.value = "";
       classManagementClassCode.value = "";
       saveTeacherClassHints(result.class);
-      setSelectedTeacherClass(result.class.class_code);
-      if (classCodeInput) classCodeInput.value = result.class.class_code;
+      await activateTeacherClass(result.class.class_code);
       setClassManagementStatus(`「${result.class.name}」を作成しました。`);
       await refreshClassManagement();
     } catch (error) {
@@ -1635,7 +1664,6 @@ if (classManagementStudentList) {
   });
 }
 
-let role = null;
 
 // ----- 退室ボタン処理（新規追加）-----
 // ========= 退室ボタン（追加） =========
@@ -2019,9 +2047,20 @@ socket.on("student-highres", ({ socketId, nickname, dataUrl }) => {
 
 /* ==== 共同編集用：生徒からのボード状態・操作を反映 ==== */
 
+async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
+  if (boardData) return boardData;
+  if (!boardSnapshotPath || !boardApi.enabled) return null;
+  try {
+    return await boardApi.loadRealtimeBoardSnapshot(boardSnapshotPath);
+  } catch (error) {
+    console.error("Failed to load realtime board snapshot:", error);
+    return null;
+  }
+}
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", ({ studentSocketId, boardData }) => {
+socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath }) => {
+  const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
   console.log("[teacher] student-board-state", {
     studentSocketId,
     hasBoardData: !!boardData
@@ -2081,7 +2120,8 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData, isSync }) => {
+  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, isSync }) => {
+    const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
     const effectiveMode = mode || "whiteboard";
 
     console.log("[teacher] student-screen-update", {
