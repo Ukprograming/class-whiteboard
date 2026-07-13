@@ -79,7 +79,8 @@ if (missingRoleMappings.length > 0) {
 const teacherInboxContracts = [
   "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
   "supabase.channel(`class:${classCode}:teacher-inbox`",
-  "TEACHER_INBOX_EVENTS.has(eventName)",
+  "const teacherInboxReady = role === \"teacher\"",
+  "targetChannel.httpSend(\"socket-event\", outboundPayload)",
   "? state.teacherInboxChannel",
 ];
 const missingTeacherInboxContracts = teacherInboxContracts.filter(

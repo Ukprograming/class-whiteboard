@@ -297,17 +297,21 @@ function createSupabaseRealtimeBridge() {
       });
     });
 
-    const teacherInboxReady = new Promise((resolve, reject) => {
-      teacherInboxChannel.subscribe((status, err) => {
-        if (status === "SUBSCRIBED") {
-          resolve();
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          const message = err?.message || `Teacher inbox ${status.toLowerCase()}.`;
-          dispatch("join-error", message);
-          reject(new Error(message));
-        }
-      });
-    });
+    // Students publish to this topic through HTTP without subscribing. Subscribing
+    // would require SELECT permission and would expose classmates' messages.
+    const teacherInboxReady = role === "teacher"
+      ? new Promise((resolve, reject) => {
+        teacherInboxChannel.subscribe((status, err) => {
+          if (status === "SUBSCRIBED") {
+            resolve();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            const message = err?.message || `Teacher inbox ${status.toLowerCase()}.`;
+            dispatch("join-error", message);
+            reject(new Error(message));
+          }
+        });
+      })
+      : Promise.resolve();
 
     state.ready = Promise.all([classChannelReady, teacherInboxReady])
       .then(async () => {
@@ -373,14 +377,15 @@ function createSupabaseRealtimeBridge() {
         return false;
       }
     }
-    const targetChannel = TEACHER_INBOX_EVENTS.has(eventName)
+    const isTeacherInboxEvent = TEACHER_INBOX_EVENTS.has(eventName);
+    const targetChannel = isTeacherInboxEvent
       ? state.teacherInboxChannel
       : state.channel;
     if (!targetChannel) {
       console.warn("[realtime] event ignored before class join", eventName);
       return false;
     }
-    if (TEACHER_INBOX_EVENTS.has(eventName) && state.role !== "student") {
+    if (isTeacherInboxEvent && state.role !== "student") {
       console.warn(`[realtime] rejected teacher inbox event from role ${state.role || "unknown"}.`, eventName);
       return false;
     }
@@ -409,6 +414,16 @@ function createSupabaseRealtimeBridge() {
     }
 
     try {
+      if (isTeacherInboxEvent) {
+        const result = await targetChannel.httpSend("socket-event", outboundPayload);
+        if (!result?.success) {
+          console.warn(`[realtime] ${eventName} HTTP send was not acknowledged.`);
+          dispatch("realtime-send-failed", { eventName, result });
+          return false;
+        }
+        return true;
+      }
+
       const result = await targetChannel.send({
         type: "broadcast",
         event: "socket-event",
