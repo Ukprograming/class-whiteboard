@@ -2058,6 +2058,29 @@ async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
   }
 }
 
+function drawWhiteboardImageFallback(dataUrl, studentSocketId) {
+  if (!dataUrl || !modalCanvas || !modalCtx) return;
+  const img = new Image();
+  img.onload = () => {
+    if (currentMonitoringStudentSocketId !== studentSocketId) return;
+    const cw = modalCanvas.width;
+    const ch = modalCanvas.height;
+    if (!cw || !ch) return;
+    const scale = Math.min(cw / img.width, ch / img.height);
+    const drawW = img.width * scale;
+    const drawH = img.height * scale;
+    modalCtx.clearRect(0, 0, cw, ch);
+    modalCtx.drawImage(
+      img,
+      (cw - drawW) / 2,
+      (ch - drawH) / 2,
+      drawW,
+      drawH
+    );
+  };
+  img.src = dataUrl;
+}
+
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
 socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath }) => {
   const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
@@ -2220,8 +2243,12 @@ socket.on(
         modalOverlayCanvas.style.pointerEvents = "auto";
       }
 
-      // 下レイヤー（modalCanvas）は真っ白でもよいので、特に何もしなくてOK
-      if (modalCtx && modalCanvas) {
+      // Structured board data is preferred because it keeps objects editable.
+      // If Storage is temporarily unavailable, show the live raster capture so
+      // the monitoring modal never degrades to a blank whiteboard.
+      if (!boardData && dataUrl) {
+        drawWhiteboardImageFallback(dataUrl, studentSocketId);
+      } else if (modalCtx && modalCanvas) {
         modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
       }
 
