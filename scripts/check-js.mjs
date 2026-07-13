@@ -76,6 +76,20 @@ if (missingRoleMappings.length > 0) {
   ok = false;
 }
 
+const teacherInboxContracts = [
+  "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
+  "supabase.channel(`class:${classCode}:teacher-inbox`",
+  "TEACHER_INBOX_EVENTS.has(eventName)",
+  "? state.teacherInboxChannel",
+];
+const missingTeacherInboxContracts = teacherInboxContracts.filter(
+  (contract) => !realtimeApiSource.includes(contract)
+);
+if (missingTeacherInboxContracts.length > 0) {
+  console.error("Student-to-teacher events are not fully routed through the teacher inbox.");
+  ok = false;
+}
+
 if (!ok) {
   process.exit(1);
 }

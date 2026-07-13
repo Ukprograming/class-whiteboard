@@ -143,6 +143,7 @@ let sharedBoardSession = null;
 let applyingSharedBoardRemote = false;
 
 let captureTimerId = null;
+let initialThumbnailTimerId = null;
 const CAPTURE_INTERVAL_MS = Math.max(
   7000,
   Number(runtimeConfig.thumbnailIntervalMs) || 12000
@@ -2319,11 +2320,24 @@ function restartCaptureLoop() {
   }, CAPTURE_INTERVAL_MS);
 }
 
+function scheduleInitialThumbnail() {
+  if (initialThumbnailTimerId) {
+    clearTimeout(initialThumbnailTimerId);
+  }
+  const delayMs = FREE_TIER_MODE
+    ? 1000 + Math.floor(Math.random() * 3000)
+    : 0;
+  initialThumbnailTimerId = setTimeout(() => {
+    initialThumbnailTimerId = null;
+    sendWhiteboardThumbnail();
+  }, delayMs);
+}
+
 // 教員が「生徒画面確認モード」に入った
 socket.on("student-view-start", () => {
   if (!currentClassCode || !nickname) return;
   restartCaptureLoop();
-  sendWhiteboardThumbnail(); // 最初の1枚をすぐ送る
+  scheduleInitialThumbnail();
 });
 
 // 教員が生徒画面から離れた
@@ -2332,12 +2346,19 @@ socket.on("student-view-stop", () => {
     clearInterval(captureTimerId);
     captureTimerId = null;
   }
+  if (initialThumbnailTimerId) {
+    clearTimeout(initialThumbnailTimerId);
+    initialThumbnailTimerId = null;
+  }
 });
 
 
 window.addEventListener("beforeunload", () => {
   if (captureTimerId) {
     clearInterval(captureTimerId);
+  }
+  if (initialThumbnailTimerId) {
+    clearTimeout(initialThumbnailTimerId);
   }
   stopScreenCapture();
   stopNotebookCamera();

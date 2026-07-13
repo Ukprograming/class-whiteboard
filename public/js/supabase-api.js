@@ -37,6 +37,7 @@ const STUDENT_REALTIME_EVENTS = new Set([
   "student-screen-share-started",
   "student-screen-share-stopped",
 ]);
+const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);
 const SHARED_REALTIME_EVENTS = new Set([
   "shared-board-action",
   "shared-board-snapshot",
@@ -141,6 +142,7 @@ function createSupabaseRealtimeBridge() {
     classCode: "",
     nickname: "",
     channel: null,
+    teacherInboxChannel: null,
     ready: null,
     mode: "whiteboard",
     online: false,
@@ -242,7 +244,14 @@ function createSupabaseRealtimeBridge() {
         presence: { key: socketId },
       },
     });
+    const teacherInboxChannel = supabase.channel(`class:${classCode}:teacher-inbox`, {
+      config: {
+        private: privateChannels,
+        broadcast: { self: false, ack: true },
+      },
+    });
     state.channel = channel;
+    state.teacherInboxChannel = teacherInboxChannel;
 
     channel
       .on("broadcast", { event: "socket-event" }, ({ payload: eventPayload }) => {
@@ -264,21 +273,22 @@ function createSupabaseRealtimeBridge() {
         }
       });
 
-    state.ready = new Promise((resolve, reject) => {
+    if (role === "teacher") {
+      teacherInboxChannel.on(
+        "broadcast",
+        { event: "socket-event" },
+        ({ payload: eventPayload }) => {
+          handleRemoteEvent(eventPayload, "teacher-inbox");
+        }
+      );
+    }
+
+    const classChannelReady = new Promise((resolve, reject) => {
       channel.subscribe(async (status, err) => {
         if (status === "SUBSCRIBED") {
-          state.online = true;
-          await trackPresence();
-          if (role === "student") {
-            dispatch("join-success", { classCode, nickname });
-            dispatch("join-student", { classCode, nickname, socketId });
-          } else {
-            dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
-            dispatch("teacher-class-started", { classCode });
-          }
           resolve();
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          const message = err?.message || `Realtime channel ${status.toLowerCase()}.`;
+          const message = err?.message || `Class channel ${status.toLowerCase()}.`;
           dispatch("join-error", message);
           reject(new Error(message));
         } else if (status === "CLOSED") {
@@ -287,16 +297,56 @@ function createSupabaseRealtimeBridge() {
       });
     });
 
+    const teacherInboxReady = new Promise((resolve, reject) => {
+      teacherInboxChannel.subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          resolve();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          const message = err?.message || `Teacher inbox ${status.toLowerCase()}.`;
+          dispatch("join-error", message);
+          reject(new Error(message));
+        }
+      });
+    });
+
+    state.ready = Promise.all([classChannelReady, teacherInboxReady])
+      .then(async () => {
+        if (state.channel !== channel || state.teacherInboxChannel !== teacherInboxChannel) {
+          return false;
+        }
+        state.online = true;
+        await trackPresence();
+        if (role === "student") {
+          dispatch("join-success", { classCode, nickname });
+          dispatch("join-student", { classCode, nickname, socketId });
+        } else {
+          dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
+          dispatch("teacher-class-started", { classCode });
+        }
+        return true;
+      })
+      .catch(async (error) => {
+        if (state.channel === channel || state.teacherInboxChannel === teacherInboxChannel) {
+          await leaveRealtime();
+        }
+        throw error;
+      });
+
     return state.ready;
   }
 
   async function leaveRealtime() {
-    if (!state.channel) return;
     const channel = state.channel;
+    const teacherInboxChannel = state.teacherInboxChannel;
+    if (!channel && !teacherInboxChannel) return;
     state.channel = null;
+    state.teacherInboxChannel = null;
     state.ready = null;
     state.online = false;
-    await supabase.removeChannel(channel);
+    await Promise.all([
+      channel ? supabase.removeChannel(channel) : Promise.resolve(),
+      teacherInboxChannel ? supabase.removeChannel(teacherInboxChannel) : Promise.resolve(),
+    ]);
   }
 
   async function trackPresence() {
@@ -323,8 +373,15 @@ function createSupabaseRealtimeBridge() {
         return false;
       }
     }
-    if (!state.channel) {
+    const targetChannel = TEACHER_INBOX_EVENTS.has(eventName)
+      ? state.teacherInboxChannel
+      : state.channel;
+    if (!targetChannel) {
       console.warn("[realtime] event ignored before class join", eventName);
+      return false;
+    }
+    if (TEACHER_INBOX_EVENTS.has(eventName) && state.role !== "student") {
+      console.warn(`[realtime] rejected teacher inbox event from role ${state.role || "unknown"}.`, eventName);
       return false;
     }
 
@@ -352,7 +409,7 @@ function createSupabaseRealtimeBridge() {
     }
 
     try {
-      const result = await state.channel.send({
+      const result = await targetChannel.send({
         type: "broadcast",
         event: "socket-event",
         payload: outboundPayload,
@@ -370,12 +427,22 @@ function createSupabaseRealtimeBridge() {
     }
   }
 
-  function handleRemoteEvent(message) {
+  function handleRemoteEvent(message, source = "class") {
     if (!message || message.senderSocketId === socketId) return;
     if (normalizeClassCode(message.payload?.classCode || state.classCode) !== state.classCode) return;
 
     const eventName = message.eventName;
     const senderRole = message.senderRole;
+    if (source === "teacher-inbox") {
+      if (
+        state.role !== "teacher" ||
+        senderRole !== "student" ||
+        !TEACHER_INBOX_EVENTS.has(eventName)
+      ) {
+        console.warn(`[realtime] rejected ${eventName || "unknown"} on teacher inbox.`);
+        return;
+      }
+    }
     const roleAllowed = SHARED_REALTIME_EVENTS.has(eventName) ||
       (senderRole === "teacher" && TEACHER_REALTIME_EVENTS.has(eventName)) ||
       (senderRole === "student" && STUDENT_REALTIME_EVENTS.has(eventName));
