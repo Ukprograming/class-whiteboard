@@ -2525,6 +2525,7 @@ socket.on("stop-monitoring", () => {
 async function sendScreenUpdate(teacherSocketId) {
   if (!currentClassCode) return;
 
+  const monitoringMode = viewMode;
   let dataUrl;
   let viewport;
   let boardData = null; // ★ ホワイトボードの実データ（必要に応じて）
@@ -2532,7 +2533,7 @@ async function sendScreenUpdate(teacherSocketId) {
   let shouldCommitBoardSync = false;
 
   // ★ モードは viewMode で分岐する
-  if (viewMode === "screen") {
+  if (monitoringMode === "screen") {
     // === 画面共有モード：video 要素からキャプチャ ===
     if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
 
@@ -2554,7 +2555,7 @@ async function sendScreenUpdate(teacherSocketId) {
     // 画面共有時はビューポートリセット（全体表示）
     viewport = { scale: 1, offsetX: 0, offsetY: 0 };
 
-  } else if (viewMode === "notebook") {
+  } else if (monitoringMode === "notebook") {
     // === ノート提出モード：台形補正後のノート画像を送る ===
     if (!previewCanvas || !previewCanvas.width || !previewCanvas.height) return;
 
@@ -2574,7 +2575,9 @@ async function sendScreenUpdate(teacherSocketId) {
   } else {
     // === ホワイトボードモード（viewMode === "whiteboard" 他） ===
     if (!whiteboard) return;
-    dataUrl = encodeCanvasForRealtime(studentCanvas, { maxWidth: 720, quality: 0.6 });
+    // The teacher modal renders this mode from structured snapshots and
+    // realtime actions. A compressed capture would be a blurry second copy.
+    dataUrl = null;
 
     viewport = {
       scale: whiteboard.scale,
@@ -2599,7 +2602,7 @@ async function sendScreenUpdate(teacherSocketId) {
     }
   }
 
-  if (!dataUrl) return;
+  if (!dataUrl && monitoringMode !== "whiteboard") return;
   if (currentTeacherSocketId !== teacherSocketId) return;
 
   const sent = await socket.emit("student-screen-update", {
@@ -2609,7 +2612,7 @@ async function sendScreenUpdate(teacherSocketId) {
     viewport,
     // ★ 教員側には viewMode をモードとして渡す
     //   "whiteboard" | "screen" | "notebook"
-    mode: viewMode,
+    mode: monitoringMode,
     boardData, // ★ ホワイトボードモードのときのみ有効（差分更新時は null）
     boardSnapshotPath,
     isSync: !!(boardData || boardSnapshotPath)

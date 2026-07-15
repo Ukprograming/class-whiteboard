@@ -259,6 +259,16 @@ function applyStudentViewportToModalBoard(viewport) {
   return true;
 }
 
+function setModalImageLayerMode(mode) {
+  if (!modalCanvas) return;
+  const showImageLayer = mode !== "whiteboard";
+  modalCanvas.style.visibility = showImageLayer ? "visible" : "hidden";
+
+  if (!showImageLayer && modalCtx) {
+    modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+  }
+}
+
 let currentClassCode = null;
 let role = null;
 // 今開いているボードの Drive ファイルID（なければ null）
@@ -2058,27 +2068,42 @@ async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
   }
 }
 
-function drawWhiteboardImageFallback(dataUrl, studentSocketId) {
-  if (!dataUrl || !modalCanvas || !modalCtx) return;
-  const img = new Image();
-  img.onload = () => {
-    if (currentMonitoringStudentSocketId !== studentSocketId) return;
-    const cw = modalCanvas.width;
-    const ch = modalCanvas.height;
-    if (!cw || !ch) return;
-    const scale = Math.min(cw / img.width, ch / img.height);
-    const drawW = img.width * scale;
-    const drawH = img.height * scale;
-    modalCtx.clearRect(0, 0, cw, ch);
-    modalCtx.drawImage(
-      img,
-      (cw - drawW) / 2,
-      (ch - drawH) / 2,
-      drawW,
-      drawH
+function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
+  if (!boardData || !modalBoard || typeof modalBoard.importBoardData !== "function") {
+    return false;
+  }
+
+  const previousModalView = modalHasInitialBoardData
+    ? {
+      scale: modalBoard.scale,
+      offsetX: modalBoard.offsetX,
+      offsetY: modalBoard.offsetY
+    }
+    : null;
+
+  modalBoard.importBoardData(boardData);
+  if (previousModalView) {
+    // Full snapshots update the board model, not the teacher's viewport.
+    // Otherwise a delayed Supabase response resets a pan/zoom in progress.
+    modalBoard.scale = previousModalView.scale;
+    modalBoard.offsetX = previousModalView.offsetX;
+    modalBoard.offsetY = previousModalView.offsetY;
+  } else {
+    applyStudentViewportToModalBoard(
+      viewport || latestViewportByStudent[studentSocketId]
     );
-  };
-  img.src = dataUrl;
+  }
+  modalBoard.render?.();
+  modalHasInitialBoardData = true;
+  setModalImageLayerMode("whiteboard");
+
+  // Whiteboard mode is rendered exclusively from structured data. Keeping a
+  // compressed screen capture underneath creates a blurry duplicate as soon as
+  // the editable canvas is panned or zoomed.
+  if (modalCtx && modalCanvas) {
+    modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+  }
+  return true;
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
@@ -2107,14 +2132,11 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
     return;
   }
 
-  if (!modalBoard || typeof modalBoard.importBoardData !== "function") return;
-
-  modalBoard.importBoardData(boardData);
-  if (typeof modalBoard.render === "function") {
-    modalBoard.render();
-  }
-
-  modalHasInitialBoardData = true;
+  importStudentBoardDataIntoModal(
+    boardData,
+    studentSocketId,
+    latestViewportByStudent[studentSocketId]
+  );
 });
 
 
@@ -2163,6 +2185,7 @@ socket.on(
     }
     if (currentMonitoringStudentSocketId === studentSocketId) {
       modalCurrentStudentMode = effectiveMode;
+      setModalImageLayerMode(effectiveMode);
       updateModalRestoreFeedbackButton();
     }
 
@@ -2217,25 +2240,7 @@ socket.on(
 
       // 初期同期がまだ、または強制同期(isSync=true)の場合に取り込む
       if ((!modalHasInitialBoardData || isSync) && boardData) {
-        const previousModalView = modalHasInitialBoardData
-          ? {
-            scale: modalBoard.scale,
-            offsetX: modalBoard.offsetX,
-            offsetY: modalBoard.offsetY
-          }
-          : null;
-        modalBoard.importBoardData(boardData);
-        if (!modalHasInitialBoardData) {
-          applyStudentViewportToModalBoard(
-            viewport || latestViewportByStudent[studentSocketId]
-          );
-        } else if (previousModalView) {
-          modalBoard.scale = previousModalView.scale;
-          modalBoard.offsetX = previousModalView.offsetX;
-          modalBoard.offsetY = previousModalView.offsetY;
-        }
-        modalBoard.render?.();
-        modalHasInitialBoardData = true;
+        importStudentBoardDataIntoModal(boardData, studentSocketId, viewport);
       }
 
       // whiteboardモードでは overlay 上に書きながら、生徒WBと同期（onActionで emit）
@@ -2243,12 +2248,9 @@ socket.on(
         modalOverlayCanvas.style.pointerEvents = "auto";
       }
 
-      // Structured board data is preferred because it keeps objects editable.
-      // If Storage is temporarily unavailable, show the live raster capture so
-      // the monitoring modal never degrades to a blank whiteboard.
-      if (!boardData && dataUrl) {
-        drawWhiteboardImageFallback(dataUrl, studentSocketId);
-      } else if (modalCtx && modalCanvas) {
+      // Never mix the low-resolution screen capture into whiteboard mode.
+      // Initial state and later updates arrive as structured board data/actions.
+      if (modalCtx && modalCanvas) {
         modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
       }
 
@@ -2413,6 +2415,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
     modalCanvas.style.pointerEvents = "none"; // 下レイヤーはマウス無効（上だけ受ける）
 
     modalCtx = modalCanvas.getContext("2d");
+    setModalImageLayerMode(modalCurrentStudentMode);
 
     // --- 上レイヤー（先生の描画） ---
     if (!modalOverlayCanvas) {
@@ -2448,8 +2451,11 @@ function startMonitoringStudent(studentSocketId, nickname) {
       // ※ 初期は「whiteboardモード」でのみ使う。notebook/screenのときは
       //   生徒のboardDataは使わず、画像の上にローカル描画扱いにする。
       if (modalCurrentStudentMode === "whiteboard") {
-        modalBoard.importBoardData(initialBoardData);
-        applyStudentViewportToModalBoard(latestViewportByStudent[studentSocketId]);
+        importStudentBoardDataIntoModal(
+          initialBoardData,
+          studentSocketId,
+          latestViewportByStudent[studentSocketId]
+        );
       }
     }
 
@@ -2646,10 +2652,14 @@ function renderTiles() {
     tile.addEventListener("click", () => {
       if (!currentClassCode) return;
 
-      socket.emit("request-highres", {
-        classCode: currentClassCode,
-        studentSocketId: socketId
-      });
+      // Whiteboard monitoring uses structured snapshots/actions only. The
+      // high-resolution request is an image path and is unnecessary here.
+      if ((info.mode || latestModeByStudent[socketId]) !== "whiteboard") {
+        socket.emit("request-highres", {
+          classCode: currentClassCode,
+          studentSocketId: socketId
+        });
+      }
 
       startMonitoringStudent(socketId, info.nickname);
     });
