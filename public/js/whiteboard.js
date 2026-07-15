@@ -17,6 +17,8 @@ export class Whiteboard {
   constructor({ canvas }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+    this._eventDisposers = [];
+    this._destroyed = false;
 
     // 手書き専用レイヤー
     this.strokeCanvas = document.createElement("canvas");
@@ -157,6 +159,40 @@ export class Whiteboard {
     });
 
     this.render();
+  }
+
+  _listen(target, type, handler, options) {
+    if (!target?.addEventListener) return;
+    target.addEventListener(type, handler, options);
+    this._eventDisposers.push(() => {
+      target.removeEventListener(type, handler, options);
+    });
+  }
+
+  destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+
+    for (const dispose of this._eventDisposers.splice(0)) {
+      dispose();
+    }
+
+    this.isDrawingStroke = false;
+    this.currentStroke = null;
+    this.isDrawingShape = false;
+    this.isPanning = false;
+    this.isPinchZoom = false;
+    this._onAction = null;
+    this.onSelectionChange = null;
+    this.onToolChange = null;
+    this.onDirtyChange = null;
+    this.onPagesChange = null;
+
+    if (this.textEditor?.parentElement) {
+      this.textEditor.remove();
+    }
+    this.textEditor = null;
+    this.editingObj = null;
   }
 
   // ★ グリッド表示切り替え
@@ -1904,7 +1940,7 @@ export class Whiteboard {
     container.style.position = container.style.position || "relative";
     container.appendChild(ta);
 
-    ta.addEventListener("keydown", e => {
+    this._listen(ta, "keydown", e => {
       if (e.key === "Escape") {
         e.preventDefault();
         this._cancelTextEditor();
@@ -1915,7 +1951,7 @@ export class Whiteboard {
       }
     });
 
-    ta.addEventListener("blur", () => {
+    this._listen(ta, "blur", () => {
       if (this.editingObj) {
         this._commitTextEditor();
       }
@@ -3281,35 +3317,32 @@ export class Whiteboard {
       }
     };
 
-    canvas.addEventListener("mousedown", down);
-    canvas.addEventListener("mousemove", move);
-    canvas.addEventListener("mouseup", up);
-    canvas.addEventListener("mouseleave", up);
-    canvas.addEventListener("dblclick", dbl);
+    this._listen(canvas, "mousedown", down);
+    this._listen(canvas, "mousemove", move);
+    this._listen(canvas, "mouseup", up);
+    this._listen(canvas, "mouseleave", up);
+    this._listen(canvas, "dblclick", dbl);
 
-    canvas.addEventListener("touchstart", down, { passive: false });
-    canvas.addEventListener("touchmove", move, { passive: false });
-    canvas.addEventListener("touchend", up);
+    this._listen(canvas, "touchstart", down, { passive: false });
+    this._listen(canvas, "touchmove", move, { passive: false });
+    this._listen(canvas, "touchend", up);
 
-    canvas.addEventListener(
-      "wheel",
-      e => {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const sx = e.clientX - rect.left;
-        const sy = e.clientY - rect.top;
+    const wheel = e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
 
-        if (e.ctrlKey) {
-          const factor = e.deltaY < 0 ? 1.1 : 0.9;
-          this._zoomAtScreenPoint(sx, sy, factor);
-        } else {
-          this.offsetX -= e.deltaX;
-          this.offsetY -= e.deltaY;
-          this.render();
-        }
-      },
-      { passive: false }
-    );
+      if (e.ctrlKey) {
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        this._zoomAtScreenPoint(sx, sy, factor);
+      } else {
+        this.offsetX -= e.deltaX;
+        this.offsetY -= e.deltaY;
+        this.render();
+      }
+    };
+    this._listen(canvas, "wheel", wheel, { passive: false });
   }
 
   _wrapTextLines(text, maxWidth, fontSize, fontFamily, bold) {

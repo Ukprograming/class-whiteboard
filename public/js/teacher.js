@@ -114,6 +114,7 @@ const modalToolStampBtn = null;
 
 // モーダル内ホワイトボード用の状態
 let modalBoard = null;
+let modalResizeObserver = null;
 // デフォルトツールはペン
 let modalCurrentTool = "pen";
 let modalSelectedStamp = null;
@@ -266,6 +267,17 @@ function setModalImageLayerMode(mode) {
 
   if (!showImageLayer && modalCtx) {
     modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+  }
+}
+
+function destroyModalBoard() {
+  if (modalResizeObserver) {
+    modalResizeObserver.disconnect();
+    modalResizeObserver = null;
+  }
+  if (modalBoard) {
+    modalBoard.destroy?.();
+    modalBoard = null;
   }
 }
 
@@ -2361,6 +2373,11 @@ modalPenColorButtons.forEach(btn => {
 function startMonitoringStudent(studentSocketId, nickname) {
   if (!currentClassCode) return;
 
+  // The overlay canvas is reused between modal sessions. Remove the previous
+  // Whiteboard listeners before attaching a new instance; otherwise an old pen
+  // tool and the current highlighter tool both react to the same pointer input.
+  destroyModalBoard();
+
   // すでに別の生徒を監視していた場合は一旦終了
   if (
     currentMonitoringStudentSocketId &&
@@ -2464,7 +2481,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
     modalBoard.render?.();
 
     // リサイズ対応
-    const resizeObserver = new ResizeObserver(entries => {
+    modalResizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (!modalBoard || !modalCanvas || !modalOverlayCanvas) return;
@@ -2487,7 +2504,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
         modalBoard.render?.();
       }
     });
-    resizeObserver.observe(modalBoardContainer);
+    modalResizeObserver.observe(modalBoardContainer);
 
     // ツール初期化
     setModalTool(modalCurrentTool);
@@ -2698,10 +2715,7 @@ if (modalBackdrop && modalCloseBtn) {
       }
     }
 
-    if (modalBoard) {
-      modalBoard.destroy?.();
-    }
-    modalBoard = null;
+    destroyModalBoard();
     modalHasInitialBoardData = false;
 
 
