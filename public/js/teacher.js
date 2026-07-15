@@ -45,6 +45,53 @@ const BOARD_API_BASE = "/api/board";
 
 // ========= socket.io =========
 const socket = createRealtimeBridge();
+const realtimeRuntimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
+const REALTIME_PAYLOAD_LIMIT_BYTES = Math.max(
+  64000,
+  Number(realtimeRuntimeConfig.maxRealtimePayloadBytes) || 180000
+);
+const MAX_REALTIME_FEEDBACK_IMAGE_BYTES = Math.min(
+  120000,
+  Math.max(48000, REALTIME_PAYLOAD_LIMIT_BYTES - 60000)
+);
+
+function estimateRealtimeStringBytes(value) {
+  return new TextEncoder().encode(String(value || "")).byteLength;
+}
+
+function encodeFeedbackCanvasForRealtime(sourceCanvas, options = {}) {
+  if (!sourceCanvas?.width || !sourceCanvas?.height) return null;
+
+  const maxWidth = Math.min(sourceCanvas.width, Number(options.maxWidth) || 1280);
+  const minWidth = Math.min(maxWidth, Number(options.minWidth) || 360);
+  let targetWidth = maxWidth;
+  let quality = Number(options.quality) || 0.82;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const scale = targetWidth / sourceCanvas.width;
+    const output = document.createElement("canvas");
+    output.width = Math.max(1, Math.round(targetWidth));
+    output.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+
+    const outputContext = output.getContext("2d");
+    outputContext.imageSmoothingEnabled = true;
+    outputContext.imageSmoothingQuality = "high";
+    outputContext.fillStyle = "#ffffff";
+    outputContext.fillRect(0, 0, output.width, output.height);
+    outputContext.drawImage(sourceCanvas, 0, 0, output.width, output.height);
+
+    const dataUrl = output.toDataURL("image/jpeg", quality);
+    if (estimateRealtimeStringBytes(dataUrl) <= MAX_REALTIME_FEEDBACK_IMAGE_BYTES) {
+      return dataUrl;
+    }
+
+    targetWidth = Math.max(minWidth, Math.floor(targetWidth * 0.78));
+    quality = Math.max(0.42, quality - 0.08);
+  }
+
+  console.warn("Feedback image could not be compressed within the realtime payload limit.");
+  return null;
+}
 
 // 上部 UI
 const classCodeInput = document.getElementById("teacherClassCodeInput");
@@ -3399,12 +3446,17 @@ function mergeStudentModalCanvases() {
   // 2) 上レイヤー（先生の書き込み）
   ctx.drawImage(modalOverlayCanvas, 0, 0, w, h);
 
-  // 3) DataURL で返す（PNGなら高画質）
-  return out.toDataURL("image/png");
+  // 3) Realtime の payload 上限を超えない JPEG に変換して返す。
+  // 画面共有画像は PNG のままだと数百 KB～数 MB になり、Supabase 側で送信拒否される。
+  return encodeFeedbackCanvasForRealtime(out, {
+    maxWidth: 1280,
+    minWidth: 360,
+    quality: 0.84,
+  });
 }
 
 /** 生徒画面モーダル上での添削結果を、そのまま生徒に送り返す */
-function sendAnnotatedImageToStudentFromModal() {
+async function sendAnnotatedImageToStudentFromModal() {
   if (!currentClassCode || !currentMonitoringStudentSocketId) {
     alert("クラスまたは対象の生徒が選択されていません。");
     return;
@@ -3416,11 +3468,24 @@ function sendAnnotatedImageToStudentFromModal() {
     return;
   }
 
-  socket.emit("teacherShareToStudent", {
-    classCode: currentClassCode,
-    studentSocketId: currentMonitoringStudentSocketId,
-    imageData: merged
-  });
+  let sent = false;
+  if (modalShareToStudentBtn) modalShareToStudentBtn.disabled = true;
+  try {
+    sent = await socket.emit("teacherShareToStudent", {
+      classCode: currentClassCode,
+      studentSocketId: currentMonitoringStudentSocketId,
+      imageData: merged
+    });
+  } catch (error) {
+    console.error("[teacher] failed to send modal feedback", error);
+  } finally {
+    if (modalShareToStudentBtn) modalShareToStudentBtn.disabled = false;
+  }
+
+  if (sent === false) {
+    alert("フィードバックを生徒へ送信できませんでした。通信状態を確認して、もう一度送信してください。");
+    return;
+  }
 
   if (modalCurrentStudentMode !== "whiteboard") {
     sentFeedbackByStudent.set(currentMonitoringStudentSocketId, {
@@ -3443,7 +3508,7 @@ function sendAnnotatedImageToStudentFromModal() {
 
 if (modalShareToStudentBtn) {
   modalShareToStudentBtn.addEventListener("click", () => {
-    sendAnnotatedImageToStudentFromModal();
+    void sendAnnotatedImageToStudentFromModal();
   });
 }
 
@@ -3664,7 +3729,12 @@ function startSharing() {
   // 3秒ごとに送信
   shareIntervalId = setInterval(() => {
     if (!currentStudentId || !currentClassCode) return;
-    const data = feedbackCanvas.toDataURL("image/jpeg", 0.7);
+    const data = encodeFeedbackCanvasForRealtime(feedbackCanvas, {
+      maxWidth: 960,
+      minWidth: 320,
+      quality: 0.72,
+    });
+    if (!data) return;
     socket.emit("teacherShareToStudent", {
       classCode: currentClassCode,
       studentId: currentStudentId,
