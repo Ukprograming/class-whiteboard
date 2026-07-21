@@ -904,6 +904,202 @@ function applyOwnerFilter(query, owner) {
   return query.eq("owner_kind", "student").eq("student_id", owner.studentId);
 }
 
+function boardPageDataList(boardData) {
+  if (Array.isArray(boardData?.pages) && boardData.pages.length) {
+    return boardData.pages.map(page => page?.boardData).filter(Boolean);
+  }
+  return boardData ? [boardData] : [];
+}
+
+function collectBoardAssetRecords(boardData) {
+  const records = [];
+  for (const pageData of boardPageDataList(boardData)) {
+    for (const object of pageData.objects || []) {
+      if (object?.kind === "image") {
+        records.push({ record: object, embeddedField: "imageDataUrl" });
+      }
+    }
+    if (pageData.background) {
+      records.push({ record: pageData.background, embeddedField: "dataUrl" });
+    }
+  }
+  return records;
+}
+
+function normalizeAssetKey(value) {
+  const normalized = String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "");
+  if (normalized) return normalized.slice(0, 120);
+  return crypto.randomUUID();
+}
+
+function assetExtension(mimeType) {
+  switch (String(mimeType || "").toLowerCase()) {
+    case "image/png": return "png";
+    case "image/webp": return "webp";
+    case "image/gif": return "gif";
+    case "image/svg+xml": return "svg";
+    case "image/jpeg":
+    case "image/jpg":
+    default:
+      return "jpg";
+  }
+}
+
+function boardAssetPrefix(snapshotPath) {
+  return String(snapshotPath || "").replace(/\.json$/i, "") + "/assets";
+}
+
+function isAllowedBoardAssetPath(path) {
+  return /^(teachers|students|shared)\/[0-9a-f-]+\//i.test(String(path || ""));
+}
+
+async function recordToBlob(record, embeddedField) {
+  const embedded = record?.[embeddedField];
+  if (typeof embedded === "string" && embedded.startsWith("data:")) {
+    const response = await fetch(embedded);
+    if (!response.ok) throw new Error("Failed to decode an embedded board image.");
+    return response.blob();
+  }
+
+  const sourcePath = String(record?.assetPath || "").trim();
+  if (!sourcePath || !isAllowedBoardAssetPath(sourcePath)) return null;
+  const download = await supabase.storage.from(STORAGE_BUCKET).download(sourcePath);
+  if (download.error) throw download.error;
+  return download.data;
+}
+
+function isAssetAlreadyStored(error) {
+  const message = String(error?.message || error || "");
+  return /already exists|resource exists|duplicate/i.test(message);
+}
+
+async function uploadImmutableBoardAsset(path, blob, mimeType) {
+  const upload = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, blob, {
+      contentType: mimeType,
+      cacheControl: "31536000",
+      upsert: false,
+    });
+  if (upload.error && !isAssetAlreadyStored(upload.error)) throw upload.error;
+}
+
+async function externalizeBoardAssets(boardData, snapshotPath) {
+  const prefix = boardAssetPrefix(snapshotPath);
+  const references = [];
+
+  for (const entry of collectBoardAssetRecords(boardData)) {
+    const { record, embeddedField } = entry;
+    record.assetKey = normalizeAssetKey(record.assetKey);
+    const targetPrefix = `${prefix}/`;
+    const currentPath = String(record.assetPath || "").trim();
+    const currentObjectUrl = record.imageObjectUrl || record.objectUrl || "";
+
+    if (currentPath.startsWith(targetPrefix) && isAllowedBoardAssetPath(currentPath)) {
+      delete record[embeddedField];
+      delete record.imageObjectUrl;
+      delete record.objectUrl;
+      references.push({
+        assetKey: record.assetKey,
+        assetPath: currentPath,
+        assetMimeType: record.assetMimeType || "",
+        assetSizeBytes: record.assetSizeBytes || 0,
+        imageWidth: record.imageWidth || record.width || 0,
+        imageHeight: record.imageHeight || record.height || 0,
+        ...(embeddedField === "imageDataUrl"
+          ? { imageObjectUrl: currentObjectUrl || undefined }
+          : { objectUrl: currentObjectUrl || undefined }),
+      });
+      continue;
+    }
+
+    const blob = await recordToBlob(record, embeddedField);
+    if (!blob) continue;
+    const mimeType = blob.type || record.assetMimeType || "image/jpeg";
+    const assetPath = `${prefix}/${record.assetKey}.${assetExtension(mimeType)}`;
+    await uploadImmutableBoardAsset(assetPath, blob, mimeType);
+    const objectUrl = currentObjectUrl || URL.createObjectURL(blob);
+
+    record.assetPath = assetPath;
+    record.assetMimeType = mimeType;
+    record.assetSizeBytes = blob.size;
+    delete record[embeddedField];
+    delete record.imageObjectUrl;
+    delete record.objectUrl;
+    references.push({
+      assetKey: record.assetKey,
+      assetPath,
+      assetMimeType: mimeType,
+      assetSizeBytes: blob.size,
+      imageWidth: record.imageWidth || record.width || 0,
+      imageHeight: record.imageHeight || record.height || 0,
+      ...(embeddedField === "imageDataUrl"
+        ? { imageObjectUrl: objectUrl }
+        : { objectUrl }),
+    });
+  }
+
+  boardData.version = Math.max(3, Number(boardData.version) || 0);
+  for (const pageData of boardPageDataList(boardData)) {
+    pageData.version = Math.max(3, Number(pageData.version) || 0);
+  }
+  return references;
+}
+
+async function hydrateBoardAssets(boardData) {
+  const records = collectBoardAssetRecords(boardData);
+  const downloads = new Map();
+
+  for (const { record, embeddedField } of records) {
+    const path = String(record?.assetPath || "").trim();
+    if (!path || !isAllowedBoardAssetPath(path) || record?.[embeddedField]) continue;
+    if (!downloads.has(path)) {
+      downloads.set(path, (async () => {
+        const download = await supabase.storage.from(STORAGE_BUCKET).download(path);
+        if (download.error) throw download.error;
+        return URL.createObjectURL(download.data);
+      })());
+    }
+  }
+
+  await Promise.all(records.map(async ({ record, embeddedField }) => {
+    const path = String(record?.assetPath || "").trim();
+    if (!path || record?.[embeddedField] || !downloads.has(path)) return;
+    try {
+      const objectUrl = await downloads.get(path);
+      if (embeddedField === "imageDataUrl") record.imageObjectUrl = objectUrl;
+      else record.objectUrl = objectUrl;
+      delete record.assetLoadError;
+    } catch (error) {
+      record.assetLoadError = true;
+      console.warn(`Failed to load board asset: ${path}`, error);
+    }
+  }));
+
+  return boardData;
+}
+
+async function cleanupUnreferencedBoardAssets(boardData, snapshotPath) {
+  const prefix = boardAssetPrefix(snapshotPath);
+  const referenced = new Set(
+    collectBoardAssetRecords(boardData)
+      .map(({ record }) => String(record?.assetPath || "").trim())
+      .filter(path => path.startsWith(`${prefix}/`))
+  );
+  const listing = await supabase.storage.from(STORAGE_BUCKET).list(prefix, {
+    limit: 1000,
+    sortBy: { column: "name", order: "asc" },
+  });
+  if (listing.error) throw listing.error;
+  const stalePaths = (listing.data || [])
+    .filter(item => item?.name)
+    .map(item => `${prefix}/${item.name}`)
+    .filter(path => !referenced.has(path));
+  if (!stalePaths.length) return;
+  const removal = await supabase.storage.from(STORAGE_BUCKET).remove(stalePaths);
+  if (removal.error) throw removal.error;
+}
+
 export const boardApi = {
   enabled: supabaseEnabled,
 
@@ -954,11 +1150,13 @@ export const boardApi = {
     const fileId = payload.fileId || crypto.randomUUID();
     const folderPath = normalizeFolderPath(payload.folderPath);
     const fileName = String(payload.fileName || "").trim();
-    const boardJson = JSON.stringify(payload.boardData || {});
-    const blob = new Blob([boardJson], { type: "application/json" });
     const snapshotPath = owner.ownerKind === "teacher"
       ? `teachers/${owner.teacherId}/${fileId}.json`
       : `students/${owner.studentId}/${fileId}.json`;
+    const boardData = payload.boardData || {};
+    const assetReferences = await externalizeBoardAssets(boardData, snapshotPath);
+    const boardJson = JSON.stringify(boardData);
+    const blob = new Blob([boardJson], { type: "application/json" });
 
     const upload = await supabase.storage
       .from(STORAGE_BUCKET)
@@ -968,6 +1166,11 @@ export const boardApi = {
       });
 
     if (upload.error) throw upload.error;
+    try {
+      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
+    } catch (error) {
+      console.warn("Failed to clean up old board assets.", error);
+    }
 
     const row = {
       id: fileId,
@@ -995,6 +1198,7 @@ export const boardApi = {
       mode: payload.fileId ? "update" : "create",
       fileId: data.id,
       fileName: data.name,
+      assetReferences,
       message: payload.fileId ? "Saved changes." : "Saved board.",
     };
   },
@@ -1018,7 +1222,7 @@ export const boardApi = {
       .download(data.snapshot_path);
     if (download.error) throw download.error;
 
-    const boardData = JSON.parse(await download.data.text());
+    const boardData = await hydrateBoardAssets(JSON.parse(await download.data.text()));
     return {
       ok: true,
       fileId: data.id,
@@ -1037,9 +1241,11 @@ export const boardApi = {
       throw new Error("Student login is required.");
     }
 
-    const boardJson = JSON.stringify(payload.boardData || {});
-    const blob = new Blob([boardJson], { type: "application/json" });
     const snapshotPath = `students/${owner.studentId}/realtime/${owner.classId}.json`;
+    const boardData = payload.boardData || {};
+    const assetReferences = await externalizeBoardAssets(boardData, snapshotPath);
+    const boardJson = JSON.stringify(boardData);
+    const blob = new Blob([boardJson], { type: "application/json" });
     const upload = await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(snapshotPath, blob, {
@@ -1047,11 +1253,17 @@ export const boardApi = {
         upsert: true,
       });
     if (upload.error) throw upload.error;
+    try {
+      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
+    } catch (error) {
+      console.warn("Failed to clean up old realtime board assets.", error);
+    }
 
     return {
       ok: true,
       snapshotPath,
       sizeBytes: blob.size,
+      assetReferences,
     };
   },
 
@@ -1066,7 +1278,7 @@ export const boardApi = {
       .from(STORAGE_BUCKET)
       .download(normalizedPath);
     if (download.error) throw download.error;
-    return JSON.parse(await download.data.text());
+    return hydrateBoardAssets(JSON.parse(await download.data.text()));
   },
 
   async saveSharedBoardSnapshot(payload) {
@@ -1107,7 +1319,9 @@ export const boardApi = {
       if (insertError) throw insertError;
     }
 
-    const boardJson = JSON.stringify(payload.boardData || {});
+    const boardData = payload.boardData || {};
+    const assetReferences = await externalizeBoardAssets(boardData, snapshotPath);
+    const boardJson = JSON.stringify(boardData);
     const blob = new Blob([boardJson], { type: "application/json" });
     const upload = await supabase.storage
       .from(STORAGE_BUCKET)
@@ -1116,6 +1330,11 @@ export const boardApi = {
         upsert: true,
       });
     if (upload.error) throw upload.error;
+    try {
+      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
+    } catch (error) {
+      console.warn("Failed to clean up old shared-board assets.", error);
+    }
 
     const { data, error } = await supabase
       .from("shared_boards")
@@ -1138,6 +1357,7 @@ export const boardApi = {
       active,
       updatedAt: data.updated_at,
       sizeBytes: blob.size,
+      assetReferences,
     };
   },
 
@@ -1183,7 +1403,7 @@ export const boardApi = {
         .from(STORAGE_BUCKET)
         .download(data.current_snapshot_path);
       if (download.error) throw download.error;
-      boardData = JSON.parse(await download.data.text());
+      boardData = await hydrateBoardAssets(JSON.parse(await download.data.text()));
     }
 
     return {

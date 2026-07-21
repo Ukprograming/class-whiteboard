@@ -91,6 +91,27 @@ if (missingTeacherInboxContracts.length > 0) {
   ok = false;
 }
 
+const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
+const teacherSource = readFileSync("public/js/teacher.js", "utf8");
+const studentSource = readFileSync("public/js/student.js", "utf8");
+const assetStorageContracts = [
+  [realtimeApiSource, "externalizeBoardAssets(boardData, snapshotPath)"],
+  [realtimeApiSource, "hydrateBoardAssets(JSON.parse(await download.data.text()))"],
+  [realtimeApiSource, "cleanupUnreferencedBoardAssets(boardData, snapshotPath)"],
+  [realtimeApiSource, "upsert: false"],
+  [whiteboardSource, "applyAssetReferences(references)"],
+  [whiteboardSource, "o.imageObjectUrl || o.imageDataUrl"],
+  [teacherSource, "teacherBoard.applyAssetReferences?.(json.assetReferences)"],
+  [studentSource, "whiteboard.applyAssetReferences?.(result.assetReferences)"],
+];
+const missingAssetStorageContracts = assetStorageContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingAssetStorageContracts.length > 0) {
+  console.error(`Board asset Storage contracts missing: ${missingAssetStorageContracts.join(", ")}`);
+  ok = false;
+}
+
 if (!ok) {
   process.exit(1);
 }

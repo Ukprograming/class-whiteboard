@@ -34,6 +34,9 @@ export class Whiteboard {
     // ★ 初期は背景なしにする（サイズ 0 にしておく）
     this.bgCanvas.width = 0;
     this.bgCanvas.height = 0;
+    this.backgroundAsset = null;
+    this._assetObjectUrls = new Set();
+    this._backgroundLoadPromise = Promise.resolve();
 
     // 手書きストローク
     // stroke: { type:'pen'|'highlighter'|'eraser', color, width, points:[{x,y}], groupId?, locked? }
@@ -193,6 +196,129 @@ export class Whiteboard {
     }
     this.textEditor = null;
     this.editingObj = null;
+    this._releaseAssetObjectUrls();
+  }
+
+  _newAssetKey() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return `asset-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  _releaseAssetObjectUrls() {
+    for (const url of this._assetObjectUrls || []) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.warn("Failed to release a board asset URL.", error);
+      }
+    }
+    this._assetObjectUrls?.clear();
+  }
+
+  _registerAssetObjectUrls(data) {
+    const pages = Array.isArray(data?.pages) && data.pages.length
+      ? data.pages.map(page => page?.boardData)
+      : [data];
+    for (const pageData of pages) {
+      if (!pageData) continue;
+      const backgroundUrl = pageData.background?.objectUrl;
+      if (typeof backgroundUrl === "string" && backgroundUrl.startsWith("blob:")) {
+        this._assetObjectUrls.add(backgroundUrl);
+      }
+      for (const object of pageData.objects || []) {
+        const objectUrl = object?.imageObjectUrl;
+        if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
+          this._assetObjectUrls.add(objectUrl);
+        }
+      }
+    }
+  }
+
+  _ensureBoardAssetKeys(data) {
+    const pages = Array.isArray(data?.pages) && data.pages.length
+      ? data.pages.map(page => page?.boardData)
+      : [data];
+    for (const pageData of pages) {
+      if (!pageData) continue;
+      if (pageData.background && !pageData.background.assetKey) {
+        pageData.background.assetKey = this._newAssetKey();
+      }
+      for (const object of pageData.objects || []) {
+        if (object?.kind === "image" && !object.assetKey) {
+          object.assetKey = this._newAssetKey();
+        }
+      }
+    }
+  }
+
+  _applyAssetReferenceToRecord(record, reference, embeddedField) {
+    if (!record || !reference) return;
+    record.assetKey = reference.assetKey;
+    record.assetPath = reference.assetPath;
+    record.assetMimeType = reference.assetMimeType || record.assetMimeType || "";
+    record.assetSizeBytes = reference.assetSizeBytes || record.assetSizeBytes || 0;
+    if (reference.imageWidth) record.imageWidth = reference.imageWidth;
+    if (reference.imageHeight) record.imageHeight = reference.imageHeight;
+    delete record[embeddedField];
+    if (reference.imageObjectUrl) record.imageObjectUrl = reference.imageObjectUrl;
+    if (reference.objectUrl) record.objectUrl = reference.objectUrl;
+  }
+
+  applyAssetReferences(references) {
+    const map = new Map(
+      (references || [])
+        .filter(reference => reference?.assetKey && reference?.assetPath)
+        .map(reference => [reference.assetKey, reference])
+    );
+    if (!map.size) return;
+
+    for (const reference of map.values()) {
+      const objectUrl = reference.imageObjectUrl || reference.objectUrl;
+      if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
+        this._assetObjectUrls.add(objectUrl);
+      }
+    }
+
+    this._syncActivePage();
+
+    for (const object of this.objects || []) {
+      if (object?.kind !== "image") continue;
+      this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+    }
+    if (this.backgroundAsset?.assetKey) {
+      const reference = map.get(this.backgroundAsset.assetKey);
+      if (reference) {
+        this.backgroundAsset = { ...this.backgroundAsset, ...reference };
+      }
+    }
+
+    for (const page of this.pages || []) {
+      const pageData = page?.boardData;
+      if (!pageData) continue;
+      for (const object of pageData.objects || []) {
+        if (object?.kind !== "image") continue;
+        this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+      }
+      const background = pageData.background;
+      if (background?.assetKey) {
+        this._applyAssetReferenceToRecord(background, map.get(background.assetKey), "dataUrl");
+      }
+    }
+  }
+
+  async waitForAssets() {
+    const waits = [this._backgroundLoadPromise];
+    for (const object of this.objects || []) {
+      const image = object?.kind === "image" ? object.image : null;
+      if (!image || (image.complete && image.naturalWidth > 0)) continue;
+      waits.push(new Promise(resolve => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", resolve, { once: true });
+      }));
+    }
+    const timeout = new Promise(resolve => setTimeout(resolve, 10000));
+    await Promise.race([Promise.allSettled(waits), timeout]);
+    this.render();
   }
 
   // ★ グリッド表示切り替え
@@ -260,7 +386,7 @@ export class Whiteboard {
 
   _blankPageData() {
     return {
-      version: 1,
+      version: 3,
       scale: 1,
       offsetX: 0,
       offsetY: 0,
@@ -356,8 +482,9 @@ export class Whiteboard {
     for (const pageId of targetIds) {
       if (pageId !== this.activePageId) {
         this.selectPage(pageId, { emit: false, markDirty: false });
-        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       }
+      await this.waitForAssets();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const copy = document.createElement("canvas");
       copy.width = this.canvas.width;
       copy.height = this.canvas.height;
@@ -709,6 +836,11 @@ export class Whiteboard {
         this.scale = 1;
         this.offsetX = (this.canvas.width - img.width) / 2;
         this.offsetY = (this.canvas.height - img.height) / 2;
+        this.backgroundAsset = {
+          assetKey: this._newAssetKey(),
+          assetPath: null,
+          assetMimeType: file.type || "image/jpeg",
+        };
         this.render();
         if (this.onAction) this.onAction({ type: "refresh" });
         resolve();
@@ -736,6 +868,11 @@ export class Whiteboard {
           this.offsetX = (this.canvas.width - img.width) / 2;
           this.offsetY = (this.canvas.height - img.height) / 2;
         }
+        this.backgroundAsset = {
+          assetKey: this._newAssetKey(),
+          assetPath: null,
+          assetMimeType: "",
+        };
         this.render();
         if (this.onAction) this.onAction({ type: "refresh" });
         resolve();
@@ -759,6 +896,7 @@ export class Whiteboard {
 
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;
+      this.backgroundAsset = null;
 
       const pageMargin = 40;
       let currentY = 0;
@@ -796,6 +934,7 @@ export class Whiteboard {
         const obj = {
           id,
           kind: "image",
+          assetKey: this._newAssetKey(),
           x: 0,
           y: layout === "stack" ? currentY : 0,
           width: displayViewport.width,
@@ -842,6 +981,8 @@ export class Whiteboard {
 
     this.bgCanvas.width = 0;
     this.bgCanvas.height = 0;
+    this.backgroundAsset = null;
+    this._backgroundLoadPromise = Promise.resolve();
 
     // ★ 追加：変更フラグを立てる
     this._markDirty();
@@ -1351,13 +1492,17 @@ export class Whiteboard {
 
   exportBoardData() {
     this._syncActivePage();
+    const clone = value => {
+      if (typeof structuredClone === "function") return structuredClone(value);
+      return JSON.parse(JSON.stringify(value));
+    };
     return {
-      version: 2,
+      version: 3,
       activePageId: this.activePageId,
       pages: this.pages.map(page => ({
         id: page.id,
         name: page.name,
-        boardData: page.boardData || this._blankPageData()
+        boardData: clone(page.boardData || this._blankPageData())
       }))
     };
   }
@@ -1425,10 +1570,24 @@ export class Whiteboard {
         if (o.depth != null) base.depth = o.depth;
       }
 
-      if (o.kind === "image" && o.image) {
+      if (o.kind === "image") {
+        o.assetKey = o.assetKey || this._newAssetKey();
+        base.assetKey = o.assetKey;
         if (o.sourceType === "pdf-page") {
           base.sourceType = "pdf-page";
         }
+
+        if (o.assetPath) {
+          base.assetPath = o.assetPath;
+          base.assetMimeType = o.assetMimeType || "";
+          base.assetSizeBytes = o.assetSizeBytes || 0;
+          if (o.imageObjectUrl) base.imageObjectUrl = o.imageObjectUrl;
+          base.imageWidth = o.imageWidth || o.image?.naturalWidth || o.image?.width || 0;
+          base.imageHeight = o.imageHeight || o.image?.naturalHeight || o.image?.height || 0;
+          return base;
+        }
+
+        if (!o.image) return base;
 
         let encoded = null;
         if (o.sourceType === "pdf-page" && o.cachedImageDataUrl) {
@@ -1463,7 +1622,17 @@ export class Whiteboard {
     });
 
     let background = null;
-    if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
+    if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0 && this.backgroundAsset?.assetPath) {
+      background = {
+        assetKey: this.backgroundAsset.assetKey,
+        assetPath: this.backgroundAsset.assetPath,
+        assetMimeType: this.backgroundAsset.assetMimeType || "",
+        assetSizeBytes: this.backgroundAsset.assetSizeBytes || 0,
+        objectUrl: this.backgroundAsset.objectUrl || undefined,
+        width: this.bgCanvas.width,
+        height: this.bgCanvas.height,
+      };
+    } else if (this.bgCanvas.width > 0 && this.bgCanvas.height > 0) {
       const encodedBg = this._encodeImageForExport(
         this.bgCanvas,
         this.bgCanvas.width,
@@ -1472,15 +1641,21 @@ export class Whiteboard {
       );
       if (encodedBg) {
         background = {
+          assetKey: this.backgroundAsset?.assetKey || this._newAssetKey(),
           dataUrl: encodedBg.dataUrl,
           width: encodedBg.width,
           height: encodedBg.height
+        };
+        this.backgroundAsset = {
+          assetKey: background.assetKey,
+          assetPath: null,
+          assetMimeType: "image/jpeg",
         };
       }
     }
 
     return {
-      version: 1,
+      version: 3,
       scale: this.scale,
       offsetX: this.offsetX,
       offsetY: this.offsetY,
@@ -1494,6 +1669,10 @@ export class Whiteboard {
 
   importBoardData(data) {
     if (!data) return;
+
+    this._releaseAssetObjectUrls();
+    this._ensureBoardAssetKeys(data);
+    this._registerAssetObjectUrls(data);
 
     const rawPages = Array.isArray(data.pages) && data.pages.length
       ? data.pages
@@ -1535,19 +1714,33 @@ export class Whiteboard {
     }
     this.nextStrokeId = Math.max(this.nextStrokeId || 1, maxStrokeId + 1);
 
-    if (data.background && data.background.dataUrl) {
+    const backgroundSource = data.background?.objectUrl || data.background?.dataUrl || "";
+    if (data.background && backgroundSource) {
       const bgImg = new Image();
-      bgImg.onload = () => {
-        this.bgCanvas.width = data.background.width || bgImg.width;
-        this.bgCanvas.height = data.background.height || bgImg.height;
-        this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
-        this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
-        this.render();
+      this.backgroundAsset = {
+        assetKey: data.background.assetKey || this._newAssetKey(),
+        assetPath: data.background.assetPath || null,
+        assetMimeType: data.background.assetMimeType || "",
+        assetSizeBytes: data.background.assetSizeBytes || 0,
+        objectUrl: data.background.objectUrl || null,
       };
-      bgImg.src = data.background.dataUrl;
+      this._backgroundLoadPromise = new Promise(resolve => {
+        bgImg.onload = () => {
+          this.bgCanvas.width = data.background.width || bgImg.width;
+          this.bgCanvas.height = data.background.height || bgImg.height;
+          this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
+          this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
+          this.render();
+          resolve();
+        };
+        bgImg.onerror = () => resolve();
+      });
+      bgImg.src = backgroundSource;
     } else {
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;
+      this.backgroundAsset = null;
+      this._backgroundLoadPromise = Promise.resolve();
     }
 
     this.history = [];
@@ -1640,11 +1833,20 @@ export class Whiteboard {
 
       if (o.kind === "image") {
         obj.sourceType = o.sourceType === "pdf-page" ? "pdf-page" : null;
-        if (o.imageDataUrl) {
+        obj.assetKey = o.assetKey || this._newAssetKey();
+        obj.assetPath = o.assetPath || null;
+        obj.assetMimeType = o.assetMimeType || "";
+        obj.assetSizeBytes = o.assetSizeBytes || 0;
+        obj.imageWidth = o.imageWidth || 0;
+        obj.imageHeight = o.imageHeight || 0;
+        obj.imageObjectUrl = o.imageObjectUrl || null;
+        const imageSource = o.imageObjectUrl || o.imageDataUrl || "";
+        if (imageSource) {
           const img = new Image();
-          img.src = o.imageDataUrl;
+          img.onload = () => this.render();
+          img.src = imageSource;
           obj.image = img;
-          if (obj.sourceType === "pdf-page") {
+          if (obj.sourceType === "pdf-page" && o.imageDataUrl) {
             obj.cachedImageDataUrl = o.imageDataUrl;
             obj.cachedImageWidth = o.imageWidth || 0;
             obj.cachedImageHeight = o.imageHeight || 0;
@@ -1707,6 +1909,9 @@ export class Whiteboard {
   }
 
   _addObject(obj) {
+    if (obj?.kind === "image" && !obj.assetKey) {
+      obj.assetKey = this._newAssetKey();
+    }
     if (this.isTeacherMode) {
       obj.isTeacherAnnotation = true;
     }

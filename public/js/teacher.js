@@ -426,6 +426,7 @@ async function saveSharedBoardSnapshot(boardData, active = true) {
       boardData,
       active,
     });
+    teacherBoard.applyAssetReferences?.(result.assetReferences);
 
     sharedBoardSession = {
       id: result.sharedBoardId,
@@ -1301,6 +1302,7 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     let json = {};
     if (boardApi.enabled) {
       json = await boardApi.saveBoard(payload);
+      teacherBoard.applyAssetReferences?.(json.assetReferences);
     } else {
       res = await fetch(`${BOARD_API_BASE}/save`, {
         method: "POST",

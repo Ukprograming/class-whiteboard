@@ -844,6 +844,7 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     let json = {};
     if (boardApi.enabled) {
       json = await boardApi.saveBoard(payload);
+      whiteboard.applyAssetReferences?.(json.assetReferences);
     } else {
       res = await fetch(`${BOARD_API_BASE}/save`, {
         method: "POST",
@@ -2368,6 +2369,7 @@ window.addEventListener("beforeunload", () => {
 let currentTeacherSocketId = null;
 let hasSentInitialBoardData = false;
 let forceNextBoardSync = false;
+let boardSnapshotSaveInFlight = null;
 
 async function createBoardSyncPayload() {
   if (!whiteboard || !currentClassCode || !nickname) return null;
@@ -2376,20 +2378,28 @@ async function createBoardSyncPayload() {
     return { boardData, boardSnapshotPath: null };
   }
 
-  try {
-    const result = await boardApi.saveRealtimeBoardSnapshot({
-      classCode: currentClassCode,
-      nickname,
-      boardData,
-    });
-    return {
-      boardData: null,
-      boardSnapshotPath: result.snapshotPath,
-    };
-  } catch (error) {
-    console.error("Failed to store realtime board snapshot:", error);
-    return null;
-  }
+  if (boardSnapshotSaveInFlight) return boardSnapshotSaveInFlight;
+
+  boardSnapshotSaveInFlight = (async () => {
+    try {
+      const result = await boardApi.saveRealtimeBoardSnapshot({
+        classCode: currentClassCode,
+        nickname,
+        boardData,
+      });
+      whiteboard.applyAssetReferences?.(result.assetReferences);
+      return {
+        boardData: null,
+        boardSnapshotPath: result.snapshotPath,
+      };
+    } catch (error) {
+      console.error("Failed to store realtime board snapshot:", error);
+      return null;
+    } finally {
+      boardSnapshotSaveInFlight = null;
+    }
+  })();
+  return boardSnapshotSaveInFlight;
 }
 
 async function sendBoardStateToTeacher(teacherSocketId) {
