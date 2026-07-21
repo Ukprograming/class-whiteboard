@@ -174,6 +174,11 @@ let modalShowingSavedFeedback = false;
 // ★ 生徒ごとの最新モード（"whiteboard" | "screen" | "notebook"）を保持
 const latestModeByStudent = {};
 const latestViewportByStudent = {};
+// The latest teacher action sent to each student. Full board snapshots are
+// accepted only after the student has applied that action, preventing an older
+// in-flight Storage snapshot from rolling the modal back.
+const latestTeacherSyncTokenByStudent = new Map();
+let modalTeacherSyncCounter = 0;
 // ★ 追加: モーダル内のボードに「初期同期済み」かどうか
 let modalHasInitialBoardData = false;
 
@@ -2129,6 +2134,11 @@ async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
   }
 }
 
+function isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) {
+  const expectedToken = latestTeacherSyncTokenByStudent.get(studentSocketId);
+  return !expectedToken || teacherSyncToken === expectedToken;
+}
+
 function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
   if (!boardData || !modalBoard || typeof modalBoard.importBoardData !== "function") {
     return false;
@@ -2168,8 +2178,14 @@ function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath }) => {
+socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken }) => {
+  if (!studentSocketId || !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+    return;
+  }
   const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
+  if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+    return;
+  }
   console.log("[teacher] student-board-state", {
     studentSocketId,
     hasBoardData: !!boardData
@@ -2226,8 +2242,14 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, isSync }) => {
-    const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
+  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, isSync }) => {
+    let boardData = null;
+    if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+      const resolvedBoardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
+      if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+        boardData = resolvedBoardData;
+      }
+    }
     const effectiveMode = mode || "whiteboard";
 
     console.log("[teacher] student-screen-update", {
@@ -2568,10 +2590,20 @@ function startMonitoringStudent(studentSocketId, nickname) {
         return;
       }
 
+      modalTeacherSyncCounter += 1;
+      const teacherSyncToken = `${Date.now().toString(36)}-${modalTeacherSyncCounter.toString(36)}`;
+      latestTeacherSyncTokenByStudent.set(
+        currentMonitoringStudentSocketId,
+        teacherSyncToken
+      );
+
       socket.emit("teacher-whiteboard-action", {
         classCode: currentClassCode,
         targetStudentSocketId: currentMonitoringStudentSocketId,
-        action
+        action: {
+          ...action,
+          teacherSyncToken
+        }
       });
     };
   }

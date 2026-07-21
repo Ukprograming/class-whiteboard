@@ -2370,12 +2370,16 @@ let currentTeacherSocketId = null;
 let hasSentInitialBoardData = false;
 let forceNextBoardSync = false;
 let boardSnapshotSaveInFlight = null;
+let lastAppliedTeacherSyncToken = null;
+let boardSyncRevision = 0;
 
 async function createBoardSyncPayload() {
   if (!whiteboard || !currentClassCode || !nickname) return null;
   const boardData = whiteboard.exportBoardData();
+  const teacherSyncToken = lastAppliedTeacherSyncToken;
+  const syncRevision = boardSyncRevision;
   if (!boardApi.enabled) {
-    return { boardData, boardSnapshotPath: null };
+    return { boardData, boardSnapshotPath: null, teacherSyncToken, syncRevision };
   }
 
   if (boardSnapshotSaveInFlight) return boardSnapshotSaveInFlight;
@@ -2391,6 +2395,8 @@ async function createBoardSyncPayload() {
       return {
         boardData: null,
         boardSnapshotPath: result.snapshotPath,
+        teacherSyncToken,
+        syncRevision,
       };
     } catch (error) {
       console.error("Failed to store realtime board snapshot:", error);
@@ -2423,6 +2429,10 @@ socket.on("teacher-joined-session", ({ teacherSocketId }) => {
 socket.on("teacher-whiteboard-action", ({ action }) => {
   if (!whiteboard) return;
   whiteboard.applyAction(action);
+  if (action?.teacherSyncToken) {
+    lastAppliedTeacherSyncToken = action.teacherSyncToken;
+  }
+  boardSyncRevision += 1;
   // 教師の書き込みも次回の全体同期に含め、モーダルを開き直しても保持する。
   forceNextBoardSync = true;
 });
@@ -2430,6 +2440,8 @@ socket.on("teacher-whiteboard-action", ({ action }) => {
 // ★ ホワイトボード操作の送信フック設定
 if (whiteboard) {
   whiteboard.onAction = (action) => {
+    boardSyncRevision += 1;
+
     if (sharedBoardSession && !applyingSharedBoardRemote) {
       if (action?.type === "refresh") {
         void publishSharedBoardSnapshotFromStudent("refresh");
@@ -2540,6 +2552,8 @@ async function sendScreenUpdate(teacherSocketId) {
   let viewport;
   let boardData = null; // ★ ホワイトボードの実データ（必要に応じて）
   let boardSnapshotPath = null;
+  let teacherSyncToken = null;
+  let syncRevision = null;
   let shouldCommitBoardSync = false;
 
   // ★ モードは viewMode で分岐する
@@ -2607,6 +2621,8 @@ async function sendScreenUpdate(teacherSocketId) {
       if (syncPayload) {
         boardData = syncPayload.boardData;
         boardSnapshotPath = syncPayload.boardSnapshotPath;
+        teacherSyncToken = syncPayload.teacherSyncToken;
+        syncRevision = syncPayload.syncRevision;
         shouldCommitBoardSync = true;
       }
     }
@@ -2625,11 +2641,14 @@ async function sendScreenUpdate(teacherSocketId) {
     mode: monitoringMode,
     boardData, // ★ ホワイトボードモードのときのみ有効（差分更新時は null）
     boardSnapshotPath,
+    teacherSyncToken,
     isSync: !!(boardData || boardSnapshotPath)
   });
   if (sent !== false && shouldCommitBoardSync) {
     hasSentInitialBoardData = true;
-    forceNextBoardSync = false;
+    if (syncRevision === boardSyncRevision) {
+      forceNextBoardSync = false;
+    }
   }
 }
 

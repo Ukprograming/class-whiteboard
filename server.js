@@ -622,10 +622,10 @@ io.on("connection", (socket) => {
   });
 
   // 生徒 → 教員：ボードの全状態（初期同期用）
-  socket.on("student-board-state", ({ targetTeacherSocketId, boardData }) => {
+  socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken }) => {
     if (
       !targetTeacherSocketId ||
-      !boardData ||
+      (!boardData && !boardSnapshotPath) ||
       !isStudentForClass(joinedClassCode) ||
       classes[joinedClassCode]?.teacherSocketId !== targetTeacherSocketId
     ) return;
@@ -635,13 +635,15 @@ io.on("connection", (socket) => {
     io.to(targetTeacherSocketId).emit("student-board-state", {
       studentSocketId: socket.id,
       boardData,
+      boardSnapshotPath,
+      teacherSyncToken,
     });
   });
 
   // ★★ 生徒 → 教員：モニタリング中の画面更新（連続）
   socket.on(
     "student-screen-update",
-    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, isSync }) => {
+    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, boardSnapshotPath, teacherSyncToken, isSync }) => {
       if (
         !teacherSocketId ||
         !classCode ||
@@ -658,6 +660,8 @@ io.on("connection", (socket) => {
         viewport,
         mode,
         boardData,
+        boardSnapshotPath,
+        teacherSyncToken,
         isSync,
       });
     }

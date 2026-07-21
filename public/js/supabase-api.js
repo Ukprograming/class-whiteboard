@@ -512,6 +512,7 @@ function createSupabaseRealtimeBridge() {
           studentSocketId: message.senderSocketId,
           boardData: payload.boardData,
           boardSnapshotPath: payload.boardSnapshotPath,
+          teacherSyncToken: payload.teacherSyncToken,
         });
         break;
       case "student-whiteboard-action":
@@ -531,6 +532,7 @@ function createSupabaseRealtimeBridge() {
           mode: payload.mode,
           boardData: payload.boardData,
           boardSnapshotPath: payload.boardSnapshotPath,
+          teacherSyncToken: payload.teacherSyncToken,
           isSync: payload.isSync,
         });
         break;
