@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=pages-staging-20260817-realtime-retry";
+} from "./supabase-api.js?v=pages-staging-20260817-student-route";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();

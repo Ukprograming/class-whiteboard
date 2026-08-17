@@ -178,6 +178,7 @@ function createSupabaseRealtimeBridge() {
     studentInboxChannel: null,
     studentOutboxChannels: new Map(),
     studentIdByLoginId: new Map(),
+    studentRecordIdBySocketId: new Map(),
     reconnectTimerId: null,
     ready: null,
     mode: "whiteboard",
@@ -206,6 +207,33 @@ function createSupabaseRealtimeBridge() {
       } catch (err) {
         console.error(`[realtime] handler failed for ${eventName}`, err);
       }
+    }
+  }
+
+  function rememberStudentSocketRoute(socketIdValue, ...loginIdCandidates) {
+    const targetSocketId = String(socketIdValue || "").trim();
+    if (!targetSocketId || state.role !== "teacher") return "";
+
+    for (const candidate of loginIdCandidates) {
+      const loginId = normalizeStudentLoginId(candidate);
+      if (!loginId) continue;
+      const studentRecordId = state.studentIdByLoginId.get(loginId);
+      if (!studentRecordId) continue;
+      state.studentRecordIdBySocketId.set(targetSocketId, studentRecordId);
+      return studentRecordId;
+    }
+    return "";
+  }
+
+  function refreshStudentSocketRoutesFromPresence(presenceState) {
+    if (state.role !== "teacher") return;
+    for (const item of Object.values(presenceState || {}).flat()) {
+      if (item?.role !== "student") continue;
+      rememberStudentSocketRoute(
+        item.socketId,
+        item.nickname,
+        item.studentId
+      );
     }
   }
 
@@ -454,31 +482,19 @@ function createSupabaseRealtimeBridge() {
     state.teacherInboxChannel = teacherInboxChannel;
     state.studentInboxChannel = studentInboxChannel;
 
+    const handlePresenceUpdate = () => {
+      if (state.role !== "teacher") return;
+      const presenceState = presenceChannel.presenceState();
+      refreshStudentSocketRoutesFromPresence(presenceState);
+      dispatch("student-list-update", getStudentPresenceList(
+        presenceState,
+        state.studentIdByLoginId
+      ));
+    };
     presenceChannel
-      .on("presence", { event: "sync" }, () => {
-        if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(
-            presenceChannel.presenceState(),
-            state.studentIdByLoginId
-          ));
-        }
-      })
-      .on("presence", { event: "join" }, () => {
-        if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(
-            presenceChannel.presenceState(),
-            state.studentIdByLoginId
-          ));
-        }
-      })
-      .on("presence", { event: "leave" }, () => {
-        if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(
-            presenceChannel.presenceState(),
-            state.studentIdByLoginId
-          ));
-        }
-      });
+      .on("presence", { event: "sync" }, handlePresenceUpdate)
+      .on("presence", { event: "join" }, handlePresenceUpdate)
+      .on("presence", { event: "leave" }, handlePresenceUpdate);
 
     announcementChannel.on(
       "broadcast",
@@ -588,6 +604,7 @@ function createSupabaseRealtimeBridge() {
     state.studentInboxChannel = null;
     state.studentOutboxChannels = new Map();
     state.studentIdByLoginId = new Map();
+    state.studentRecordIdBySocketId = new Map();
     if (state.reconnectTimerId) clearTimeout(state.reconnectTimerId);
     state.reconnectTimerId = null;
     state.classId = "";
@@ -618,6 +635,9 @@ function createSupabaseRealtimeBridge() {
       payload.targetStudentSocketId ||
       payload.studentSocketId ||
       "";
+    const routedStudentRecordId = state.studentRecordIdBySocketId.get(targetSocketId);
+    if (routedStudentRecordId) return routedStudentRecordId;
+
     let loginId = normalizeStudentLoginId(payload.studentId || "");
     if (!loginId && targetSocketId && state.presenceChannel) {
       const presence = Object.values(state.presenceChannel.presenceState() || {})
@@ -626,7 +646,11 @@ function createSupabaseRealtimeBridge() {
       loginId = normalizeStudentLoginId(presence?.nickname || presence?.studentId || "");
     }
     const cached = state.studentIdByLoginId.get(loginId);
-    if (cached || !loginId || !state.classId) return cached || "";
+    if (cached) {
+      if (targetSocketId) state.studentRecordIdBySocketId.set(targetSocketId, cached);
+      return cached;
+    }
+    if (!loginId || !state.classId) return "";
 
     const { data: student, error } = await supabase
       .from("students")
@@ -638,6 +662,7 @@ function createSupabaseRealtimeBridge() {
     if (error) throw error;
     if (!student) return "";
     state.studentIdByLoginId.set(loginId, student.id);
+    if (targetSocketId) state.studentRecordIdBySocketId.set(targetSocketId, student.id);
     return student.id;
   }
 
@@ -773,6 +798,14 @@ function createSupabaseRealtimeBridge() {
     }
     const payload = message.payload || {};
     if (state.role === "teacher") {
+      if (source === "teacher-inbox") {
+        rememberStudentSocketRoute(
+          message.senderSocketId,
+          message.senderNickname,
+          payload.nickname,
+          payload.studentId
+        );
+      }
       handleTeacherInbound(eventName, payload, message);
     } else if (state.role === "student") {
       handleStudentInbound(eventName, payload, message);
