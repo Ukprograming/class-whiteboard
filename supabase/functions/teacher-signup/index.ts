@@ -24,8 +24,8 @@ Deno.serve(async (req) => {
     if (!inviteCode || providedCode !== inviteCode) {
       return jsonResponse({ ok: false, message: "Invalid invite code" }, 403);
     }
-    if (!email || !password) {
-      return jsonResponse({ ok: false, message: "Email and password are required" }, 400);
+    if (!email || String(password || "").length < 8) {
+      return jsonResponse({ ok: false, message: "Email and password(8+ chars) are required" }, 400);
     }
 
     const supabase = getAdminClient();

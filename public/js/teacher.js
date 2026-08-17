@@ -178,6 +178,8 @@ const latestViewportByStudent = {};
 // accepted only after the student has applied that action, preventing an older
 // in-flight Storage snapshot from rolling the modal back.
 const latestTeacherSyncTokenByStudent = new Map();
+const pendingTeacherSyncTokenByStudent = new Map();
+const teacherSyncAckTimerByStudent = new Map();
 let modalTeacherSyncCounter = 0;
 // ★ 追加: モーダル内のボードに「初期同期済み」かどうか
 let modalHasInitialBoardData = false;
@@ -339,6 +341,7 @@ let role = null;
 let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
+let boardFileSaveInFlight = false;
 
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = Math.max(
@@ -615,6 +618,28 @@ async function activateTeacherClass(classCode) {
   await socket.emit("joinAsTeacher", { classCode: code });
   return true;
 }
+
+socket.on("realtime-disconnected", () => {
+  if (statusLabel && currentClassCode) {
+    statusLabel.textContent = `再接続中: ${currentClassCode}`;
+  }
+});
+
+socket.on("realtime-reconnected", () => {
+  if (!currentClassCode) return;
+  if (sharedBoardSession) void publishSharedBoardSnapshot("reconnect");
+  if (currentMonitoringStudentSocketId) {
+    void socket.emit("request-highres", {
+      classCode: currentClassCode,
+      studentSocketId: currentMonitoringStudentSocketId,
+    });
+  }
+  if (statusLabel) {
+    statusLabel.textContent = sharedBoardSession
+      ? `共同編集を再接続しました: ${currentClassCode}`
+      : `クラスコード ${currentClassCode} で待機中…`;
+  }
+});
 
 async function autoJoinClassFromSession() {
   if (supabaseEnabled) {
@@ -1241,6 +1266,11 @@ function selectFolder(folderPath) {
 }
 
 async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
+  if (boardFileSaveInFlight) {
+    alert("保存処理中です。完了するまでお待ちください。");
+    return;
+  }
+  boardFileSaveInFlight = true;
   try {
     console.log("[teacherSaveBoardInternal] start", {
       folderPath,
@@ -1267,6 +1297,7 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
       return;
     }
 
+    const saveRevision = teacherBoard.getRevision?.();
     const boardData = teacherBoard.exportBoardData();
     console.log("[teacherSaveBoardInternal] boardData exported");
 
@@ -1352,20 +1383,23 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     lastUsedFolderPath = (folderPath || "").trim();
 
     // ★ ここで「保存済み」にする（dirty フラグをリセット）
-    if (typeof teacherBoard.markSaved === "function") {
-      teacherBoard.markSaved();
-    }
+    const savedCurrentRevision = typeof teacherBoard.markSaved === "function"
+      ? teacherBoard.markSaved(saveRevision)
+      : true;
 
-    alert(
-      json.message ||
+    const savedMessage = json.message ||
       (mode === "update"
         ? "ホワイトボードを上書き保存しました。"
-        : "ホワイトボードを保存しました。")
-    );
-    closeBoardDialog();
+        : "ホワイトボードを保存しました。");
+    alert(savedCurrentRevision === false
+      ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
+      : savedMessage);
+    if (savedCurrentRevision !== false) closeBoardDialog();
   } catch (err) {
     console.error("[teacherSaveBoardInternal] error", err);
     alert("ホワイトボードの保存に失敗しました: " + err);
+  } finally {
+    boardFileSaveInFlight = false;
   }
 }
 
@@ -1722,10 +1756,10 @@ if (classManagementStudentList) {
   classManagementStudentList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-reset-student-id]");
     if (!button) return;
-    const password = window.prompt(`${button.dataset.resetStudentName} さんの新しいパスワード（6文字以上）`);
+    const password = window.prompt(`${button.dataset.resetStudentName} さんの新しいパスワード（8文字以上）`);
     if (!password) return;
-    if (password.length < 6) {
-      setClassManagementStatus("パスワードは6文字以上にしてください。", true);
+    if (password.length < 8) {
+      setClassManagementStatus("パスワードは8文字以上にしてください。", true);
       return;
     }
     setClassManagementBusy(true);
@@ -2136,8 +2170,53 @@ async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
 
 function isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) {
   const expectedToken = latestTeacherSyncTokenByStudent.get(studentSocketId);
-  return !expectedToken || teacherSyncToken === expectedToken;
+  const pendingToken = pendingTeacherSyncTokenByStudent.get(studentSocketId);
+  return (!expectedToken && !pendingToken) ||
+    teacherSyncToken === expectedToken ||
+    teacherSyncToken === pendingToken;
 }
+
+function clearPendingTeacherSync(studentSocketId, teacherSyncToken = null) {
+  const pendingToken = pendingTeacherSyncTokenByStudent.get(studentSocketId);
+  if (teacherSyncToken && pendingToken !== teacherSyncToken) return false;
+  pendingTeacherSyncTokenByStudent.delete(studentSocketId);
+  const timerId = teacherSyncAckTimerByStudent.get(studentSocketId);
+  if (timerId) clearTimeout(timerId);
+  teacherSyncAckTimerByStudent.delete(studentSocketId);
+  return true;
+}
+
+async function sendTeacherWhiteboardAction(studentSocketId, action, teacherSyncToken) {
+  clearPendingTeacherSync(studentSocketId);
+  pendingTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+  const timerId = setTimeout(() => {
+    if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
+    void socket.emit("request-highres", {
+      classCode: currentClassCode,
+      studentSocketId,
+    });
+  }, 8000);
+  teacherSyncAckTimerByStudent.set(studentSocketId, timerId);
+
+  const sent = await socket.emit("teacher-whiteboard-action", {
+    classCode: currentClassCode,
+    targetStudentSocketId: studentSocketId,
+    action: {
+      ...action,
+      teacherSyncToken,
+    },
+  });
+  if (sent === false) {
+    clearPendingTeacherSync(studentSocketId, teacherSyncToken);
+  }
+  return sent !== false;
+}
+
+socket.on("student-teacher-action-ack", ({ studentSocketId, teacherSyncToken }) => {
+  if (!studentSocketId || !teacherSyncToken) return;
+  if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
+  latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+});
 
 function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
   if (!boardData || !modalBoard || typeof modalBoard.importBoardData !== "function") {
@@ -2592,19 +2671,11 @@ function startMonitoringStudent(studentSocketId, nickname) {
 
       modalTeacherSyncCounter += 1;
       const teacherSyncToken = `${Date.now().toString(36)}-${modalTeacherSyncCounter.toString(36)}`;
-      latestTeacherSyncTokenByStudent.set(
+      void sendTeacherWhiteboardAction(
         currentMonitoringStudentSocketId,
+        action,
         teacherSyncToken
       );
-
-      socket.emit("teacher-whiteboard-action", {
-        classCode: currentClassCode,
-        targetStudentSocketId: currentMonitoringStudentSocketId,
-        action: {
-          ...action,
-          teacherSyncToken
-        }
-      });
     };
   }
 

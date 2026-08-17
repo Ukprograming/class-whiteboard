@@ -429,7 +429,7 @@
         </label>
         <label>
           生徒ID
-          <input id="loginNickname" type="text" placeholder="例: s001" autocomplete="username" required />
+          <input id="loginNickname" type="text" maxlength="24" pattern="[A-Za-z0-9_-]+" placeholder="例: s001" autocomplete="username" required />
           <span class="student-login-field-hint">先生が登録時に設定した生徒IDです。表示名ではありません。</span>
         </label>
         <label>

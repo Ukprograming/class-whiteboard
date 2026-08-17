@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
 
 export function getAdminClient() {
   const url = Deno.env.get("SUPABASE_URL");
@@ -45,8 +45,17 @@ export function normalizeLoginId(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
 
+export function isValidClassCode(value: string) {
+  return /^[A-Z0-9_-]{4,32}$/.test(value);
+}
+
+export function isValidStudentLoginId(value: string) {
+  return /^[a-z0-9_-]{1,24}$/.test(value);
+}
+
 export function studentAuthEmail(classCode: string, studentLoginId: string) {
-  const safeClassCode = classCode.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const safeStudentId = studentLoginId.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return `cw.${safeClassCode}.${safeStudentId}@students.class-whiteboard.local`;
+  if (!isValidClassCode(classCode) || !isValidStudentLoginId(studentLoginId)) {
+    throw new Error("Invalid class code or student login ID format");
+  }
+  return `cw.${classCode.toLowerCase()}.${studentLoginId}@students.class-whiteboard.local`;
 }

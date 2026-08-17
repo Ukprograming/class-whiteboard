@@ -398,7 +398,7 @@
           <h3>クラスを作成</h3>
           <form id="classManagementCreateClassForm" class="class-management-form">
             <label>クラス名<input id="classManagementClassName" required maxlength="80" placeholder="例：物理 2年A組" /></label>
-            <label>クラスコード<input id="classManagementClassCode" required minlength="4" maxlength="32" autocomplete="off" placeholder="例：PHYSICS2A" /></label>
+            <label>クラスコード<input id="classManagementClassCode" required minlength="4" maxlength="32" pattern="[A-Za-z0-9_-]+" autocomplete="off" placeholder="例：PHYSICS2A" /></label>
             <button type="submit" class="share-btn">クラスを作成</button>
           </form>
         </section>
@@ -408,9 +408,9 @@
           <p class="class-management-guide">生徒に渡すログイン情報は「対象クラスのクラスコード・生徒ID・初期パスワード」の3つです。表示名はログインには使いません。</p>
           <form id="classManagementCreateStudentForm" class="class-management-form">
             <label>対象クラス<select id="classManagementClassSelect" required></select></label>
-            <label>生徒ID（ログイン用）<input id="classManagementStudentLoginId" required maxlength="48" autocomplete="off" placeholder="例：s001" /></label>
+            <label>生徒ID（ログイン用）<input id="classManagementStudentLoginId" required maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="off" placeholder="例：s001" /></label>
             <label>表示名（画面表示用）<input id="classManagementStudentName" required maxlength="80" autocomplete="off" placeholder="例：佐藤 太郎" /></label>
-            <label>初期パスワード<input id="classManagementStudentPassword" type="password" required minlength="6" autocomplete="new-password" placeholder="6文字以上" /></label>
+            <label>初期パスワード<input id="classManagementStudentPassword" type="password" required minlength="8" autocomplete="new-password" placeholder="8文字以上" /></label>
             <button type="submit" class="share-btn">生徒を追加</button>
           </form>
         </section>

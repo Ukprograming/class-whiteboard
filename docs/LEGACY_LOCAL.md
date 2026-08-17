@@ -15,5 +15,7 @@ $env:ENABLE_LEGACY_GAS_PROXY = "true"
 npm.cmd start
 ```
 
-Only enable the GAS proxy on a trusted network. The legacy student flow has no
+Legacy services bind to `127.0.0.1` by default. The legacy student flow has no
 per-student server credential, so Supabase Auth remains the production path.
+If LAN compatibility is unavoidable, set both `HOST=0.0.0.0` and
+`ALLOW_LEGACY_LAN=true` explicitly and use only a trusted, isolated network.

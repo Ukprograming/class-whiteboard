@@ -48,6 +48,8 @@ export class Whiteboard {
     //           x,y,width,height,stroke,strokeWidth,fill,points?,depth?, groupId?, locked? }
     this.objects = [];
     this.nextObjectId = 1;
+    this.changeRevision = 0;
+    this.savedRevision = 0;
 
     // 操作履歴（Undo 用）
     this.history = []; // { kind:'stroke'|'object'|'delete-object'|'delete-multi', ... }
@@ -204,6 +206,11 @@ export class Whiteboard {
     return `asset-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
+  _newEntityId(kind = "item") {
+    if (globalThis.crypto?.randomUUID) return `${kind}-${globalThis.crypto.randomUUID()}`;
+    return `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
   _releaseAssetObjectUrls() {
     for (const url of this._assetObjectUrls || []) {
       try {
@@ -329,6 +336,7 @@ export class Whiteboard {
 
   // ★ 追加：未保存状態を「変更あり」にする内部メソッド
   _markDirty() {
+    this.changeRevision += 1;
     if (!this.isBoardDirty) {
       this.isBoardDirty = true;
       if (this.onDirtyChange) {
@@ -338,18 +346,25 @@ export class Whiteboard {
   }
 
   // ★ 追加：外部から「保存済み」にリセットするためのメソッド
-  markSaved() {
+  markSaved(revision = this.changeRevision) {
+    if (revision !== this.changeRevision) return false;
+    this.savedRevision = revision;
     if (this.isBoardDirty) {
       this.isBoardDirty = false;
       if (this.onDirtyChange) {
         this.onDirtyChange(false);
       }
     }
+    return true;
   }
 
   // （必要ならゲッターも）
   isDirty() {
     return this.isBoardDirty;
+  }
+
+  getRevision() {
+    return this.changeRevision;
   }
 
   // ★ 修正：resize は CSS ピクセルを受け取り、内部で dpr を掛ける
@@ -381,7 +396,7 @@ export class Whiteboard {
 
   _newPageId() {
     this._pageCounter += 1;
-    return `page-${Date.now()}-${this._pageCounter}`;
+    return this._newEntityId("page");
   }
 
   _blankPageData() {
@@ -530,12 +545,14 @@ export class Whiteboard {
 
         // 受信したストロークにもIDをちゃんと振る
         if (stroke.id == null) {
-          stroke.id = this.nextStrokeId++;
-        } else if (stroke.id >= this.nextStrokeId) {
+          stroke.id = this._newEntityId("stroke");
+        } else if (typeof stroke.id === "number" && stroke.id >= this.nextStrokeId) {
           this.nextStrokeId = stroke.id + 1;
         }
 
-        this.strokes.push(stroke);
+        const existingIndex = this.strokes.findIndex(item => item.id === stroke.id);
+        if (existingIndex >= 0) this.strokes[existingIndex] = stroke;
+        else this.strokes.push(stroke);
         this.render();
       }
 
@@ -615,6 +632,7 @@ export class Whiteboard {
     strokes.forEach(st => {
       const newStroke = {
         ...st,
+        id: this._newEntityId("stroke"),
         points: st.points.map(p => ({ ...p })),
         isTeacherAnnotation: true
       };
@@ -623,7 +641,7 @@ export class Whiteboard {
 
     const idMap = {};
     objects.forEach(o => {
-      const newId = this.nextObjectId++;
+      const newId = this._newEntityId("object");
       idMap[o.id] = newId;
 
       const newObj = {
@@ -930,7 +948,7 @@ export class Whiteboard {
           viewport: renderViewport
         }).promise;
 
-        const id = this.nextObjectId++;
+        const id = this._newEntityId("object");
         const obj = {
           id,
           kind: "image",
@@ -1113,7 +1131,7 @@ export class Whiteboard {
     const base = this.clipboard;
     const obj = {
       ...JSON.parse(JSON.stringify(base)),
-      id: this.nextObjectId++,
+      id: this._newEntityId("object"),
       x: base.x + 40,
       y: base.y + 40
     };
@@ -1254,7 +1272,7 @@ export class Whiteboard {
 
     const { x: wx, y: wy } = this._screenToWorld(sx, sy);
 
-    const id = this.nextObjectId++;
+    const id = this._newEntityId("object");
     const width = 260;
     const height = 80;
 
@@ -1298,7 +1316,7 @@ export class Whiteboard {
 
     const { x: wx, y: wy } = this._screenToWorld(sx, sy);
 
-    const id = this.nextObjectId++;
+    const id = this._newEntityId("object");
     const width = 260;
     const height = 40;
 
@@ -1346,7 +1364,7 @@ export class Whiteboard {
         h = h * scale;
       }
 
-      const id = this.nextObjectId++;
+      const id = this._newEntityId("object");
       const obj = {
         id,
         kind: "image",
@@ -1688,6 +1706,8 @@ export class Whiteboard {
       : this.pages[0].id;
     const activePage = this.pages.find(page => page.id === this.activePageId);
     this._importSinglePageData(activePage.boardData, { preserveDirty: true });
+    this.changeRevision += 1;
+    this.savedRevision = this.changeRevision;
     this.isBoardDirty = false;
     if (this.onDirtyChange) this.onDirtyChange(false);
     this._notifyPages();
@@ -1708,7 +1728,7 @@ export class Whiteboard {
     // ★ 追加：既存ストロークの最大IDを見て nextStrokeId を進める
     let maxStrokeId = 0;
     for (const st of this.strokes) {
-      if (st.id != null && st.id > maxStrokeId) {
+      if (typeof st.id === "number" && st.id > maxStrokeId) {
         maxStrokeId = st.id;
       }
     }
@@ -1894,7 +1914,7 @@ export class Whiteboard {
   _addStroke(stroke) {
     // ★ 追加：IDがなければ採番
     if (stroke.id == null) {
-      stroke.id = this.nextStrokeId++;
+      stroke.id = this._newEntityId("stroke");
     }
 
     if (this.isTeacherMode) {
@@ -2321,7 +2341,7 @@ export class Whiteboard {
   }
 
   _createTextObject(wx, wy, kind) {
-    const id = this.nextObjectId++;
+    const id = this._newEntityId("object");
     const width = 240;
     const height = 60;
 
@@ -2366,7 +2386,7 @@ export class Whiteboard {
 
 
   _startShape(wx, wy, kind) {
-    const id = this.nextObjectId++;
+    const id = this._newEntityId("object");
     const obj = {
       id,
       kind,
@@ -2459,7 +2479,7 @@ export class Whiteboard {
     const size = preset.baseSize || 80;
     const half = size / 2;
 
-    const id = this.nextObjectId++;
+    const id = this._newEntityId("object");
     const obj = {
       id,
       kind: "stamp",

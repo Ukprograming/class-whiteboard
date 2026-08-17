@@ -52,9 +52,9 @@ set it explicitly if your local or deployment environment needs it.
 ## Deploy Order
 
 1. Create a Supabase project.
-2. Run the SQL migrations in order:
-   - `supabase/migrations/0001_class_whiteboard_core.sql`
-   - `supabase/migrations/0002_realtime_class_channels.sql`
+2. Apply every SQL migration in `supabase/migrations/` in filename order with
+   `supabase db push`. Do not apply only the two original migrations to a new
+   environment.
 3. Deploy Edge Functions:
    - `teacher-signup`
    - `create-class`
@@ -63,7 +63,9 @@ set it explicitly if your local or deployment environment needs it.
    - `copy-board-to-class`
 4. Set Edge Function secrets.
 5. Fill `public/js/app-config.js`.
-6. Publish `public/` with GitHub Pages.
+6. Publish `public/` with GitHub Pages. When a migration changes Realtime topic
+   authorization, release the database and matching frontend as one coordinated
+   maintenance operation.
 
 ## Local Trial Flow
 

@@ -243,6 +243,7 @@ let lastUsedFolderPath = "";            // 直近に使ったフォルダを記�
 let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
+let boardFileSaveInFlight = false;
 
 
 // ========= 左パネル折りたたみ（旧 UI 用） =========
@@ -804,6 +805,10 @@ function selectFolder(folderPath) {
 // ---- 保存 / 読み込みの実処理 ----
 
 async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
+  if (boardFileSaveInFlight) {
+    alert("保存処理中です。完了するまでお待ちください。");
+    return;
+  }
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してから保存してください。");
     return;
@@ -813,33 +818,35 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     return;
   }
 
-  const boardData = whiteboard.exportBoardData();
-
-  let finalFileName = (fileName || "").trim();
-  if (!finalFileName) {
-    finalFileName = new Date()
-      .toISOString()
-      .slice(0, 16)
-      .replace("T", "_")
-      .replace(/:/g, "-"); // 例: 2025-11-07_10-30
-  }
-
-  const payload = {
-    action: "saveBoard",
-    role: "student",
-    classCode: currentClassCode,
-    nickname,
-    folderPath: (folderPath || "").trim(),
-    fileName: finalFileName,
-    boardData
-  };
-
-  // ★ 上書き対象ファイルIDがある場合は付与
-  if (overwriteFileId) {
-    payload.fileId = overwriteFileId;
-  }
-
+  boardFileSaveInFlight = true;
   try {
+    const saveRevision = whiteboard.getRevision?.();
+    const boardData = whiteboard.exportBoardData();
+
+    let finalFileName = (fileName || "").trim();
+    if (!finalFileName) {
+      finalFileName = new Date()
+        .toISOString()
+        .slice(0, 16)
+        .replace("T", "_")
+        .replace(/:/g, "-"); // 例: 2025-11-07_10-30
+    }
+
+    const payload = {
+      action: "saveBoard",
+      role: "student",
+      classCode: currentClassCode,
+      nickname,
+      folderPath: (folderPath || "").trim(),
+      fileName: finalFileName,
+      boardData
+    };
+
+    // ★ 上書き対象ファイルIDがある場合は付与
+    if (overwriteFileId) {
+      payload.fileId = overwriteFileId;
+    }
+
     let res = { ok: true, status: 200 };
     let json = {};
     if (boardApi.enabled) {
@@ -887,20 +894,23 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
 
 
     // ★ 保存が成功したので「保存済み」としてフラグをリセット
-    if (typeof whiteboard.markSaved === "function") {
-      whiteboard.markSaved();
-    }
+    const savedCurrentRevision = typeof whiteboard.markSaved === "function"
+      ? whiteboard.markSaved(saveRevision)
+      : true;
 
-    alert(
-      json.message ||
+    const savedMessage = json.message ||
       (mode === "update"
         ? "ホワイトボードを上書き保存しました。"
-        : "ホワイトボードを保存しました。")
-    );
-    closeBoardDialog();
+        : "ホワイトボードを保存しました。");
+    alert(savedCurrentRevision === false
+      ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
+      : savedMessage);
+    if (savedCurrentRevision !== false) closeBoardDialog();
   } catch (err) {
     console.error(err);
     alert("ホワイトボードの保存に失敗しました。");
+  } finally {
+    boardFileSaveInFlight = false;
   }
 }
 
@@ -1455,6 +1465,26 @@ chatTemplateButtons.forEach(btn => {
   });
 });
 
+socket.on("realtime-disconnected", () => {
+  if (statusLabel && currentClassCode) {
+    statusLabel.textContent = `再接続中: ${currentClassCode} / ${nickname || ""}`;
+  }
+});
+
+socket.on("realtime-reconnected", ({ classCode }) => {
+  const restoredClassCode = classCode || currentClassCode;
+  if (!restoredClassCode) return;
+  void loadActiveSharedBoard(restoredClassCode);
+  if (currentTeacherSocketId) {
+    void sendBoardStateToTeacher(currentTeacherSocketId);
+  }
+  if (statusLabel) {
+    statusLabel.textContent = sharedBoardSession
+      ? `共同編集に再接続しました: ${restoredClassCode} / ${nickname || ""}`
+      : `クラス: ${restoredClassCode} / ${nickname || ""}`;
+  }
+});
+
 chatReactionButtons.forEach(btn => {
   btn.addEventListener("click", () => {
     studentSendChat("", "", btn.dataset.chatReaction || "");
@@ -1788,11 +1818,18 @@ let cornersLocked = false; // 4点揃ったら true
 
 // OpenCVロード確認（プレビューキャンバスがある場合のみ）
 if (previewCanvas && previewCtx) {
+  let opencvChecksRemaining = 40;
   const opencvCheckInterval = setInterval(() => {
     if (typeof cv !== "undefined" && cv.Mat) {
       opencvReady = true;
       clearInterval(opencvCheckInterval);
       console.log("OpenCV.js is ready");
+      return;
+    }
+    opencvChecksRemaining -= 1;
+    if (opencvChecksRemaining <= 0) {
+      clearInterval(opencvCheckInterval);
+      console.warn("OpenCV.js did not load; notebook preview will use the uncorrected camera image.");
     }
   }, 500);
 }
@@ -2426,11 +2463,15 @@ socket.on("teacher-joined-session", ({ teacherSocketId }) => {
 });
 
 // ★ 教員からのホワイトボード操作受信
-socket.on("teacher-whiteboard-action", ({ action }) => {
+socket.on("teacher-whiteboard-action", ({ action, teacherSocketId }) => {
   if (!whiteboard) return;
   whiteboard.applyAction(action);
   if (action?.teacherSyncToken) {
     lastAppliedTeacherSyncToken = action.teacherSyncToken;
+    void socket.emit("student-teacher-action-ack", {
+      targetTeacherSocketId: teacherSocketId || currentTeacherSocketId,
+      teacherSyncToken: action.teacherSyncToken,
+    });
   }
   boardSyncRevision += 1;
   // 教師の書き込みも次回の全体同期に含め、モーダルを開き直しても保持する。

@@ -79,9 +79,9 @@ if (missingRoleMappings.length > 0) {
 const teacherInboxContracts = [
   "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
   "supabase.channel(`class:${classCode}:teacher-inbox`",
-  "const teacherInboxReady = role === \"teacher\"",
+  "subscriptions.push(subscribeChannel(teacherInboxChannel, \"Teacher inbox\"))",
   "targetChannel.httpSend(\"socket-event\", outboundPayload)",
-  "? state.teacherInboxChannel",
+  "targetChannel = state.teacherInboxChannel",
 ];
 const missingTeacherInboxContracts = teacherInboxContracts.filter(
   (contract) => !realtimeApiSource.includes(contract)
@@ -91,13 +91,65 @@ if (missingTeacherInboxContracts.length > 0) {
   ok = false;
 }
 
+const secureRealtimeContracts = [
+  "supabase.channel(`class:${classCode}:presence`",
+  "supabase.channel(`class:${classCode}:announcements`",
+  "supabase.channel(`class:${classCode}:shared`",
+  "`class:${classCode}:student:${membership.studentRecordId}`",
+  "TEACHER_STUDENT_EVENTS.has(eventName)",
+  "resolveTargetStudentRecordId(payload)",
+];
+const missingSecureRealtimeContracts = secureRealtimeContracts.filter(
+  (contract) => !realtimeApiSource.includes(contract)
+);
+if (missingSecureRealtimeContracts.length > 0) {
+  console.error(`Secure Realtime topic contracts missing: ${missingSecureRealtimeContracts.join(", ")}`);
+  ok = false;
+}
+
 const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
 const teacherSource = readFileSync("public/js/teacher.js", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
+const securityMigrationSource = readFileSync(
+  "supabase/migrations/20260817041821_harden_realtime_topics_and_shared_board_integrity.sql",
+  "utf8"
+);
+const copyBoardFunctionSource = readFileSync(
+  "supabase/functions/copy-board-to-class/index.ts",
+  "utf8"
+);
+if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
+    !whiteboardSource.includes('this._newEntityId("object")')) {
+  console.error("Whiteboard entities must use collision-resistant IDs.");
+  ok = false;
+}
+
+const databaseSecurityContracts = [
+  '"class teachers can write realtime announcements"',
+  '"class students can read realtime student inbox"',
+  '"class teachers can write realtime student inbox"',
+  "shared_boards_one_active_per_class_idx",
+  "finalize_shared_board_snapshot",
+  "grant update (display_name) on public.profiles to authenticated",
+  "students_login_id_safe_format",
+  "copy_board_to_class_atomic",
+];
+const missingDatabaseSecurityContracts = databaseSecurityContracts.filter(
+  (contract) => !securityMigrationSource.includes(contract)
+);
+if (missingDatabaseSecurityContracts.length > 0) {
+  console.error(`Database security contracts missing: ${missingDatabaseSecurityContracts.join(", ")}`);
+  ok = false;
+}
+
+if (!copyBoardFunctionSource.includes('.rpc("copy_board_to_class_atomic"')) {
+  console.error("Board distribution must use the atomic database function.");
+  ok = false;
+}
 const assetStorageContracts = [
   [realtimeApiSource, "externalizeBoardAssets(boardData, snapshotPath)"],
   [realtimeApiSource, "hydrateBoardAssets(JSON.parse(await download.data.text()))"],
-  [realtimeApiSource, "cleanupUnreferencedBoardAssets(boardData, snapshotPath)"],
+  [realtimeApiSource, "await storageObjectExists(currentPath)"],
   [realtimeApiSource, "upsert: false"],
   [whiteboardSource, "applyAssetReferences(references)"],
   [whiteboardSource, "o.imageObjectUrl || o.imageDataUrl"],

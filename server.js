@@ -15,9 +15,22 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || "";
 const LEGACY_REALTIME_ENABLED = process.env.ENABLE_LEGACY_REALTIME === "true";
 const LEGACY_GAS_PROXY_ENABLED = process.env.ENABLE_LEGACY_GAS_PROXY === "true";
+const LEGACY_LAN_ALLOWED = process.env.ALLOW_LEGACY_LAN === "true";
+const HOST = process.env.HOST ||
+  (LEGACY_REALTIME_ENABLED || LEGACY_GAS_PROXY_ENABLED ? "127.0.0.1" : "0.0.0.0");
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 if (LEGACY_REALTIME_ENABLED && (!process.env.SESSION_SECRET || !TEACHER_PASSWORD)) {
   throw new Error(
     "ENABLE_LEGACY_REALTIME=true requires SESSION_SECRET and TEACHER_PASSWORD."
+  );
+}
+if (
+  (LEGACY_REALTIME_ENABLED || LEGACY_GAS_PROXY_ENABLED) &&
+  !LOOPBACK_HOSTS.has(HOST) &&
+  !LEGACY_LAN_ALLOWED
+) {
+  throw new Error(
+    "Legacy services may bind outside loopback only when ALLOW_LEGACY_LAN=true is explicitly set."
   );
 }
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -27,8 +40,8 @@ const TEACHER_SIGNUP_PAGE = path.join(PUBLIC_DIR, "teacher-signup.html");
 
 const app = express();
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "12mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 const sessionMiddleware = session({
   secret: SESSION_SECRET,
   resave: false,
@@ -42,7 +55,7 @@ app.use(sessionMiddleware);
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  maxHttpBufferSize: 1e7, // 約10MB（socket.io経由の画像転送の上限）
+  maxHttpBufferSize: 2e6,
 });
 io.engine.use(sessionMiddleware);
 io.use((socket, next) => {
@@ -78,12 +91,37 @@ app.get(["/teacher", "/teacher.html"], (req, res) => {
   return res.sendFile(TEACHER_PAGE);
 });
 
-app.post("/teacher/login", (req, res) => {
+const teacherLoginAttempts = new Map();
+const TEACHER_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const TEACHER_LOGIN_MAX_ATTEMPTS = 5;
+
+function checkTeacherLoginRate(req, res, next) {
+  const key = req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const previous = teacherLoginAttempts.get(key);
+  const record = !previous || now - previous.startedAt >= TEACHER_LOGIN_WINDOW_MS
+    ? { startedAt: now, count: 0 }
+    : previous;
+  if (record.count >= TEACHER_LOGIN_MAX_ATTEMPTS) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((record.startedAt + TEACHER_LOGIN_WINDOW_MS - now) / 1000)
+    );
+    res.set("Retry-After", String(retryAfterSeconds));
+    return res.status(429).send("ログイン試行回数が上限に達しました。しばらく待ってから再試行してください。");
+  }
+  req.teacherLoginRateKey = key;
+  req.teacherLoginRateRecord = record;
+  return next();
+}
+
+app.post("/teacher/login", checkTeacherLoginRate, (req, res) => {
   if (!TEACHER_PASSWORD) {
     return res.status(503).send("Legacy teacher login is disabled. Configure TEACHER_PASSWORD to enable it.");
   }
   const { password, classCode } = req.body;
   if (password === TEACHER_PASSWORD) {
+    teacherLoginAttempts.delete(req.teacherLoginRateKey);
     req.session.isTeacher = true;
     const normalizedClassCode = normalizeText(classCode);
     if (normalizedClassCode) {
@@ -91,6 +129,10 @@ app.post("/teacher/login", (req, res) => {
     }
     return res.redirect("/teacher");
   }
+
+  const record = req.teacherLoginRateRecord;
+  record.count += 1;
+  teacherLoginAttempts.set(req.teacherLoginRateKey, record);
 
   return res.status(401).send(`
     <h2>パスワードが違います</h2>
@@ -901,6 +943,6 @@ function getStudentList(classCode) {
   }));
 }
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Server running at http://${HOST}:${PORT}`);
 });

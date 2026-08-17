@@ -25,6 +25,16 @@ const TEACHER_REALTIME_EVENTS = new Set([
   "teacherSetHighQuality",
   "teacherShareToStudent",
 ]);
+const TEACHER_ANNOUNCEMENT_EVENTS = new Set([
+  "teacher-start-class",
+  "student-view-start",
+  "student-view-stop",
+]);
+const TEACHER_STUDENT_EVENTS = new Set(
+  Array.from(TEACHER_REALTIME_EVENTS).filter(
+    (eventName) => !TEACHER_ANNOUNCEMENT_EVENTS.has(eventName)
+  )
+);
 const STUDENT_REALTIME_EVENTS = new Set([
   "student-mode-change",
   "student-chat-to-teacher",
@@ -36,6 +46,7 @@ const STUDENT_REALTIME_EVENTS = new Set([
   "studentImageUpdate",
   "student-screen-share-started",
   "student-screen-share-stopped",
+  "student-teacher-action-ack",
 ]);
 const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);
 const SHARED_REALTIME_EVENTS = new Set([
@@ -89,13 +100,21 @@ function normalizeStudentLoginId(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function isValidClassCode(value) {
+  return /^[A-Z0-9_-]{4,32}$/.test(normalizeClassCode(value));
+}
+
+function isValidStudentLoginId(value) {
+  return /^[a-z0-9_-]{1,24}$/.test(normalizeStudentLoginId(value));
+}
+
 function studentAuthEmail(classCode, studentLoginId) {
-  const safeClassCode = normalizeClassCode(classCode)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-");
-  const safeStudentId = normalizeStudentLoginId(studentLoginId)
-    .replace(/[^a-z0-9]+/g, "-");
-  return `cw.${safeClassCode}.${safeStudentId}@students.class-whiteboard.local`;
+  const normalizedClassCode = normalizeClassCode(classCode);
+  const normalizedStudentId = normalizeStudentLoginId(studentLoginId);
+  if (!isValidClassCode(normalizedClassCode) || !isValidStudentLoginId(normalizedStudentId)) {
+    throw new Error("クラスコードまたは生徒IDの形式が正しくありません。");
+  }
+  return `cw.${normalizedClassCode.toLowerCase()}.${normalizedStudentId}@students.class-whiteboard.local`;
 }
 
 export function createRealtimeBridge() {
@@ -140,9 +159,17 @@ function createSupabaseRealtimeBridge() {
   const state = {
     role: "",
     classCode: "",
+    classId: "",
+    studentRecordId: "",
     nickname: "",
-    channel: null,
+    presenceChannel: null,
+    announcementChannel: null,
+    sharedChannel: null,
     teacherInboxChannel: null,
+    studentInboxChannel: null,
+    studentOutboxChannels: new Map(),
+    studentIdByLoginId: new Map(),
+    reconnectTimerId: null,
     ready: null,
     mode: "whiteboard",
     online: false,
@@ -193,6 +220,93 @@ function createSupabaseRealtimeBridge() {
     }
   }
 
+  async function resolveRealtimeMembership(role, classCode, userId) {
+    const { data: klass, error: classError } = await supabase
+      .from("classes")
+      .select("id, class_code, teacher_id")
+      .eq("class_code", classCode)
+      .maybeSingle();
+    if (classError) throw classError;
+    if (!klass) throw new Error("Class not found.");
+
+    if (role === "teacher") {
+      if (klass.teacher_id !== userId) {
+        throw new Error("This teacher does not own the selected class.");
+      }
+      const { data: students, error: studentsError } = await supabase
+        .from("students")
+        .select("id, student_login_id")
+        .eq("class_id", klass.id)
+        .eq("active", true);
+      if (studentsError) throw studentsError;
+      return {
+        classId: klass.id,
+        studentRecordId: "",
+        studentIdByLoginId: new Map(
+          (students || []).map((student) => [
+            normalizeStudentLoginId(student.student_login_id),
+            student.id,
+          ])
+        ),
+      };
+    }
+
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("id, student_login_id")
+      .eq("class_id", klass.id)
+      .eq("auth_user_id", userId)
+      .eq("active", true)
+      .maybeSingle();
+    if (studentError) throw studentError;
+    if (!student) throw new Error("Active student membership was not found.");
+    return {
+      classId: klass.id,
+      studentRecordId: student.id,
+      studentIdByLoginId: new Map([
+        [normalizeStudentLoginId(student.student_login_id), student.id],
+      ]),
+    };
+  }
+
+  function subscribeChannel(channel, label) {
+    let subscribedOnce = false;
+    return new Promise((resolve, reject) => {
+      channel.subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          if (!subscribedOnce) {
+            subscribedOnce = true;
+            resolve();
+          } else {
+            scheduleReconnectRefresh();
+          }
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          const message = err?.message || `${label} ${status.toLowerCase()}.`;
+          dispatch("join-error", message);
+          reject(new Error(message));
+        } else if (status === "CLOSED") {
+          state.online = false;
+          dispatch("realtime-disconnected", { channel: label });
+        }
+      });
+    });
+  }
+
+  function scheduleReconnectRefresh() {
+    if (state.reconnectTimerId) clearTimeout(state.reconnectTimerId);
+    state.reconnectTimerId = setTimeout(async () => {
+      state.reconnectTimerId = null;
+      if (!state.presenceChannel || !state.ready) return;
+      state.online = true;
+      try {
+        await trackPresence();
+      } catch (error) {
+        console.warn("[realtime] failed to restore presence after reconnect.", error);
+      }
+      dispatch("realtime-reconnected", { classCode: state.classCode });
+    }, 500);
+  }
+
   async function joinRealtime(role, payload = {}) {
     const classCode = normalizeClassCode(payload.classCode || state.classCode);
     if (!classCode) {
@@ -222,7 +336,7 @@ function createSupabaseRealtimeBridge() {
     ).trim();
 
     if (
-      state.channel &&
+      state.presenceChannel &&
       state.role === role &&
       state.classCode === classCode &&
       state.nickname === nickname
@@ -232,16 +346,42 @@ function createSupabaseRealtimeBridge() {
 
     await leaveRealtime();
 
+    let membership;
+    try {
+      membership = await resolveRealtimeMembership(
+        role,
+        classCode,
+        sessionData.session.user.id
+      );
+    } catch (error) {
+      dispatch("join-error", error?.message || "Class membership could not be verified.");
+      return false;
+    }
+
     state.role = role;
     state.classCode = classCode;
+    state.classId = membership.classId;
+    state.studentRecordId = membership.studentRecordId;
+    state.studentIdByLoginId = membership.studentIdByLoginId;
     state.nickname = nickname;
     state.online = false;
 
-    const channel = supabase.channel(`class:${classCode}`, {
+    const presenceChannel = supabase.channel(`class:${classCode}:presence`, {
       config: {
         private: privateChannels,
-        broadcast: { self: false, ack: false },
         presence: { key: socketId },
+      },
+    });
+    const announcementChannel = supabase.channel(`class:${classCode}:announcements`, {
+      config: {
+        private: privateChannels,
+        broadcast: { self: false, ack: true },
+      },
+    });
+    const sharedChannel = supabase.channel(`class:${classCode}:shared`, {
+      config: {
+        private: privateChannels,
+        broadcast: { self: false, ack: true },
       },
     });
     const teacherInboxChannel = supabase.channel(`class:${classCode}:teacher-inbox`, {
@@ -250,28 +390,56 @@ function createSupabaseRealtimeBridge() {
         broadcast: { self: false, ack: true },
       },
     });
-    state.channel = channel;
-    state.teacherInboxChannel = teacherInboxChannel;
-
-    channel
-      .on("broadcast", { event: "socket-event" }, ({ payload: eventPayload }) => {
-        handleRemoteEvent(eventPayload);
+    const studentInboxChannel = role === "student"
+      ? supabase.channel(`class:${classCode}:student:${membership.studentRecordId}`, {
+        config: {
+          private: privateChannels,
+          broadcast: { self: false, ack: true },
+        },
       })
+      : null;
+    state.presenceChannel = presenceChannel;
+    state.announcementChannel = announcementChannel;
+    state.sharedChannel = sharedChannel;
+    state.teacherInboxChannel = teacherInboxChannel;
+    state.studentInboxChannel = studentInboxChannel;
+
+    presenceChannel
       .on("presence", { event: "sync" }, () => {
         if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
+          dispatch("student-list-update", getStudentPresenceList(
+            presenceChannel.presenceState(),
+            state.studentIdByLoginId
+          ));
         }
       })
       .on("presence", { event: "join" }, () => {
         if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
+          dispatch("student-list-update", getStudentPresenceList(
+            presenceChannel.presenceState(),
+            state.studentIdByLoginId
+          ));
         }
       })
       .on("presence", { event: "leave" }, () => {
         if (state.role === "teacher") {
-          dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
+          dispatch("student-list-update", getStudentPresenceList(
+            presenceChannel.presenceState(),
+            state.studentIdByLoginId
+          ));
         }
       });
+
+    announcementChannel.on(
+      "broadcast",
+      { event: "socket-event" },
+      ({ payload: eventPayload }) => handleRemoteEvent(eventPayload, "announcement")
+    );
+    sharedChannel.on(
+      "broadcast",
+      { event: "socket-event" },
+      ({ payload: eventPayload }) => handleRemoteEvent(eventPayload, "shared")
+    );
 
     if (role === "teacher") {
       teacherInboxChannel.on(
@@ -281,56 +449,66 @@ function createSupabaseRealtimeBridge() {
           handleRemoteEvent(eventPayload, "teacher-inbox");
         }
       );
+    } else if (studentInboxChannel) {
+      studentInboxChannel.on(
+        "broadcast",
+        { event: "socket-event" },
+        ({ payload: eventPayload }) => {
+          handleRemoteEvent(eventPayload, "student-inbox");
+        }
+      );
     }
 
-    const classChannelReady = new Promise((resolve, reject) => {
-      channel.subscribe(async (status, err) => {
-        if (status === "SUBSCRIBED") {
-          resolve();
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          const message = err?.message || `Class channel ${status.toLowerCase()}.`;
-          dispatch("join-error", message);
-          reject(new Error(message));
-        } else if (status === "CLOSED") {
-          state.online = false;
-        }
-      });
-    });
+    const subscriptions = [
+      subscribeChannel(presenceChannel, "Presence channel"),
+      subscribeChannel(announcementChannel, "Announcement channel"),
+      subscribeChannel(sharedChannel, "Shared-board channel"),
+    ];
+    if (role === "teacher") {
+      subscriptions.push(subscribeChannel(teacherInboxChannel, "Teacher inbox"));
+    } else if (studentInboxChannel) {
+      subscriptions.push(subscribeChannel(studentInboxChannel, "Student inbox"));
+    }
 
-    // Students publish to this topic through HTTP without subscribing. Subscribing
-    // would require SELECT permission and would expose classmates' messages.
-    const teacherInboxReady = role === "teacher"
-      ? new Promise((resolve, reject) => {
-        teacherInboxChannel.subscribe((status, err) => {
-          if (status === "SUBSCRIBED") {
-            resolve();
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            const message = err?.message || `Teacher inbox ${status.toLowerCase()}.`;
-            dispatch("join-error", message);
-            reject(new Error(message));
-          }
-        });
-      })
-      : Promise.resolve();
-
-    state.ready = Promise.all([classChannelReady, teacherInboxReady])
+    state.ready = Promise.all(subscriptions)
       .then(async () => {
-        if (state.channel !== channel || state.teacherInboxChannel !== teacherInboxChannel) {
+        if (
+          state.presenceChannel !== presenceChannel ||
+          state.announcementChannel !== announcementChannel ||
+          state.sharedChannel !== sharedChannel ||
+          state.teacherInboxChannel !== teacherInboxChannel ||
+          state.studentInboxChannel !== studentInboxChannel
+        ) {
           return false;
         }
         state.online = true;
         await trackPresence();
         if (role === "student") {
-          dispatch("join-success", { classCode, nickname });
-          dispatch("join-student", { classCode, nickname, socketId });
+          dispatch("join-success", {
+            classCode,
+            nickname,
+            studentRecordId: membership.studentRecordId,
+          });
+          dispatch("join-student", {
+            classCode,
+            nickname,
+            socketId,
+            studentRecordId: membership.studentRecordId,
+          });
         } else {
-          dispatch("student-list-update", getStudentPresenceList(channel.presenceState()));
+          dispatch("student-list-update", getStudentPresenceList(
+            presenceChannel.presenceState(),
+            state.studentIdByLoginId
+          ));
           dispatch("teacher-class-started", { classCode });
         }
         return true;
       })
       .catch(async (error) => {
-        if (state.channel === channel || state.teacherInboxChannel === teacherInboxChannel) {
+        if (
+          state.presenceChannel === presenceChannel ||
+          state.teacherInboxChannel === teacherInboxChannel
+        ) {
           await leaveRealtime();
         }
         throw error;
@@ -340,34 +518,94 @@ function createSupabaseRealtimeBridge() {
   }
 
   async function leaveRealtime() {
-    const channel = state.channel;
-    const teacherInboxChannel = state.teacherInboxChannel;
-    if (!channel && !teacherInboxChannel) return;
-    state.channel = null;
+    const channels = [
+      state.presenceChannel,
+      state.announcementChannel,
+      state.sharedChannel,
+      state.teacherInboxChannel,
+      state.studentInboxChannel,
+      ...state.studentOutboxChannels.values(),
+    ].filter(Boolean);
+    if (!channels.length) return;
+    state.presenceChannel = null;
+    state.announcementChannel = null;
+    state.sharedChannel = null;
     state.teacherInboxChannel = null;
+    state.studentInboxChannel = null;
+    state.studentOutboxChannels = new Map();
+    state.studentIdByLoginId = new Map();
+    if (state.reconnectTimerId) clearTimeout(state.reconnectTimerId);
+    state.reconnectTimerId = null;
+    state.classId = "";
+    state.studentRecordId = "";
     state.ready = null;
     state.online = false;
-    await Promise.all([
-      channel ? supabase.removeChannel(channel) : Promise.resolve(),
-      teacherInboxChannel ? supabase.removeChannel(teacherInboxChannel) : Promise.resolve(),
-    ]);
+    await Promise.all(Array.from(new Set(channels)).map(
+      (channel) => supabase.removeChannel(channel)
+    ));
   }
 
   async function trackPresence() {
-    if (!state.channel || !state.online) return;
-    await state.channel.track({
+    if (!state.presenceChannel || !state.online) return;
+    await state.presenceChannel.track({
       socketId,
       role: state.role,
       classCode: state.classCode,
       nickname: state.nickname,
       studentId: state.role === "student" ? state.nickname : "",
+      studentRecordId: state.role === "student" ? state.studentRecordId : "",
       mode: state.mode || "whiteboard",
       onlineAt: new Date().toISOString(),
     });
   }
 
+  async function resolveTargetStudentRecordId(payload = {}) {
+    const targetSocketId = payload.targetSocketId ||
+      payload.targetStudentSocketId ||
+      payload.studentSocketId ||
+      "";
+    let loginId = normalizeStudentLoginId(payload.studentId || "");
+    if (!loginId && targetSocketId && state.presenceChannel) {
+      const presence = Object.values(state.presenceChannel.presenceState() || {})
+        .flat()
+        .find((item) => item?.role === "student" && item.socketId === targetSocketId);
+      loginId = normalizeStudentLoginId(presence?.nickname || presence?.studentId || "");
+    }
+    const cached = state.studentIdByLoginId.get(loginId);
+    if (cached || !loginId || !state.classId) return cached || "";
+
+    const { data: student, error } = await supabase
+      .from("students")
+      .select("id, student_login_id")
+      .eq("class_id", state.classId)
+      .eq("student_login_id", loginId)
+      .eq("active", true)
+      .maybeSingle();
+    if (error) throw error;
+    if (!student) return "";
+    state.studentIdByLoginId.set(loginId, student.id);
+    return student.id;
+  }
+
+  function getStudentOutboxChannel(studentRecordId) {
+    if (state.studentOutboxChannels.has(studentRecordId)) {
+      return state.studentOutboxChannels.get(studentRecordId);
+    }
+    const channel = supabase.channel(
+      `class:${state.classCode}:student:${studentRecordId}`,
+      {
+        config: {
+          private: privateChannels,
+          broadcast: { self: false, ack: true },
+        },
+      }
+    );
+    state.studentOutboxChannels.set(studentRecordId, channel);
+    return channel;
+  }
+
   async function sendRealtimeEvent(eventName, payload = {}) {
-    if (!state.channel && payload.classCode) {
+    if (!state.presenceChannel && payload.classCode) {
       await joinRealtime(state.role || inferRoleFromEvent(eventName), payload);
     }
     if (state.ready) {
@@ -378,15 +616,32 @@ function createSupabaseRealtimeBridge() {
       }
     }
     const isTeacherInboxEvent = TEACHER_INBOX_EVENTS.has(eventName);
-    const targetChannel = isTeacherInboxEvent
-      ? state.teacherInboxChannel
-      : state.channel;
-    if (!targetChannel) {
-      console.warn("[realtime] event ignored before class join", eventName);
-      return false;
+    const isSharedEvent = SHARED_REALTIME_EVENTS.has(eventName);
+    const isAnnouncementEvent = TEACHER_ANNOUNCEMENT_EVENTS.has(eventName);
+    const isStudentInboxEvent = TEACHER_STUDENT_EVENTS.has(eventName);
+    let targetChannel = null;
+    let useHttpSend = false;
+
+    if (isTeacherInboxEvent && state.role === "student") {
+      targetChannel = state.teacherInboxChannel;
+      useHttpSend = true;
+    } else if (isSharedEvent && (state.role === "teacher" || state.role === "student")) {
+      targetChannel = state.sharedChannel;
+    } else if (isAnnouncementEvent && state.role === "teacher") {
+      targetChannel = state.announcementChannel;
+    } else if (isStudentInboxEvent && state.role === "teacher") {
+      const studentRecordId = await resolveTargetStudentRecordId(payload);
+      if (!studentRecordId) {
+        console.warn(`[realtime] target student could not be resolved for ${eventName}.`);
+        dispatch("realtime-send-failed", { eventName, reason: "student-not-found" });
+        return false;
+      }
+      targetChannel = getStudentOutboxChannel(studentRecordId);
+      useHttpSend = true;
     }
-    if (isTeacherInboxEvent && state.role !== "student") {
-      console.warn(`[realtime] rejected teacher inbox event from role ${state.role || "unknown"}.`, eventName);
+
+    if (!targetChannel) {
+      console.warn(`[realtime] rejected ${eventName} from role ${state.role || "unknown"}.`);
       return false;
     }
 
@@ -414,7 +669,7 @@ function createSupabaseRealtimeBridge() {
     }
 
     try {
-      if (isTeacherInboxEvent) {
+      if (useHttpSend) {
         const result = await targetChannel.httpSend("socket-event", outboundPayload);
         if (!result?.success) {
           console.warn(`[realtime] ${eventName} HTTP send was not acknowledged.`);
@@ -442,27 +697,24 @@ function createSupabaseRealtimeBridge() {
     }
   }
 
-  function handleRemoteEvent(message, source = "class") {
+  function handleRemoteEvent(message, source) {
     if (!message || message.senderSocketId === socketId) return;
     if (normalizeClassCode(message.payload?.classCode || state.classCode) !== state.classCode) return;
 
     const eventName = message.eventName;
-    const senderRole = message.senderRole;
-    if (source === "teacher-inbox") {
-      if (
-        state.role !== "teacher" ||
-        senderRole !== "student" ||
-        !TEACHER_INBOX_EVENTS.has(eventName)
-      ) {
-        console.warn(`[realtime] rejected ${eventName || "unknown"} on teacher inbox.`);
-        return;
-      }
-    }
-    const roleAllowed = SHARED_REALTIME_EVENTS.has(eventName) ||
-      (senderRole === "teacher" && TEACHER_REALTIME_EVENTS.has(eventName)) ||
-      (senderRole === "student" && STUDENT_REALTIME_EVENTS.has(eventName));
-    if (!roleAllowed) {
-      console.warn(`[realtime] rejected ${eventName || "unknown"} from role ${senderRole || "unknown"}.`);
+    const sourceAllowed =
+      (source === "teacher-inbox" &&
+        state.role === "teacher" &&
+        TEACHER_INBOX_EVENTS.has(eventName)) ||
+      (source === "student-inbox" &&
+        state.role === "student" &&
+        TEACHER_STUDENT_EVENTS.has(eventName)) ||
+      (source === "announcement" &&
+        TEACHER_ANNOUNCEMENT_EVENTS.has(eventName)) ||
+      (source === "shared" &&
+        SHARED_REALTIME_EVENTS.has(eventName));
+    if (!sourceAllowed) {
+      console.warn(`[realtime] rejected ${eventName || "unknown"} on ${source || "unknown"} topic.`);
       return;
     }
     const payload = message.payload || {};
@@ -520,6 +772,13 @@ function createSupabaseRealtimeBridge() {
         dispatch("student-whiteboard-action", {
           studentSocketId: message.senderSocketId,
           action: payload.action,
+        });
+        break;
+      case "student-teacher-action-ack":
+        if (payload.targetTeacherSocketId && payload.targetTeacherSocketId !== socketId) return;
+        dispatch("student-teacher-action-ack", {
+          studentSocketId: message.senderSocketId,
+          teacherSyncToken: payload.teacherSyncToken,
         });
         break;
       case "student-screen-update":
@@ -602,7 +861,10 @@ function createSupabaseRealtimeBridge() {
       case "teacher-whiteboard-action": {
         const target = payload.targetSocketId || payload.targetStudentSocketId;
         if (target && target !== socketId) return;
-        dispatch("teacher-whiteboard-action", { action: payload.action });
+        dispatch("teacher-whiteboard-action", {
+          action: payload.action,
+          teacherSocketId: message.senderSocketId,
+        });
         break;
       }
       case "teacherShareToStudent":
@@ -656,15 +918,19 @@ function inferRoleFromEvent(eventName) {
     : "teacher";
 }
 
-function getStudentPresenceList(presenceState) {
+function getStudentPresenceList(presenceState, studentIdByLoginId = new Map()) {
   return Object.values(presenceState || {})
     .flat()
     .filter((item) => item?.role === "student")
-    .map((item) => ({
-      socketId: item.socketId,
-      nickname: item.nickname || item.studentId || item.socketId,
-      mode: item.mode || "whiteboard",
-    }))
+    .map((item) => {
+      const nickname = item.nickname || item.studentId || item.socketId;
+      return {
+        socketId: item.socketId,
+        nickname,
+        studentRecordId: studentIdByLoginId.get(normalizeStudentLoginId(nickname)) || "",
+        mode: item.mode || "whiteboard",
+      };
+    })
     .filter((item) => item.socketId);
 }
 
@@ -963,11 +1229,35 @@ async function recordToBlob(record, embeddedField) {
     return response.blob();
   }
 
+  const objectUrl = String(record?.imageObjectUrl || record?.objectUrl || "").trim();
+  if (objectUrl) {
+    try {
+      const response = await fetch(objectUrl);
+      if (response.ok) return response.blob();
+    } catch (error) {
+      console.warn("Failed to reuse the in-memory board asset.", error);
+    }
+  }
+
   const sourcePath = String(record?.assetPath || "").trim();
   if (!sourcePath || !isAllowedBoardAssetPath(sourcePath)) return null;
   const download = await supabase.storage.from(STORAGE_BUCKET).download(sourcePath);
   if (download.error) throw download.error;
   return download.data;
+}
+
+async function storageObjectExists(path) {
+  const normalizedPath = String(path || "").trim();
+  const separator = normalizedPath.lastIndexOf("/");
+  if (separator < 1 || separator === normalizedPath.length - 1) return false;
+  const folder = normalizedPath.slice(0, separator);
+  const name = normalizedPath.slice(separator + 1);
+  const listing = await supabase.storage.from(STORAGE_BUCKET).list(folder, {
+    limit: 10,
+    search: name,
+  });
+  if (listing.error) throw listing.error;
+  return (listing.data || []).some((item) => item?.name === name);
 }
 
 function isAssetAlreadyStored(error) {
@@ -997,7 +1287,11 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
     const currentPath = String(record.assetPath || "").trim();
     const currentObjectUrl = record.imageObjectUrl || record.objectUrl || "";
 
-    if (currentPath.startsWith(targetPrefix) && isAllowedBoardAssetPath(currentPath)) {
+    if (
+      currentPath.startsWith(targetPrefix) &&
+      isAllowedBoardAssetPath(currentPath) &&
+      await storageObjectExists(currentPath)
+    ) {
       delete record[embeddedField];
       delete record.imageObjectUrl;
       delete record.objectUrl;
@@ -1081,27 +1375,6 @@ async function hydrateBoardAssets(boardData) {
   return boardData;
 }
 
-async function cleanupUnreferencedBoardAssets(boardData, snapshotPath) {
-  const prefix = boardAssetPrefix(snapshotPath);
-  const referenced = new Set(
-    collectBoardAssetRecords(boardData)
-      .map(({ record }) => String(record?.assetPath || "").trim())
-      .filter(path => path.startsWith(`${prefix}/`))
-  );
-  const listing = await supabase.storage.from(STORAGE_BUCKET).list(prefix, {
-    limit: 1000,
-    sortBy: { column: "name", order: "asc" },
-  });
-  if (listing.error) throw listing.error;
-  const stalePaths = (listing.data || [])
-    .filter(item => item?.name)
-    .map(item => `${prefix}/${item.name}`)
-    .filter(path => !referenced.has(path));
-  if (!stalePaths.length) return;
-  const removal = await supabase.storage.from(STORAGE_BUCKET).remove(stalePaths);
-  if (removal.error) throw removal.error;
-}
-
 export const boardApi = {
   enabled: supabaseEnabled,
 
@@ -1168,12 +1441,6 @@ export const boardApi = {
       });
 
     if (upload.error) throw upload.error;
-    try {
-      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
-    } catch (error) {
-      console.warn("Failed to clean up old board assets.", error);
-    }
-
     const row = {
       id: fileId,
       owner_kind: owner.ownerKind,
@@ -1183,6 +1450,9 @@ export const boardApi = {
       folder_path: folderPath,
       name: fileName,
       snapshot_path: snapshotPath,
+      thumbnail_path: null,
+      source_board_id: null,
+      shared_board_id: null,
       size_bytes: blob.size,
       updated_at: new Date().toISOString(),
     };
@@ -1255,12 +1525,6 @@ export const boardApi = {
         upsert: true,
       });
     if (upload.error) throw upload.error;
-    try {
-      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
-    } catch (error) {
-      console.warn("Failed to clean up old realtime board assets.", error);
-    }
-
     return {
       ok: true,
       snapshotPath,
@@ -1300,13 +1564,8 @@ export const boardApi = {
     const snapshotPath = `shared/${sharedBoardId}/snapshot.json`;
 
     if (!payload.sharedBoardId) {
-      const deactivate = await supabase
-        .from("shared_boards")
-        .update({ active: false, updated_at: new Date().toISOString() })
-        .eq("class_id", owner.classId)
-        .eq("active", true);
-      if (deactivate.error) throw deactivate.error;
-
+      // Create an inactive staging row first so Storage RLS can authorize the
+      // shared/{id}/ path without interrupting the currently active board.
       const { error: insertError } = await supabase
         .from("shared_boards")
         .insert({
@@ -1316,7 +1575,7 @@ export const boardApi = {
           source_board_id: sourceBoardId,
           title,
           current_snapshot_path: null,
-          active,
+          active: false,
         });
       if (insertError) throw insertError;
     }
@@ -1332,32 +1591,24 @@ export const boardApi = {
         upsert: true,
       });
     if (upload.error) throw upload.error;
-    try {
-      await cleanupUnreferencedBoardAssets(boardData, snapshotPath);
-    } catch (error) {
-      console.warn("Failed to clean up old shared-board assets.", error);
-    }
-
     const { data, error } = await supabase
-      .from("shared_boards")
-      .update({
-        title,
-        source_board_id: sourceBoardId,
-        current_snapshot_path: snapshotPath,
-        active,
-        updated_at: new Date().toISOString(),
+      .rpc("finalize_shared_board_snapshot", {
+        p_shared_board_id: sharedBoardId,
+        p_class_id: owner.classId,
+        p_title: title,
+        p_source_board_id: sourceBoardId,
+        p_snapshot_path: snapshotPath,
+        p_active: active,
       })
-      .eq("id", sharedBoardId)
-      .select("id, title, updated_at")
       .single();
     if (error) throw error;
 
     return {
       ok: true,
-      sharedBoardId: data.id,
-      title: data.title,
+      sharedBoardId: data.shared_board_id,
+      title: data.board_title,
       active,
-      updatedAt: data.updated_at,
+      updatedAt: data.board_updated_at,
       sizeBytes: blob.size,
       assetReferences,
     };

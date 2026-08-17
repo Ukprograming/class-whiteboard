@@ -18,8 +18,8 @@ Deno.serve(async (req) => {
     }
 
     const { studentId, password } = await req.json();
-    if (!studentId || String(password || "").length < 6) {
-      return jsonResponse({ ok: false, message: "studentId and password(6+ chars) are required" }, 400);
+    if (!studentId || String(password || "").length < 8) {
+      return jsonResponse({ ok: false, message: "studentId and password(8+ chars) are required" }, 400);
     }
 
     const { data: student, error: studentError } = await admin

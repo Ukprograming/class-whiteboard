@@ -2,6 +2,8 @@ import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import {
   getAdminClient,
   getUserClient,
+  isValidClassCode,
+  isValidStudentLoginId,
   normalizeCode,
   normalizeLoginId,
   studentAuthEmail,
@@ -29,10 +31,15 @@ Deno.serve(async (req) => {
     const displayName = String(body.displayName || studentLoginId).trim();
     const password = String(body.password || "");
 
-    if (!classCode || !studentLoginId || !displayName || password.length < 6) {
+    if (
+      !isValidClassCode(classCode) ||
+      !isValidStudentLoginId(studentLoginId) ||
+      !displayName ||
+      password.length < 8
+    ) {
       return jsonResponse({
         ok: false,
-        message: "classCode, studentLoginId, displayName, and password(6+ chars) are required",
+        message: "Use a valid class code, a 1-24 character student ID using a-z, 0-9, _ or -, a display name, and an 8+ character password",
       }, 400);
     }
 

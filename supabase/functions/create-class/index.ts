@@ -1,5 +1,10 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { getAdminClient, getUserClient, normalizeCode } from "../_shared/supabase.ts";
+import {
+  getAdminClient,
+  getUserClient,
+  isValidClassCode,
+  normalizeCode,
+} from "../_shared/supabase.ts";
 
 Deno.serve(async (req) => {
   const options = handleOptions(req);
@@ -31,8 +36,11 @@ Deno.serve(async (req) => {
     const name = String(body.name || "").trim();
     const classCode = normalizeCode(body.classCode || crypto.randomUUID().slice(0, 8));
 
-    if (!name || !classCode) {
-      return jsonResponse({ ok: false, message: "Class name and code are required" }, 400);
+    if (!name || !isValidClassCode(classCode)) {
+      return jsonResponse({
+        ok: false,
+        message: "Class name and a 4-32 character code using A-Z, 0-9, _ or - are required",
+      }, 400);
     }
 
     const { data, error } = await admin
