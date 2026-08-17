@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260712";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-realtime-retry";
 import {
   getSelectedTeacherClass,
   getTeacherClassHints,

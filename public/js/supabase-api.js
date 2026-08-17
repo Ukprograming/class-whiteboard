@@ -53,6 +53,15 @@ const SHARED_REALTIME_EVENTS = new Set([
   "shared-board-action",
   "shared-board-snapshot",
 ]);
+const REALTIME_INITIAL_JOIN_TIMEOUT_MS = 30000;
+const RETRYABLE_REALTIME_JOIN_ERRORS = [
+  "MissingPartition",
+  "InitializingProjectConnection",
+  "IncreaseConnectionPool",
+  "DatabaseLackOfConnections",
+  "UnableToConnectToProject",
+  "RealtimeRestarting",
+];
 
 export const supabaseEnabled = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -269,23 +278,64 @@ function createSupabaseRealtimeBridge() {
     };
   }
 
+  function isRetryableRealtimeJoinError(status, message) {
+    if (status === "TIMED_OUT") return true;
+    return RETRYABLE_REALTIME_JOIN_ERRORS.some((code) =>
+      String(message || "").includes(code)
+    );
+  }
+
   function subscribeChannel(channel, label) {
     let subscribedOnce = false;
+    let settled = false;
+    let lastRetryableError = "";
     return new Promise((resolve, reject) => {
+      const initialJoinTimerId = setTimeout(() => {
+        if (settled || subscribedOnce) return;
+        settled = true;
+        const message = lastRetryableError || `${label} did not subscribe in time.`;
+        dispatch("join-error", message);
+        reject(new Error(message));
+      }, REALTIME_INITIAL_JOIN_TIMEOUT_MS);
+
+      const failInitialJoin = (message) => {
+        if (settled || subscribedOnce) return;
+        settled = true;
+        clearTimeout(initialJoinTimerId);
+        dispatch("join-error", message);
+        reject(new Error(message));
+      };
+
       channel.subscribe((status, err) => {
         if (status === "SUBSCRIBED") {
           if (!subscribedOnce) {
             subscribedOnce = true;
+            settled = true;
+            clearTimeout(initialJoinTimerId);
             resolve();
           } else {
             scheduleReconnectRefresh();
           }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           const message = err?.message || `${label} ${status.toLowerCase()}.`;
-          dispatch("join-error", message);
-          reject(new Error(message));
+          if (!subscribedOnce && isRetryableRealtimeJoinError(status, message)) {
+            lastRetryableError = message;
+            console.warn(`[realtime] ${label} will retry after a transient join error.`, err || message);
+            dispatch("realtime-disconnected", { channel: label, transient: true });
+            return;
+          }
+          if (!subscribedOnce) {
+            failInitialJoin(message);
+            return;
+          }
+          state.online = false;
+          dispatch("realtime-disconnected", { channel: label });
         } else if (status === "CLOSED") {
           state.online = false;
+          if (!subscribedOnce) {
+            failInitialJoin(`${label} closed before it subscribed.`);
+            return;
+          }
           dispatch("realtime-disconnected", { channel: label });
         }
       });
@@ -459,18 +509,22 @@ function createSupabaseRealtimeBridge() {
       );
     }
 
-    const subscriptions = [
-      subscribeChannel(presenceChannel, "Presence channel"),
-      subscribeChannel(announcementChannel, "Announcement channel"),
-      subscribeChannel(sharedChannel, "Shared-board channel"),
-    ];
-    if (role === "teacher") {
-      subscriptions.push(subscribeChannel(teacherInboxChannel, "Teacher inbox"));
-    } else if (studentInboxChannel) {
-      subscriptions.push(subscribeChannel(studentInboxChannel, "Student inbox"));
-    }
-
-    state.ready = Promise.all(subscriptions)
+    // The first WebSocket channel after a paused project is restored creates
+    // the rolling realtime.messages partitions. Join Presence first so the
+    // remaining private-channel authorization checks do not race that setup.
+    state.ready = subscribeChannel(presenceChannel, "Presence channel")
+      .then(async () => {
+        const subscriptions = [
+          subscribeChannel(announcementChannel, "Announcement channel"),
+          subscribeChannel(sharedChannel, "Shared-board channel"),
+        ];
+        if (role === "teacher") {
+          subscriptions.push(subscribeChannel(teacherInboxChannel, "Teacher inbox"));
+        } else if (studentInboxChannel) {
+          subscriptions.push(subscribeChannel(studentInboxChannel, "Student inbox"));
+        }
+        await Promise.all(subscriptions);
+      })
       .then(async () => {
         if (
           state.presenceChannel !== presenceChannel ||

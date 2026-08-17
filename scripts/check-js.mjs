@@ -98,6 +98,9 @@ const secureRealtimeContracts = [
   "`class:${classCode}:student:${membership.studentRecordId}`",
   "TEACHER_STUDENT_EVENTS.has(eventName)",
   "resolveTargetStudentRecordId(payload)",
+  '"MissingPartition"',
+  'subscribeChannel(presenceChannel, "Presence channel")',
+  "isRetryableRealtimeJoinError(status, message)",
 ];
 const missingSecureRealtimeContracts = secureRealtimeContracts.filter(
   (contract) => !realtimeApiSource.includes(contract)
