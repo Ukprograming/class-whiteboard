@@ -156,11 +156,16 @@ const assetStorageContracts = [
   [realtimeApiSource, "externalizeBoardAssets(boardData, snapshotPath)"],
   [realtimeApiSource, "hydrateBoardAssets(JSON.parse(await download.data.text()))"],
   [realtimeApiSource, "await storageObjectExists(currentPath)"],
+  [realtimeApiSource, "cacheControl: \"0\""],
+  [realtimeApiSource, "cacheNonce: normalizedCacheNonce"],
+  [realtimeApiSource, "{ cache: \"no-store\" }"],
   [realtimeApiSource, "upsert: false"],
   [whiteboardSource, "applyAssetReferences(references)"],
   [whiteboardSource, "o.imageObjectUrl || o.imageDataUrl"],
   [teacherSource, "teacherBoard.applyAssetReferences?.(json.assetReferences)"],
   [studentSource, "whiteboard.applyAssetReferences?.(result.assetReferences)"],
+  [studentSource, "const snapshotVersion = crypto.randomUUID()"],
+  [teacherSource, "boardSnapshotPath, snapshotVersion"],
 ];
 const missingAssetStorageContracts = assetStorageContracts
   .filter(([source, contract]) => !source.includes(contract))

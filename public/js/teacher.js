@@ -1,7 +1,7 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
 import { Whiteboard } from "./whiteboard.js";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-student-route";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
 import {
   getSelectedTeacherClass,
   saveTeacherClassHints,
@@ -2157,11 +2157,11 @@ socket.on("student-highres", ({ socketId, nickname, dataUrl }) => {
 
 /* ==== 共同編集用：生徒からのボード状態・操作を反映 ==== */
 
-async function resolveRealtimeBoardData(boardData, boardSnapshotPath) {
+async function resolveRealtimeBoardData(boardData, boardSnapshotPath, snapshotVersion = "") {
   if (boardData) return boardData;
   if (!boardSnapshotPath || !boardApi.enabled) return null;
   try {
-    return await boardApi.loadRealtimeBoardSnapshot(boardSnapshotPath);
+    return await boardApi.loadRealtimeBoardSnapshot(boardSnapshotPath, snapshotVersion);
   } catch (error) {
     console.error("Failed to load realtime board snapshot:", error);
     return null;
@@ -2257,11 +2257,15 @@ function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken }) => {
+socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion }) => {
   if (!studentSocketId || !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
     return;
   }
-  const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
+  const boardData = await resolveRealtimeBoardData(
+    incomingBoardData,
+    boardSnapshotPath,
+    snapshotVersion
+  );
   if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
     return;
   }
@@ -2321,10 +2325,14 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, isSync }) => {
+  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync }) => {
     let boardData = null;
     if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
-      const resolvedBoardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
+      const resolvedBoardData = await resolveRealtimeBoardData(
+        incomingBoardData,
+        boardSnapshotPath,
+        snapshotVersion
+      );
       if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
         boardData = resolvedBoardData;
       }

@@ -852,6 +852,7 @@ function createSupabaseRealtimeBridge() {
           boardData: payload.boardData,
           boardSnapshotPath: payload.boardSnapshotPath,
           teacherSyncToken: payload.teacherSyncToken,
+          snapshotVersion: payload.snapshotVersion,
         });
         break;
       case "student-whiteboard-action":
@@ -879,6 +880,7 @@ function createSupabaseRealtimeBridge() {
           boardData: payload.boardData,
           boardSnapshotPath: payload.boardSnapshotPath,
           teacherSyncToken: payload.teacherSyncToken,
+          snapshotVersion: payload.snapshotVersion,
           isSync: payload.isSync,
         });
         break;
@@ -1609,6 +1611,7 @@ export const boardApi = {
       .from(STORAGE_BUCKET)
       .upload(snapshotPath, blob, {
         contentType: "application/json",
+        cacheControl: "0",
         upsert: true,
       });
     if (upload.error) throw upload.error;
@@ -1620,16 +1623,21 @@ export const boardApi = {
     };
   },
 
-  async loadRealtimeBoardSnapshot(snapshotPath) {
+  async loadRealtimeBoardSnapshot(snapshotPath, cacheNonce = "") {
     assertSupabase();
     const normalizedPath = String(snapshotPath || "").trim();
     if (!/^students\/[0-9a-f-]+\/realtime\/[0-9a-f-]+\.json$/i.test(normalizedPath)) {
       throw new Error("Invalid realtime board snapshot path.");
     }
 
+    const normalizedCacheNonce = String(cacheNonce || crypto.randomUUID());
     const download = await supabase.storage
       .from(STORAGE_BUCKET)
-      .download(normalizedPath);
+      .download(
+        normalizedPath,
+        { cacheNonce: normalizedCacheNonce },
+        { cache: "no-store" }
+      );
     if (download.error) throw download.error;
     return hydrateBoardAssets(JSON.parse(await download.data.text()));
   },

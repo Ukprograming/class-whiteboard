@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-student-route";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
 
 const form = document.querySelector("[data-teacher-signup-form]");
 const emailInput = document.getElementById("teacherEmail");

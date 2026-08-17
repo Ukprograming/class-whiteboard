@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=pages-staging-20260817-student-route";
+} from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -2415,8 +2415,15 @@ async function createBoardSyncPayload() {
   const boardData = whiteboard.exportBoardData();
   const teacherSyncToken = lastAppliedTeacherSyncToken;
   const syncRevision = boardSyncRevision;
+  const snapshotVersion = crypto.randomUUID();
   if (!boardApi.enabled) {
-    return { boardData, boardSnapshotPath: null, teacherSyncToken, syncRevision };
+    return {
+      boardData,
+      boardSnapshotPath: null,
+      teacherSyncToken,
+      syncRevision,
+      snapshotVersion,
+    };
   }
 
   if (boardSnapshotSaveInFlight) return boardSnapshotSaveInFlight;
@@ -2434,6 +2441,7 @@ async function createBoardSyncPayload() {
         boardSnapshotPath: result.snapshotPath,
         teacherSyncToken,
         syncRevision,
+        snapshotVersion,
       };
     } catch (error) {
       console.error("Failed to store realtime board snapshot:", error);
@@ -2595,6 +2603,7 @@ async function sendScreenUpdate(teacherSocketId) {
   let boardSnapshotPath = null;
   let teacherSyncToken = null;
   let syncRevision = null;
+  let snapshotVersion = null;
   let shouldCommitBoardSync = false;
 
   // ★ モードは viewMode で分岐する
@@ -2664,6 +2673,7 @@ async function sendScreenUpdate(teacherSocketId) {
         boardSnapshotPath = syncPayload.boardSnapshotPath;
         teacherSyncToken = syncPayload.teacherSyncToken;
         syncRevision = syncPayload.syncRevision;
+        snapshotVersion = syncPayload.snapshotVersion;
         shouldCommitBoardSync = true;
       }
     }
@@ -2683,6 +2693,7 @@ async function sendScreenUpdate(teacherSocketId) {
     boardData, // ★ ホワイトボードモードのときのみ有効（差分更新時は null）
     boardSnapshotPath,
     teacherSyncToken,
+    snapshotVersion,
     isSync: !!(boardData || boardSnapshotPath)
   });
   if (sent !== false && shouldCommitBoardSync) {
