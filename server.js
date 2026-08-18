@@ -664,7 +664,7 @@ io.on("connection", (socket) => {
   });
 
   // 生徒 → 教員：ボードの全状態（初期同期用）
-  socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken }) => {
+  socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision }) => {
     if (
       !targetTeacherSocketId ||
       (!boardData && !boardSnapshotPath) ||
@@ -679,13 +679,15 @@ io.on("connection", (socket) => {
       boardData,
       boardSnapshotPath,
       teacherSyncToken,
+      snapshotVersion,
+      boardRevision,
     });
   });
 
   // ★★ 生徒 → 教員：モニタリング中の画面更新（連続）
   socket.on(
     "student-screen-update",
-    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, boardSnapshotPath, teacherSyncToken, isSync }) => {
+    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision, isSync }) => {
       if (
         !teacherSocketId ||
         !classCode ||
@@ -705,6 +707,8 @@ io.on("connection", (socket) => {
         boardData,
         boardSnapshotPath,
         teacherSyncToken,
+        snapshotVersion,
+        boardRevision,
         isSync,
       });
     }
@@ -731,7 +735,7 @@ io.on("connection", (socket) => {
   );
 
   // 生徒 → 教員：ホワイトボード操作（リアルタイム）
-  socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action }) => {
+  socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action, boardRevision }) => {
     if (
       !targetTeacherSocketId ||
       !action ||
@@ -744,6 +748,7 @@ io.on("connection", (socket) => {
     io.to(targetTeacherSocketId).emit("student-whiteboard-action", {
       studentSocketId: socket.id,
       action,
+      boardRevision,
     });
   });
 

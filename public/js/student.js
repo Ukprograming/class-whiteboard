@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
+} from "./supabase-api.js?v=stroke-delivery-20260818";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -2430,6 +2430,7 @@ async function sendBoardStateToTeacher(teacherSocketId) {
   const sent = await socket.emit("student-board-state", {
     targetTeacherSocketId: teacherSocketId,
     ...syncPayload,
+    boardRevision: syncPayload.syncRevision,
   });
   return sent !== false;
 }
@@ -2484,7 +2485,8 @@ if (whiteboard) {
 
       socket.emit("student-whiteboard-action", {
         targetTeacherSocketId: currentTeacherSocketId,
-        action
+        action,
+        boardRevision: boardSyncRevision,
       });
     }
   };
@@ -2664,6 +2666,7 @@ async function sendScreenUpdate(teacherSocketId) {
     boardSnapshotPath,
     teacherSyncToken,
     snapshotVersion,
+    boardRevision: syncRevision,
     isSync: !!(boardData || boardSnapshotPath)
   });
   if (sent !== false && shouldCommitBoardSync) {

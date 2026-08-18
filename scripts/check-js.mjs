@@ -2,6 +2,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const commonJsFiles = [
   "server.js",
@@ -11,6 +12,7 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
   "public/js/student.js",
   "public/js/supabase-api.js",
@@ -37,10 +39,47 @@ for (const filePath of commonJsFiles) {
 
 const tempDir = mkdtempSync(join(tmpdir(), "class-whiteboard-check-"));
 try {
+  let realtimeQueueTempPath = "";
   for (const filePath of moduleFiles) {
     const tempPath = join(tempDir, `${basename(filePath)}.mjs`);
     copyFileSync(filePath, tempPath);
     ok = runNodeCheck(tempPath) && ok;
+    if (filePath.endsWith("realtime-send-queue.js")) realtimeQueueTempPath = tempPath;
+  }
+
+  if (!realtimeQueueTempPath) {
+    console.error("Realtime send queue module was not checked.");
+    ok = false;
+  } else {
+    const { createOrderedRetryQueue } = await import(pathToFileURL(realtimeQueueTempPath).href);
+    const sendOrder = [];
+    let failedFirstAttempt = false;
+    const queue = createOrderedRetryQueue(async (eventName, payload) => {
+      sendOrder.push(`${eventName}:${payload.action.stroke.points[0].x}`);
+      if (!failedFirstAttempt) {
+        failedFirstAttempt = true;
+        return false;
+      }
+      return true;
+    }, { maxAttempts: 3, retryDelayMs: 0 });
+    const firstPayload = {
+      action: { type: "stroke", stroke: { id: "stroke-1", points: [{ x: 1, y: 1 }] } },
+    };
+    const firstSend = queue.enqueue("student-whiteboard-action", firstPayload);
+    firstPayload.action.stroke.points[0].x = 999;
+    const secondSend = queue.enqueue("student-whiteboard-action", {
+      action: { type: "stroke", stroke: { id: "stroke-2", points: [{ x: 2, y: 2 }] } },
+    });
+    const results = await Promise.all([firstSend, secondSend]);
+    const expectedOrder = [
+      "student-whiteboard-action:1",
+      "student-whiteboard-action:1",
+      "student-whiteboard-action:2",
+    ];
+    if (!results.every(Boolean) || JSON.stringify(sendOrder) !== JSON.stringify(expectedOrder)) {
+      console.error(`Realtime send queue order/retry contract failed: ${JSON.stringify(sendOrder)}`);
+      ok = false;
+    }
   }
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
@@ -197,6 +236,25 @@ if (missingCommunicationIntervalContracts.length > 0) {
   console.error(
     `Communication interval contracts missing: ${missingCommunicationIntervalContracts.join(", ")}`
   );
+  ok = false;
+}
+
+const reliableStrokeContracts = [
+  [realtimeApiSource, '"student-whiteboard-action",'],
+  [realtimeApiSource, '"teacher-whiteboard-action",'],
+  [realtimeApiSource, "whiteboardActionQueue.enqueue(eventName, payload)"],
+  [studentSource, "boardRevision: boardSyncRevision"],
+  [studentSource, "boardRevision: syncRevision"],
+  [teacherSource, "latestStudentBoardRevisionByStudent"],
+  [teacherSource, "isStaleStudentBoardRevision(studentSocketId, boardRevision"],
+  [studentHtmlSource, "student.js?v=stroke-delivery-20260818"],
+  [teacherHtmlSource, "teacher.js?v=stroke-delivery-20260818"],
+];
+const missingReliableStrokeContracts = reliableStrokeContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingReliableStrokeContracts.length > 0) {
+  console.error(`Reliable stroke contracts missing: ${missingReliableStrokeContracts.join(", ")}`);
   ok = false;
 }
 if (!/videoEl\.onloadedmetadata\s*=\s*\(\)\s*=>\s*\{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\};/.test(notebookCaptureSource)) {

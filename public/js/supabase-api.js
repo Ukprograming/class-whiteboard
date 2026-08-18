@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
+import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
@@ -52,6 +53,10 @@ const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);
 const SHARED_REALTIME_EVENTS = new Set([
   "shared-board-action",
   "shared-board-snapshot",
+]);
+const ORDERED_RETRY_EVENTS = new Set([
+  "student-whiteboard-action",
+  "teacher-whiteboard-action",
 ]);
 const REALTIME_INITIAL_JOIN_TIMEOUT_MS = 30000;
 const RETRYABLE_REALTIME_JOIN_ERRORS = [
@@ -164,6 +169,13 @@ function createSupabaseRealtimeBridge() {
   const socketId = createSocketId();
   const privateChannels = config.realtimePrivateChannels !== false;
   const notebookStudentsSeen = new Set();
+  const whiteboardActionQueue = createOrderedRetryQueue(sendRealtimeEvent, {
+    maxAttempts: 3,
+    retryDelayMs: 120,
+    onRetry: ({ eventName, attempt }) => {
+      console.warn(`[realtime] retrying ${eventName} after attempt ${attempt}.`);
+    },
+  });
 
   const state = {
     role: "",
@@ -253,6 +265,9 @@ function createSupabaseRealtimeBridge() {
         void trackPresence();
         return sendRealtimeEvent(eventName, payload);
       default:
+        if (ORDERED_RETRY_EVENTS.has(eventName)) {
+          return whiteboardActionQueue.enqueue(eventName, payload);
+        }
         return sendRealtimeEvent(eventName, payload);
     }
   }
@@ -853,6 +868,7 @@ function createSupabaseRealtimeBridge() {
           boardSnapshotPath: payload.boardSnapshotPath,
           teacherSyncToken: payload.teacherSyncToken,
           snapshotVersion: payload.snapshotVersion,
+          boardRevision: payload.boardRevision ?? payload.syncRevision,
         });
         break;
       case "student-whiteboard-action":
@@ -860,6 +876,7 @@ function createSupabaseRealtimeBridge() {
         dispatch("student-whiteboard-action", {
           studentSocketId: message.senderSocketId,
           action: payload.action,
+          boardRevision: payload.boardRevision,
         });
         break;
       case "student-teacher-action-ack":
@@ -883,6 +900,7 @@ function createSupabaseRealtimeBridge() {
           teacherSyncToken: payload.teacherSyncToken,
           snapshotVersion: payload.snapshotVersion,
           isSync: payload.isSync,
+          boardRevision: payload.boardRevision,
         });
         break;
       case "studentImageUpdate": {

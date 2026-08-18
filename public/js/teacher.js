@@ -1,7 +1,7 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=stroke-delivery-20260818";
 import {
   getSelectedTeacherClass,
   saveTeacherClassHints,
@@ -182,6 +182,7 @@ const latestViewportByStudent = {};
 const latestTeacherSyncTokenByStudent = new Map();
 const pendingTeacherSyncTokenByStudent = new Map();
 const teacherSyncAckTimerByStudent = new Map();
+const latestStudentBoardRevisionByStudent = new Map();
 let modalTeacherSyncCounter = 0;
 // ★ 追加: モーダル内のボードに「初期同期済み」かどうか
 let modalHasInitialBoardData = false;
@@ -2296,17 +2297,30 @@ function clearPendingTeacherSync(studentSocketId, teacherSyncToken = null) {
   return true;
 }
 
+function parseBoardRevision(value) {
+  const revision = Number(value);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : null;
+}
+
+function isStaleStudentBoardRevision(studentSocketId, boardRevision, allowEqual = true) {
+  const revision = parseBoardRevision(boardRevision);
+  const latest = latestStudentBoardRevisionByStudent.get(studentSocketId);
+  if (revision == null || latest == null) return false;
+  return allowEqual ? revision <= latest : revision < latest;
+}
+
+function rememberStudentBoardRevision(studentSocketId, boardRevision) {
+  const revision = parseBoardRevision(boardRevision);
+  if (!studentSocketId || revision == null) return;
+  const latest = latestStudentBoardRevisionByStudent.get(studentSocketId);
+  if (latest == null || revision > latest) {
+    latestStudentBoardRevisionByStudent.set(studentSocketId, revision);
+  }
+}
+
 async function sendTeacherWhiteboardAction(studentSocketId, action, teacherSyncToken) {
   clearPendingTeacherSync(studentSocketId);
   pendingTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
-  const timerId = setTimeout(() => {
-    if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
-    void socket.emit("request-highres", {
-      classCode: currentClassCode,
-      studentSocketId,
-    });
-  }, 8000);
-  teacherSyncAckTimerByStudent.set(studentSocketId, timerId);
 
   const sent = await socket.emit("teacher-whiteboard-action", {
     classCode: currentClassCode,
@@ -2317,9 +2331,27 @@ async function sendTeacherWhiteboardAction(studentSocketId, action, teacherSyncT
     },
   });
   if (sent === false) {
-    clearPendingTeacherSync(studentSocketId, teacherSyncToken);
+    if (clearPendingTeacherSync(studentSocketId, teacherSyncToken)) {
+      void socket.emit("request-highres", {
+        classCode: currentClassCode,
+        studentSocketId,
+      });
+    }
+    return false;
   }
-  return sent !== false;
+
+  // 順番待ち中にACK済み、または新しい操作へ進んでいれば旧タイマーは作らない。
+  if (pendingTeacherSyncTokenByStudent.get(studentSocketId) === teacherSyncToken) {
+    const timerId = setTimeout(() => {
+      if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
+      void socket.emit("request-highres", {
+        classCode: currentClassCode,
+        studentSocketId,
+      });
+    }, 8000);
+    teacherSyncAckTimerByStudent.set(studentSocketId, timerId);
+  }
+  return true;
 }
 
 socket.on("student-teacher-action-ack", ({ studentSocketId, teacherSyncToken }) => {
@@ -2367,10 +2399,11 @@ function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion }) => {
+socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision }) => {
   if (!studentSocketId || !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
     return;
   }
+  if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
   const boardData = await resolveRealtimeBoardData(
     incomingBoardData,
     boardSnapshotPath,
@@ -2379,6 +2412,7 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
   if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
     return;
   }
+  if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
   console.log("[teacher] student-board-state", {
     studentSocketId,
     hasBoardData: !!boardData
@@ -2386,6 +2420,7 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
 
   if (!studentSocketId || !boardData) return;
 
+  rememberStudentBoardRevision(studentSocketId, boardRevision);
   latestBoardDataByStudent[studentSocketId] = boardData;
 
   // ★ その生徒の現在モード（なければ whiteboard とみなす）
@@ -2412,7 +2447,7 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
 
 
 // 生徒側の増分操作（ペン・消しゴム・図形など）
-socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
+socket.on("student-whiteboard-action", ({ studentSocketId, action, boardRevision }) => {
   console.log("[teacher] student-whiteboard-action", {
     studentSocketId,
     hasAction: !!action
@@ -2425,7 +2460,9 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
   }
 
   if (!modalBoard || !action || typeof modalBoard.applyAction !== "function") return;
+  if (isStaleStudentBoardRevision(studentSocketId, boardRevision)) return;
   modalBoard.applyAction(action);
+  rememberStudentBoardRevision(studentSocketId, boardRevision);
 });
 
 
@@ -2435,15 +2472,21 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  async ({ studentSocketId, nickname, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync }) => {
+  async ({ studentSocketId, nickname, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync, boardRevision }) => {
     let boardData = null;
-    if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+    if (
+      isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
+      !isStaleStudentBoardRevision(studentSocketId, boardRevision, false)
+    ) {
       const resolvedBoardData = await resolveRealtimeBoardData(
         incomingBoardData,
         boardSnapshotPath,
         snapshotVersion
       );
-      if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+      if (
+        isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
+        !isStaleStudentBoardRevision(studentSocketId, boardRevision, false)
+      ) {
         boardData = resolvedBoardData;
       }
     }
@@ -2481,6 +2524,7 @@ socket.on(
 
     // 最新の boardData は保持しておく（whiteboardモード用）
     if (boardData) {
+      rememberStudentBoardRevision(studentSocketId, boardRevision);
       latestBoardDataByStudent[studentSocketId] = boardData;
     }
 
