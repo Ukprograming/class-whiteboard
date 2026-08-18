@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818b";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c";
 import { createStampElement } from "./stamps.js";
 import { replaceMaterialIcons } from "./ui-icons.js";
 

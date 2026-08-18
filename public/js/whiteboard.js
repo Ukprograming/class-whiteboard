@@ -750,6 +750,7 @@ export class Whiteboard {
       }
     });
     this.render();
+    this._notifyObjectStyleChanges(targets.filter(o => o && SHAPE_KINDS.has(o.kind)));
   }
 
   // ★ 選択中図形の線の太さ変更
@@ -852,9 +853,6 @@ export class Whiteboard {
       this.onSelectionChange(this.selectedObj || null);
     }
     this.render();
-    this._notifyObjectStyleChanges(
-      targets.filter(o => o && ["tri-prism", "rect-prism", "cylinder"].includes(o.kind))
-    );
   }
 
   // ★ 選択中オブジェクトを最前面へ

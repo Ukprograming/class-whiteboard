@@ -119,6 +119,21 @@ const studentSource = readFileSync("public/js/student.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
+const selectionChangeStart = whiteboardSource.indexOf("  _fireSelectionChange() {");
+const selectionChangeEnd = whiteboardSource.indexOf(
+  "  // ★ 選択中オブジェクトを最前面へ",
+  selectionChangeStart
+);
+if (selectionChangeStart < 0 || selectionChangeEnd <= selectionChangeStart) {
+  console.error("Whiteboard selection-change method could not be found.");
+  ok = false;
+} else {
+  const selectionChangeSource = whiteboardSource.slice(selectionChangeStart, selectionChangeEnd);
+  if (/\btargets\b/.test(selectionChangeSource) || selectionChangeSource.includes("_notifyObjectStyleChanges")) {
+    console.error("Selection changes must not emit unrelated object-style modifications.");
+    ok = false;
+  }
+}
 const notebookCaptureStart = studentSource.indexOf("// カメラ開始 / 再開始");
 const notebookCaptureEnd = studentSource.indexOf("// 教員からのフィードバック画像受信");
 const notebookCaptureSource = studentSource.slice(notebookCaptureStart, notebookCaptureEnd);
