@@ -116,6 +116,32 @@ if (missingSecureRealtimeContracts.length > 0) {
 const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
 const teacherSource = readFileSync("public/js/teacher.js", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
+const notebookCaptureStart = studentSource.indexOf("// カメラ開始 / 再開始");
+const notebookCaptureEnd = studentSource.indexOf("// 教員からのフィードバック画像受信");
+const notebookCaptureSource = studentSource.slice(notebookCaptureStart, notebookCaptureEnd);
+if (notebookCaptureStart < 0 || notebookCaptureEnd <= notebookCaptureStart) {
+  console.error("Notebook capture source block could not be found.");
+  ok = false;
+} else {
+  const notebookSessionContracts = [
+    "if (!currentClassCode || !nickname)",
+    "classCode: currentClassCode",
+    "studentId: nickname",
+  ];
+  const missingNotebookSessionContracts = notebookSessionContracts.filter(
+    (contract) => !notebookCaptureSource.includes(contract)
+  );
+  if (missingNotebookSessionContracts.length > 0) {
+    console.error(
+      `Notebook capture must use the shared student session: ${missingNotebookSessionContracts.join(", ")}`
+    );
+    ok = false;
+  }
+}
+if (studentSource.includes("joinedNotebookClassCode") || studentSource.includes("notebookStudentId")) {
+  console.error("Notebook capture must not keep a duplicate class participation state.");
+  ok = false;
+}
 const securityMigrationSource = readFileSync(
   "supabase/migrations/20260817041821_harden_realtime_topics_and_shared_board_integrity.sql",
   "utf8"

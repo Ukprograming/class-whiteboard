@@ -382,8 +382,6 @@ if (studentLoginForm) {
         ? `${signedInStudent.displayName}（ID: ${canonicalStudentId}）`
         : canonicalStudentId;
       if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
-      joinedNotebookClassCode = canonicalClassCode;
-      notebookStudentId = canonicalStudentId;
       updateModeUI();
     }
   });
@@ -398,9 +396,9 @@ socket.on("join-success", (payload) => {
     statusLabel.textContent = `クラス: ${payload.classCode} / ${payload.nickname}`;
   }
 
-  // ★ ノート提出用のクラス情報もここでセット
-  joinedNotebookClassCode = payload.classCode;
-  notebookStudentId = payload.nickname;
+  // Realtime 側で正規化された値を、生徒画面全体の参加状態にも反映する。
+  currentClassCode = payload.classCode || currentClassCode;
+  nickname = payload.nickname || nickname;
 
   // ★ クラス参加後に現在モード（初期値: whiteboard）をサーバーに通知
   updateModeUI();
@@ -1085,10 +1083,6 @@ if (studentOverwriteSaveBtn) {
   });
 }
 
-// ノート提出用のクラス情報
-let joinedNotebookClassCode = null;
-let notebookStudentId = null;
-
 // 新イベント名に対応するステータス更新（生徒側のステータスはツールバーに表示しない）
 socket.on("join-student", payload => {
   console.log("join-student", payload);
@@ -1724,12 +1718,6 @@ socket.on("chat-message", payload => {
    ノート提出（カメラ / 台形補正）関連
    ======================================== */
 
-// ===== 必要なグローバル変数（このブロックより前で宣言しておくこと） =====
-// let joinedNotebookClassCode = null; // ノート提出用クラスコード
-// let notebookStudentId = null;       // ノート提出用の生徒ID（ニックネームなど）
-// let currentStream = null;           // ノート提出用カメラの MediaStream
-// let captureIntervalIdNotebook = null; // ノート画像送信用の setInterval ID
-
 // UI 要素
 const cameraSelect = document.getElementById("cameraSelect");
 const startCameraBtn = document.getElementById("startCameraBtn");
@@ -1877,8 +1865,8 @@ if (startCameraBtn) {
       return;
     }
 
-    // ノート提出クラスに参加しているか？
-    if (!joinedNotebookClassCode || !notebookStudentId) {
+    // 他の生徒機能と同じ参加状態を使う。ノート提出専用の複製状態は持たない。
+    if (!currentClassCode || !nickname) {
       alert("クラスに参加してからノート提出モードを開始してください。");
       return;
     }
@@ -2186,8 +2174,8 @@ function drawCorrectedFrameToPreview() {
 function captureAndSendImage() {
   if (
     !currentStream ||
-    !joinedNotebookClassCode ||
-    !notebookStudentId ||
+    !currentClassCode ||
+    !nickname ||
     !previewCanvas
   ) {
     return;
@@ -2217,8 +2205,8 @@ function captureAndSendImage() {
   if (!dataUrl) return;
 
   socket.emit("studentImageUpdate", {
-    classCode: joinedNotebookClassCode,
-    studentId: notebookStudentId,
+    classCode: currentClassCode,
+    studentId: nickname,
     imageData: dataUrl
   });
 }
