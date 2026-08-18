@@ -1,5 +1,5 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=object-tool-switch-20260818";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818b";
 import { Whiteboard } from "./whiteboard.js?v=object-tool-switch-20260818";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
 import {

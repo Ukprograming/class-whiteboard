@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>生徒用ホワイトボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=object-tool-switch-20260818" rel="stylesheet" />
+  <link href="./style.css?v=tool-settings-20260818b" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -312,13 +312,20 @@
 
     <!-- 図形設定 -->
     <div id="shapeSettings" class="context-section hidden">
+      <div class="tool-settings-heading">
+        <strong>図形</strong><span>種類と見た目</span>
+      </div>
+      <div class="shape-items" aria-label="図形の種類"></div>
+      <div class="shape-style-grid">
       <div class="setting-row">
         <span class="label">線</span>
         <div class="color-palette mini">
-          <button class="color-dot" data-shape-stroke-color="#111827" style="--c:#111827"></button>
+          <button class="color-dot active" data-shape-stroke-color="#111827" style="--c:#111827" title="黒"></button>
           <button class="color-dot" data-shape-stroke-color="#ef4444" style="--c:#ef4444"></button>
+          <button class="color-dot" data-shape-stroke-color="#f97316" style="--c:#f97316"></button>
           <button class="color-dot" data-shape-stroke-color="#22c55e" style="--c:#22c55e"></button>
           <button class="color-dot" data-shape-stroke-color="#0ea5e9" style="--c:#0ea5e9"></button>
+          <button class="color-dot" data-shape-stroke-color="#7c3aed" style="--c:#7c3aed"></button>
         </div>
       </div>
       <div class="setting-row">
@@ -329,7 +336,20 @@
           <button class="color-dot" data-shape-fill-color="#FEF3C7" style="--c:#FEF3C7"></button>
           <button class="color-dot" data-shape-fill-color="#E0F2FE" style="--c:#E0F2FE"></button>
           <button class="color-dot" data-shape-fill-color="#DCFCE7" style="--c:#DCFCE7"></button>
+          <button class="color-dot" data-shape-fill-color="#FCE7F3" style="--c:#FCE7F3"></button>
         </div>
+      </div>
+      <label class="setting-row" for="shapeStrokeWidthSelect">
+        <span class="label">太さ</span>
+        <select id="shapeStrokeWidthSelect" class="simple-select">
+          <option value="2">細</option><option value="3" selected>標準</option>
+          <option value="5">太</option><option value="8">極太</option>
+        </select>
+      </label>
+      <label class="setting-row shape-depth-row" for="shapeDepthRange">
+        <span class="label">奥行</span>
+        <input id="shapeDepthRange" type="range" min="12" max="48" value="24" step="2" />
+      </label>
       </div>
     </div>
   </div>

@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=object-tool-switch-20260818";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818b";
 import { createStampElement } from "./stamps.js";
 import { replaceMaterialIcons } from "./ui-icons.js";
 
@@ -117,7 +117,7 @@ export function initBoardUI() {
 
 
   let currentTool = "pen";
-  let penSettingsOpenTool = null;
+  let settingsOpenTool = null;
 
   // ★ 前面 / 背面ボタン
   const bringToFrontBtn = document.getElementById("bringToFrontBtn");
@@ -147,6 +147,14 @@ export function initBoardUI() {
   const shapeStrokeWidthSelect = document.getElementById(
     "shapeStrokeWidthSelect"
   );
+  const shapeDepthRange = document.getElementById("shapeDepthRange");
+  const shapeSettingsPanel = document.getElementById("shapeSettings");
+  let currentShapeKey = "rect";
+  const editableShapeKinds = new Set([
+    "line", "arrow", "double-arrow", "triangle", "rect", "rounded-rect",
+    "ellipse", "diamond", "parallelogram", "trapezoid", "pentagon",
+    "hexagon", "star", "tri-prism", "rect-prism", "cylinder"
+  ]);
 
   // PDF出力ボタン（先生・生徒共通）
   const exportPdfBtn = document.getElementById("exportPdfBtn");
@@ -240,37 +248,42 @@ export function initBoardUI() {
 
   // ========= 図形スタイル UI 更新 =========
   function updateShapeStyleUI(info) {
-    // 図形が選択されていない or テキストなどのときはリセット
-    if (!info || !info.kind || info.kind === "text") {
-      shapeStrokeColorButtons.forEach(b => b.classList.remove("active"));
-      shapeFillColorButtons.forEach(b => b.classList.remove("active"));
-      if (shapeStrokeWidthSelect) shapeStrokeWidthSelect.value = "3";
-      return;
-    }
+    const style = info?.kind && editableShapeKinds.has(info.kind)
+      ? info
+      : (wb.shapeDefaults || {});
 
     // 線の色
-    if (info.stroke) {
+    if (style.stroke) {
       shapeStrokeColorButtons.forEach(b => {
         const c = b.dataset.shapeStrokeColor;
-        b.classList.toggle("active", c === info.stroke);
+        b.classList.toggle("active", c === style.stroke);
       });
     }
 
     // 塗りつぶし色
-    if (info.fill !== undefined) {
+    if (style.fill !== undefined) {
       shapeFillColorButtons.forEach(b => {
         const c = b.dataset.shapeFillColor;
-        b.classList.toggle("active", c === info.fill);
+        b.classList.toggle("active", c === style.fill);
       });
     }
 
     // 線の太さ
-    if (shapeStrokeWidthSelect && info.strokeWidth != null) {
-      const val = String(info.strokeWidth);
+    if (shapeStrokeWidthSelect && style.strokeWidth != null) {
+      const val = String(style.strokeWidth);
       const hasOption = Array.from(shapeStrokeWidthSelect.options).some(
         opt => opt.value === val
       );
       shapeStrokeWidthSelect.value = hasOption ? val : "3";
+    }
+
+    if (shapeDepthRange) {
+      let ratio = wb.shapeDefaults?.depthRatio || 0.24;
+      if (info?.kind === "cylinder" && typeof info.depth === "number") ratio = info.depth;
+      if (["tri-prism", "rect-prism"].includes(info?.kind) && info.width && info.height) {
+        ratio = info.depth / Math.min(Math.abs(info.width), Math.abs(info.height));
+      }
+      shapeDepthRange.value = String(Math.round(Math.max(0.12, Math.min(0.48, ratio)) * 100));
     }
   }
 
@@ -278,14 +291,14 @@ export function initBoardUI() {
   function updateTextStylePanelVisibility(activeTool) {
     if (!textStylePanel) return;
 
-    // text / sticky ツールのときだけバーを表示
-    const showPanel = activeTool === "text" || activeTool === "sticky";
-    textStylePanel.style.display = showPanel ? "flex" : "none";
+    const showPanel =
+      (activeTool === "text" || activeTool === "sticky") &&
+      settingsOpenTool === activeTool;
+    textStylePanel.classList.toggle("hidden", !showPanel);
 
     // 付箋カラー行は sticky のときだけ表示
     if (panelStickyColorRow) {
-      panelStickyColorRow.style.display =
-        activeTool === "sticky" ? "inline-flex" : "none";
+      panelStickyColorRow.classList.toggle("hidden", activeTool !== "sticky");
     }
   }
 
@@ -347,15 +360,21 @@ export function initBoardUI() {
   // ========= ツールボタンの UI 更新 =========
   function updateToolButtons(activeTool, options = {}) {
     currentTool = activeTool;
-    const showPenSettings = options.showPenSettings === true;
-    if (!showPenSettings && activeTool !== penSettingsOpenTool) {
-      penSettingsOpenTool = null;
-    }
+    settingsOpenTool = options.showSettings === true ? activeTool : null;
 
     toolButtons.forEach(btn => {
       const t = btn.dataset.tool;
+      if (!btn.dataset.baseTitle) btn.dataset.baseTitle = btn.title || "ツール";
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
+      const hasSettings = ["pen", "highlighter", "sticky", "text", "shape"].includes(t);
+      const isActive = t === activeTool;
+      btn.title = hasSettings && isActive
+        ? `${btn.dataset.baseTitle}（もう一度押すと設定）`
+        : btn.dataset.baseTitle;
+      if (hasSettings) {
+        btn.setAttribute("aria-expanded", String(isActive && settingsOpenTool === t));
+      }
     });
 
     function positionContextMenuForTool() {
@@ -387,9 +406,15 @@ export function initBoardUI() {
         Math.max(18, triggerCenterY - top - 8),
         Math.max(18, menuRect.height - 26)
       );
+      const offsetParentRect = contextMenu.offsetParent?.getBoundingClientRect() || {
+        left: 0,
+        top: 0
+      };
 
-      contextMenu.style.left = `${left}px`;
-      contextMenu.style.top = `${top}px`;
+      // contextMenu is absolutely positioned inside the sidebar, while the
+      // calculations above use viewport coordinates.
+      contextMenu.style.left = `${left - offsetParentRect.left}px`;
+      contextMenu.style.top = `${top - offsetParentRect.top}px`;
       contextMenu.style.bottom = "auto";
       contextMenu.style.transform = "none";
       contextMenu.style.setProperty("--context-arrow-top", `${arrowTop}px`);
@@ -411,21 +436,18 @@ export function initBoardUI() {
     const penSettings = document.getElementById("penSettings");
     if (penSettings) {
       if (activeTool === "pen" || activeTool === "highlighter") {
-        if (showPenSettings) {
-          penSettingsOpenTool = activeTool;
+        if (settingsOpenTool === activeTool) {
           penSettings.classList.remove("hidden");
           showMenu = true;
         } else {
-          penSettingsOpenTool = null;
           penSettings.classList.add("hidden");
         }
       } else {
-        penSettingsOpenTool = null;
         penSettings.classList.add("hidden");
       }
     }
 
-    // 付箋設定（サイドのパレットは使わないので常に隠す）
+    // 付箋設定はテキスト設定と一体化したパネルを使う。
     const stickySettings = document.getElementById("stickySettings");
     if (stickySettings) {
       stickySettings.classList.add("hidden");
@@ -436,7 +458,7 @@ export function initBoardUI() {
     // 図形設定
     const shapeSettings = document.getElementById("shapeSettings");
     if (shapeSettings) {
-      if (activeTool === "shape" || activeTool === "rect" || activeTool === "circle" || activeTool === "triangle" || activeTool === "line" || activeTool === "arrow") {
+      if (activeTool === "shape" && settingsOpenTool === "shape") {
         shapeSettings.classList.remove("hidden");
         showMenu = true;
       } else {
@@ -453,8 +475,16 @@ export function initBoardUI() {
         contextMenu.classList.add("hidden");
       }
     }
-    // ★ テキストスタイルパネルの表示切り替え
+    // ★ テキスト／付箋の設定パネルも同じコンテキストメニュー内に表示
     updateTextStylePanelVisibility(activeTool);
+    if (textStylePanel && !textStylePanel.classList.contains("hidden")) {
+      showMenu = true;
+      if (contextMenu) {
+        contextMenu.classList.remove("hidden");
+        positionContextMenuForTool();
+        requestAnimationFrame(positionContextMenuForTool);
+      }
+    }
   }
 
   // Canvas-side tool changes (for example, double-clicking an existing object)
@@ -471,30 +501,15 @@ export function initBoardUI() {
       return;
     }
 
-    const container = canvas.parentElement || document.body;
-    container.style.position = container.style.position || "relative";
+    const container = document.getElementById("contextMenu");
+    if (!container) return;
 
     textStylePanel = document.createElement("div");
     textStylePanel.id = "textStylePanel";
-
-    Object.assign(textStylePanel.style, {
-      position: "absolute",
-      left: "50%",
-      bottom: "12px",
-      transform: "translateX(-50%)",
-      padding: "6px 10px",
-      borderRadius: "9999px",
-      background: "rgba(255,255,255,0.96)",
-      boxShadow: "0 6px 16px rgba(15,23,42,0.25)",
-      border: "1px solid #e5e7eb",
-      display: "none", // 初期は非表示
-      zIndex: 40,
-      fontSize: "12px",
-      displayFlex: "flex"
-    });
+    textStylePanel.className = "context-section text-style-panel hidden";
 
     textStylePanel.innerHTML = `
-      <div style="display:inline-flex;align-items:center;gap:6px;">
+      <div class="text-style-panel-inner">
         <select data-text-font-size style="padding:2px 4px; font-size:12px;">
           <option value="12">12pt</option>
           <option value="14">14pt</option>
@@ -519,7 +534,7 @@ export function initBoardUI() {
           <option value="mincho">明朝</option>
         </select>
 
-        <div data-text-align-group style="display:inline-flex;gap:2px;margin-left:4px;">
+        <div data-text-align-group>
           <button type="button" data-text-align="left"
             style="min-width:24px;height:24px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;">左</button>
           <button type="button" data-text-align="center"
@@ -529,8 +544,7 @@ export function initBoardUI() {
         </div>
 
         <!-- ★ 付箋カラー（テキストバー内） -->
-        <div data-text-sticky-colors
-             style="display:inline-flex;gap:6px;margin-left:8px;">
+        <div data-text-sticky-colors>
           <button type="button" data-text-sticky-color="#FEF3C7"
             style="width:18px;height:18px;border-radius:9999px;border:2px solid #3b82f6;background:#FEF3C7;"></button>
           <button type="button" data-text-sticky-color="#E0F2FE"
@@ -549,10 +563,6 @@ export function initBoardUI() {
 
 
     container.appendChild(textStylePanel);
-
-    textStylePanel.classList.add("text-style-panel");
-    const panelInner = textStylePanel.firstElementChild;
-    if (panelInner) panelInner.classList.add("text-style-panel-inner");
 
     const generatedTextColorInput = textStylePanel.querySelector("[data-text-color]");
     if (generatedTextColorInput) {
@@ -727,14 +737,14 @@ export function initBoardUI() {
       const tool = btn.dataset.tool;
       if (!tool) return;
 
-      // shape / stamp 以外はそのままツールにセット
-      if (tool !== "shape" && tool !== "stamp") {
-        const isPaletteTool = tool === "pen" || tool === "highlighter";
-        const isActivePaletteTool = isPaletteTool && currentTool === tool;
-        const showPenSettings = isActivePaletteTool && penSettingsOpenTool !== tool;
+      // 設定を持つツールは、1回目で選択、同じボタンの2回目で設定を開く。
+      if (tool !== "stamp") {
+        const hasSettings = ["pen", "highlighter", "sticky", "text", "shape"].includes(tool);
+        const showSettings =
+          hasSettings && currentTool === tool && settingsOpenTool !== tool;
 
         wb.setTool(tool);
-        updateToolButtons(tool, { showPenSettings });
+        updateToolButtons(tool, { showSettings });
 
         // ★ 蛍光ペンは毎回黄色を初期色にしておく
         if (tool === "highlighter" && typeof wb.setHighlighterColor === "function") {
@@ -751,12 +761,6 @@ export function initBoardUI() {
         return;
       }
 
-      // 図形ツール
-      if (tool === "shape") {
-        wb.setTool("shape");
-        updateToolButtons("shape");
-        showShapePalette();
-      }
     });
   });
 
@@ -802,14 +806,36 @@ export function initBoardUI() {
     }
   }
 
+  function createShapePreview(key) {
+    const paths = {
+      line: '<path d="M4 20 20 4"/>',
+      arrow: '<path d="M4 12h15M14 7l5 5-5 5"/>',
+      "double-arrow": '<path d="M5 12h14M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
+      triangle: '<path d="M12 4 21 20H3Z"/>',
+      rect: '<rect x="3" y="5" width="18" height="14"/>',
+      "rounded-rect": '<rect x="3" y="5" width="18" height="14" rx="4"/>',
+      ellipse: '<ellipse cx="12" cy="12" rx="9" ry="7"/>',
+      diamond: '<path d="m12 3 9 9-9 9-9-9Z"/>',
+      parallelogram: '<path d="M7 5h14l-4 14H3Z"/>',
+      trapezoid: '<path d="M7 5h10l4 14H3Z"/>',
+      pentagon: '<path d="m12 3 9 7-3.5 11h-11L3 10Z"/>',
+      hexagon: '<path d="m7 3 10 0 5 9-5 9H7l-5-9Z"/>',
+      star: '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
+      "tri-prism": '<path d="m7 7 7-3 6 9-7 4-6-10Zm0 0-3 8 9 2m7-4-3 7-4-3"/>',
+      "rect-prism": '<path d="m7 7 10-3 4 4-10 4Zm0 0v10l4 3V12m10-4v10l-10 2"/>',
+      cylinder: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 18c0-1.7 3.6-3 8-3s8 1.3 8 3"/>'
+    };
+    return `<svg class="shape-preview" viewBox="0 0 24 24" aria-hidden="true">${paths[key] || paths.rect}</svg>`;
+  }
+
   // ========= 図形パレットの生成＆選択 =========
-  if (shapePalette) {
-    const host = shapePaletteInner || shapePalette;
+  if (shapeSettingsPanel) {
+    const host = shapeSettingsPanel;
     let itemsContainer = host.querySelector(".shape-items");
     if (!itemsContainer) {
       itemsContainer = document.createElement("div");
       itemsContainer.className = "shape-items";
-      host.appendChild(itemsContainer);
+      host.prepend(itemsContainer);
     }
 
     // 一旦クリア
@@ -822,7 +848,14 @@ export function initBoardUI() {
       { key: "double-arrow", label: "相互矢印", icon: "↔" },
       { key: "triangle", label: "三角形", icon: "△" },
       { key: "rect", label: "四角形", icon: "▭" },
-      { key: "circle", label: "円", icon: "◯" },
+      { key: "rounded-rect", label: "角丸四角" },
+      { key: "circle", label: "円" },
+      { key: "diamond", label: "ひし形" },
+      { key: "parallelogram", label: "平行四辺形" },
+      { key: "trapezoid", label: "台形" },
+      { key: "pentagon", label: "五角形" },
+      { key: "hexagon", label: "六角形" },
+      { key: "star", label: "星" },
       { key: "tri-prism", label: "三角柱", icon: "△▭" },
       { key: "rect-prism", label: "直方体", icon: "▭▭" },
       { key: "cylinder", label: "円柱", icon: "◯┃" }
@@ -840,18 +873,21 @@ export function initBoardUI() {
       item.dataset.shapeKey = key;
       item.title = shape.label || key;
 
-      item.innerHTML = `
-        <span class="shape-icon">${shape.icon || "⬚"}</span>
-        <span class="shape-label">${shape.label || key}</span>
-      `;
+      const shapeKeyForWB = key === "circle" ? "ellipse" : key;
+      item.classList.toggle("active", shapeKeyForWB === currentShapeKey);
+      item.innerHTML = `${createShapePreview(shapeKeyForWB)}<span class="shape-label">${shape.label || key}</span>`;
 
       item.addEventListener("click", () => {
         if (typeof wb.setShapeType === "function") {
           // ★ Whiteboard 側が "ellipse" を期待しているので、circle だけ変換する
-          const shapeKeyForWB = key === "circle" ? "ellipse" : key;
+          currentShapeKey = shapeKeyForWB;
           wb.setShapeType(shapeKeyForWB);
           wb.setTool("shape");
-          updateToolButtons("shape");
+          itemsContainer.querySelectorAll(".shape-item").forEach(button => {
+            const selectedKey = button.dataset.shapeKey === "circle" ? "ellipse" : button.dataset.shapeKey;
+            button.classList.toggle("active", selectedKey === currentShapeKey);
+          });
+          updateToolButtons("shape", { showSettings: true });
         } else {
           // まだ実装していない場合のフォールバック
           if (key === "rect") {
@@ -864,16 +900,12 @@ export function initBoardUI() {
             alert("この図形はまだ実装されていません。");
           }
         }
-        hideShapePalette();
       });
 
 
       itemsContainer.appendChild(item);
     });
 
-    if (shapePaletteCloseBtn) {
-      shapePaletteCloseBtn.addEventListener("click", hideShapePalette);
-    }
   }
 
   // ========= 初期ツール / ペン設定 =========
@@ -934,8 +966,25 @@ export function initBoardUI() {
 
   // ========= 図形：塗りつぶし色 =========
   if (
+    shapeStrokeColorButtons.length > 0 &&
+    typeof wb.setSelectedStrokeColor === "function"
+  ) {
+    shapeStrokeColorButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const color = btn.dataset.shapeStrokeColor;
+        if (!color) return;
+        wb.setSelectedStrokeColor(color);
+        shapeStrokeColorButtons.forEach(b =>
+          b.classList.toggle("active", b === btn)
+        );
+      });
+    });
+  }
+
+  // ========= 図形：塗りつぶし色 =========
+  if (
     shapeFillColorButtons.length > 0 &&
-    typeof wb.setSelectedStickyColor === "function"
+    typeof wb.setSelectedShapeFill === "function"
   ) {
     shapeFillColorButtons.forEach(btn => {
       btn.addEventListener("click", () => {
@@ -943,7 +992,7 @@ export function initBoardUI() {
         if (color == null) return;
 
         // "transparent" もそのまま渡す（塗りなし）
-        wb.setSelectedStickyColor(color);
+        wb.setSelectedShapeFill(color);
 
         shapeFillColorButtons.forEach(b =>
           b.classList.toggle("active", b === btn)
@@ -1018,6 +1067,13 @@ export function initBoardUI() {
       });
       document.addEventListener("keydown", onKeydown);
       stackButton.focus();
+    });
+  }
+
+  // ========= 図形：奥行き =========
+  if (shapeDepthRange && typeof wb.setSelectedShapeDepth === "function") {
+    shapeDepthRange.addEventListener("input", () => {
+      wb.setSelectedShapeDepth((parseInt(shapeDepthRange.value, 10) || 24) / 100);
     });
   }
 

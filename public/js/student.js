@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=object-tool-switch-20260818";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818b";
 import {
   authApi,
   boardApi,

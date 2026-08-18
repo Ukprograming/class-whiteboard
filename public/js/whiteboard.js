@@ -13,6 +13,15 @@ const PDF_RENDER_SCALE = 2.5;
 const PDF_EXPORT_MAX_SIZE = 2048;
 const PDF_WEBP_QUALITY = 0.9;
 
+const SHAPE_KINDS = new Set([
+  "line", "arrow", "double-arrow", "triangle", "rect", "rounded-rect",
+  "ellipse", "diamond", "parallelogram", "trapezoid", "pentagon",
+  "hexagon", "star", "tri-prism", "rect-prism", "cylinder"
+]);
+const FILLABLE_SHAPE_KINDS = new Set(
+  Array.from(SHAPE_KINDS).filter(kind => !["line", "arrow", "double-arrow"].includes(kind))
+);
+
 export class Whiteboard {
   constructor({ canvas }) {
     this.canvas = canvas;
@@ -70,6 +79,13 @@ export class Whiteboard {
     // ★ 図形ツール用：現在選択中の図形タイプ
     // line, arrow, double-arrow, triangle, rect, ellipse, tri-prism, rect-prism, cylinder
     this.currentShapeType = "rect";
+    this.shapeDefaults = {
+      stroke: "#111827",
+      fill: "transparent",
+      strokeWidth: 3,
+      depthRatio: 0.24
+    };
+    this.stickyColor = "#FEF3C7";
 
     // 状態フラグ
     this.isDrawingStroke = false;
@@ -708,16 +724,28 @@ export class Whiteboard {
     this.currentShapeType = shapeType || "rect";
   }
 
+  _notifyObjectStyleChanges(targets) {
+    const changedTargets = (targets || []).filter(Boolean);
+    if (!changedTargets.length) return;
+    this._markDirty();
+    if (this.onAction) {
+      changedTargets.forEach(object => {
+        this.onAction({ type: "modify", object });
+      });
+    }
+  }
+
   // ★ 選択中図形の線色変更
   setSelectedStrokeColor(color) {
     if (!color) return;
+    this.shapeDefaults.stroke = color;
     const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
       ? this.multiSelectedObjects
       : (this.selectedObj ? [this.selectedObj] : []);
 
     targets.forEach(o => {
       if (!o) return;
-      if (["line", "arrow", "double-arrow", "triangle", "rect", "ellipse", "tri-prism", "rect-prism", "cylinder", "sticky"].includes(o.kind)) {
+      if (SHAPE_KINDS.has(o.kind)) {
         o.stroke = color;
       }
     });
@@ -727,17 +755,52 @@ export class Whiteboard {
   // ★ 選択中図形の線の太さ変更
   setSelectedStrokeWidth(width) {
     if (!width || width <= 0) return;
+    this.shapeDefaults.strokeWidth = width;
     const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
       ? this.multiSelectedObjects
       : (this.selectedObj ? [this.selectedObj] : []);
 
     targets.forEach(o => {
       if (!o) return;
-      if (["line", "arrow", "double-arrow", "triangle", "rect", "ellipse", "tri-prism", "rect-prism", "cylinder", "sticky"].includes(o.kind)) {
+      if (SHAPE_KINDS.has(o.kind)) {
         o.strokeWidth = width;
       }
     });
     this.render();
+    this._notifyObjectStyleChanges(targets.filter(o => o && SHAPE_KINDS.has(o.kind)));
+  }
+
+  setSelectedShapeFill(color) {
+    if (!color) return;
+    this.shapeDefaults.fill = color;
+    const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
+      ? this.multiSelectedObjects
+      : (this.selectedObj ? [this.selectedObj] : []);
+
+    targets.forEach(o => {
+      if (o && FILLABLE_SHAPE_KINDS.has(o.kind)) o.fill = color;
+    });
+    this.render();
+    this._notifyObjectStyleChanges(targets.filter(o => o && SHAPE_KINDS.has(o.kind)));
+  }
+
+  setSelectedShapeDepth(depthRatio) {
+    const ratio = Math.max(0.12, Math.min(0.48, Number(depthRatio) || 0.24));
+    this.shapeDefaults.depthRatio = ratio;
+    const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
+      ? this.multiSelectedObjects
+      : (this.selectedObj ? [this.selectedObj] : []);
+
+    targets.forEach(o => {
+      if (!o || !["tri-prism", "rect-prism", "cylinder"].includes(o.kind)) return;
+      if (o.kind === "cylinder") {
+        o.depth = ratio;
+      } else {
+        o.depth = Math.max(12, Math.min(80, Math.min(Math.abs(o.width), Math.abs(o.height)) * ratio));
+      }
+    });
+    this.render();
+    this._notifyObjectStyleChanges(targets.filter(o => o && FILLABLE_SHAPE_KINDS.has(o.kind)));
   }
 
   // ★ 選択状態を設定（内部用）
@@ -786,9 +849,12 @@ export class Whiteboard {
   // ★ 選択変更イベントを発火
   _fireSelectionChange() {
     if (this.onSelectionChange && typeof this.onSelectionChange === "function") {
-      this.onSelectionChange();
+      this.onSelectionChange(this.selectedObj || null);
     }
     this.render();
+    this._notifyObjectStyleChanges(
+      targets.filter(o => o && ["tri-prism", "rect-prism", "cylinder"].includes(o.kind))
+    );
   }
 
   // ★ 選択中オブジェクトを最前面へ
@@ -1414,6 +1480,7 @@ export class Whiteboard {
     if (align) this.selectedObj.textAlign = align;
 
     this.render();
+    this._notifyObjectStyleChanges([this.selectedObj]);
     this._fireSelectionChange();
   }
 
@@ -1432,20 +1499,20 @@ export class Whiteboard {
 
   setSelectedStickyColor(color) {
     if (!color) return;
+    this.stickyColor = color;
     const targets = this.multiSelectedObjects && this.multiSelectedObjects.length
       ? this.multiSelectedObjects
       : (this.selectedObj ? [this.selectedObj] : []);
 
     targets.forEach(o => {
       if (!o) return;
-      if (["sticky", "rect", "ellipse", "triangle", "tri-prism", "rect-prism", "cylinder"].includes(o.kind)) {
+      if (o.kind === "sticky") {
         o.fill = color;
-        if (o.kind === "sticky") {
-          o.stroke = color;
-        }
+        o.stroke = color;
       }
     });
     this.render();
+    this._notifyObjectStyleChanges(targets.filter(o => o?.kind === "sticky"));
   }
 
   _encodeImageForExport(source, logicalWidth, logicalHeight, maxSize = MAX_IMAGE_EXPORT_SIZE) {
@@ -2155,19 +2222,7 @@ export class Whiteboard {
       this.setTool("sticky");
       return "sticky";
     }
-    if (
-      [
-        "line",
-        "arrow",
-        "double-arrow",
-        "triangle",
-        "rect",
-        "ellipse",
-        "tri-prism",
-        "rect-prism",
-        "cylinder"
-      ].includes(obj.kind)
-    ) {
+    if (SHAPE_KINDS.has(obj.kind)) {
       this.setShapeType(obj.kind);
       this.setTool("shape");
       return "shape";
@@ -2404,8 +2459,8 @@ export class Whiteboard {
       bold,
       textColor,
       textAlign,
-      fill: kind === "sticky" ? "#FEF3C7" : "transparent",
-      stroke: kind === "sticky" ? "#FBBF24" : this.penColor,
+      fill: kind === "sticky" ? this.stickyColor : "transparent",
+      stroke: kind === "sticky" ? this.stickyColor : this.penColor,
       strokeWidth: 2
     };
 
@@ -2424,6 +2479,7 @@ export class Whiteboard {
 
   _startShape(wx, wy, kind) {
     const id = this._newEntityId("object");
+    const defaults = this.shapeDefaults || {};
     const obj = {
       id,
       kind,
@@ -2431,11 +2487,9 @@ export class Whiteboard {
       y: wy,
       width: 0,
       height: 0,
-      stroke: this.penColor,
-      strokeWidth: this.penWidth || 2,
-      fill: ["rect", "ellipse", "triangle", "tri-prism", "rect-prism", "cylinder"].includes(kind)
-        ? "transparent"
-        : "transparent"
+      stroke: defaults.stroke || "#111827",
+      strokeWidth: defaults.strokeWidth || 3,
+      fill: FILLABLE_SHAPE_KINDS.has(kind) ? (defaults.fill || "transparent") : "transparent"
     };
 
     if (kind === "triangle") {
@@ -2446,8 +2500,10 @@ export class Whiteboard {
       ];
     }
 
-    if (kind === "tri-prism" || kind === "rect-prism" || kind === "cylinder") {
-      obj.depth = 40;
+    if (kind === "tri-prism" || kind === "rect-prism") {
+      obj.depth = 24;
+    } else if (kind === "cylinder") {
+      obj.depth = defaults.depthRatio || 0.24;
     }
 
     this.shapeStartX = wx;
@@ -2464,7 +2520,7 @@ export class Whiteboard {
     let w = wx - this.shapeStartX;
     let h = wy - this.shapeStartY;
 
-    if (isShiftKey && (kind === "triangle" || kind === "rect" || kind === "ellipse")) {
+    if (isShiftKey && FILLABLE_SHAPE_KINDS.has(kind) && !["tri-prism", "rect-prism", "cylinder"].includes(kind)) {
       const size = Math.max(Math.abs(w), Math.abs(h)) || 1;
       w = w < 0 ? -size : size;
       h = h < 0 ? -size : size;
@@ -2472,6 +2528,11 @@ export class Whiteboard {
 
     this.shapeDraft.width = w;
     this.shapeDraft.height = h;
+
+    if (kind === "tri-prism" || kind === "rect-prism") {
+      const ratio = this.shapeDefaults?.depthRatio || 0.24;
+      this.shapeDraft.depth = Math.max(12, Math.min(80, Math.min(Math.abs(w), Math.abs(h)) * ratio));
+    }
 
     if (kind === "triangle" && this.shapeDraft.points) {
       const { x, y, width, height } = this._normalizeRect(this.shapeDraft);
@@ -3915,6 +3976,28 @@ export class Whiteboard {
       }
 
 
+      else if (kind === "rounded-rect") {
+        ctx.save();
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+        const radius = Math.min(Math.abs(width), Math.abs(height)) * 0.16;
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, width, height, radius);
+        else ctx.rect(x, y, width, height);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
       // ★ ellipse（円・楕円）
       else if (kind === "ellipse") {
         ctx.save();
@@ -3973,6 +4056,62 @@ export class Whiteboard {
       }
 
 
+      else if (["diamond", "parallelogram", "trapezoid", "pentagon", "hexagon"].includes(kind)) {
+        ctx.save();
+        const angle = obj.rotation || 0;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
+        if (angle) {
+          ctx.translate(cx, cy);
+          ctx.rotate(angle);
+          ctx.translate(-cx, -cy);
+        }
+
+        let points;
+        if (kind === "diamond") {
+          points = [
+            { x: cx, y }, { x: x + width, y: cy },
+            { x: cx, y: y + height }, { x, y: cy }
+          ];
+        } else if (kind === "parallelogram") {
+          const inset = width * 0.2;
+          points = [
+            { x: x + inset, y }, { x: x + width, y },
+            { x: x + width - inset, y: y + height }, { x, y: y + height }
+          ];
+        } else if (kind === "trapezoid") {
+          const inset = width * 0.2;
+          points = [
+            { x: x + inset, y }, { x: x + width - inset, y },
+            { x: x + width, y: y + height }, { x, y: y + height }
+          ];
+        } else {
+          const sides = kind === "pentagon" ? 5 : 6;
+          points = Array.from({ length: sides }, (_, index) => {
+            const startAngle = kind === "pentagon" ? -Math.PI / 2 : 0;
+            const a = startAngle + index * Math.PI * 2 / sides;
+            return {
+              x: cx + Math.cos(a) * Math.abs(width) / 2,
+              y: cy + Math.sin(a) * Math.abs(height) / 2
+            };
+          });
+        }
+
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth / this.scale;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
       else if (kind === "tri-prism") {
         ctx.save();
 
@@ -4006,30 +4145,40 @@ export class Whiteboard {
           y: p.y + dy
         }));
 
-        // 前面
-        ctx.beginPath();
-        ctx.moveTo(front[0].x, front[0].y);
-        ctx.lineTo(front[1].x, front[1].y);
-        ctx.lineTo(front[2].x, front[2].y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // 奥側（三角形アウトライン）
-        ctx.beginPath();
-        ctx.moveTo(back[0].x, back[0].y);
-        ctx.lineTo(back[1].x, back[1].y);
-        ctx.lineTo(back[2].x, back[2].y);
-        ctx.closePath();
-        ctx.stroke();
-
-        // 対応する頂点を結ぶ辺
-        for (let i = 0; i < 3; i++) {
+        const drawFace = (points, alpha = 1) => {
+          ctx.save();
+          ctx.globalAlpha = fillColor === "transparent" ? 0 : alpha;
           ctx.beginPath();
-          ctx.moveTo(front[i].x, front[i].y);
-          ctx.lineTo(back[i].x, back[i].y);
+          points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        };
+
+        // 奥の面から描くと、面の重なりが自然に見える。
+        drawFace(back, 0.42);
+        drawFace([front[0], front[2], back[2], back[0]], 0.62);
+        drawFace([front[1], front[2], back[2], back[1]], 0.78);
+        drawFace(front, 0.94);
+
+        [back, front].forEach(face => {
+          ctx.beginPath();
+          face.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.closePath();
           ctx.stroke();
-        }
+        });
+        front.forEach((point, index) => {
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(back[index].x, back[index].y);
+          ctx.stroke();
+        });
 
         ctx.restore();
       }
@@ -4071,18 +4220,6 @@ export class Whiteboard {
           y2: y + height + dy
         };
 
-        // 前面 塗りつぶし
-        ctx.beginPath();
-        ctx.rect(front.x1, front.y1, width, height);
-        ctx.fill();
-        ctx.stroke();
-
-        // 奥側
-        ctx.beginPath();
-        ctx.rect(back.x1, back.y1, width, height);
-        ctx.stroke();
-
-        // 対応する 4 頂点を結ぶ
         const cornersFront = [
           { x: front.x1, y: front.y1 },
           { x: front.x2, y: front.y1 },
@@ -4096,12 +4233,40 @@ export class Whiteboard {
           { x: back.x1, y: back.y2 }
         ];
 
-        for (let i = 0; i < 4; i++) {
+        const fillFace = (points, alpha) => {
+          if (fillColor === "transparent") return;
+          ctx.save();
+          ctx.globalAlpha = alpha;
           ctx.beginPath();
-          ctx.moveTo(cornersFront[i].x, cornersFront[i].y);
-          ctx.lineTo(cornersBack[i].x, cornersBack[i].y);
+          points.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        };
+
+        fillFace(cornersBack, 0.38);
+        fillFace([cornersFront[0], cornersFront[1], cornersBack[1], cornersBack[0]], 0.58);
+        fillFace([cornersFront[1], cornersFront[2], cornersBack[2], cornersBack[1]], 0.7);
+        fillFace(cornersFront, 0.94);
+
+        [cornersBack, cornersFront].forEach(face => {
+          ctx.beginPath();
+          face.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.closePath();
           ctx.stroke();
-        }
+        });
+        cornersFront.forEach((point, index) => {
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(cornersBack[index].x, cornersBack[index].y);
+          ctx.stroke();
+        });
 
         ctx.restore();
       }
@@ -4151,10 +4316,12 @@ export class Whiteboard {
         const bottomY = y + height - ry;
         const sideHeight = bottomY - topY;
 
-        // --- 側面：塗りつぶし ---
-        if (sideHeight > 0) {
-          ctx.beginPath();
+        // 側面は少し淡くし、上面を明るくして奥行きを読み取りやすくする。
+        if (sideHeight > 0 && fillColor !== "transparent") {
+          ctx.save();
+          ctx.globalAlpha = 0.78;
           ctx.fillRect(x, topY, width, sideHeight);
+          ctx.restore();
         }
 
         // 側面の縦線
@@ -4168,14 +4335,25 @@ export class Whiteboard {
         // 上面の楕円
         ctx.beginPath();
         ctx.ellipse(cx, topY, rx, ry, 0, 0, 2 * Math.PI);
-        ctx.fill();
+        if (fillColor !== "transparent") {
+          ctx.save();
+          ctx.globalAlpha = 0.95;
+          ctx.fill();
+          ctx.restore();
+        }
         ctx.stroke();
 
-        // 下面の楕円
+        // 下面は手前側を実線、隠れる奥側を破線にする。
         ctx.beginPath();
-        ctx.ellipse(cx, bottomY, rx, ry, 0, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.ellipse(cx, bottomY, rx, ry, 0, 0, Math.PI);
         ctx.stroke();
+        ctx.save();
+        ctx.setLineDash([5 / this.scale, 5 / this.scale]);
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.ellipse(cx, bottomY, rx, ry, 0, Math.PI, 2 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
 
         ctx.restore();
       }
@@ -4187,6 +4365,14 @@ export class Whiteboard {
 
       else if (kind === "star") {
         ctx.save();
+        const angle = obj.rotation || 0;
+        if (angle) {
+          const centerX = x + width / 2;
+          const centerY = y + height / 2;
+          ctx.translate(centerX, centerY);
+          ctx.rotate(angle);
+          ctx.translate(-centerX, -centerY);
+        }
         ctx.fillStyle = fillColor;
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
