@@ -873,6 +873,7 @@ function createSupabaseRealtimeBridge() {
         if (payload.teacherSocketId && payload.teacherSocketId !== socketId) return;
         dispatch("student-screen-update", {
           studentSocketId: message.senderSocketId,
+          nickname: message.senderNickname,
           classCode: payload.classCode,
           dataUrl: payload.dataUrl,
           viewport: payload.viewport,
@@ -885,7 +886,7 @@ function createSupabaseRealtimeBridge() {
         });
         break;
       case "studentImageUpdate": {
-        const studentId = payload.studentId || message.senderNickname || message.senderSocketId;
+        const studentId = message.senderNickname || payload.studentId || message.senderSocketId;
         const seenKey = `${payload.classCode}:${studentId}`;
         if (!notebookStudentsSeen.has(seenKey)) {
           notebookStudentsSeen.add(seenKey);
@@ -1008,19 +1009,24 @@ function inferRoleFromEvent(eventName) {
 }
 
 function getStudentPresenceList(presenceState, studentIdByLoginId = new Map()) {
-  return Object.values(presenceState || {})
+  const studentsBySocketId = new Map();
+  Object.values(presenceState || {})
     .flat()
     .filter((item) => item?.role === "student")
-    .map((item) => {
+    .forEach((item) => {
       const nickname = item.nickname || item.studentId || item.socketId;
-      return {
+      if (!item.socketId) return;
+      studentsBySocketId.set(item.socketId, {
         socketId: item.socketId,
         nickname,
-        studentRecordId: studentIdByLoginId.get(normalizeStudentLoginId(nickname)) || "",
+        studentRecordId:
+          item.studentRecordId ||
+          studentIdByLoginId.get(normalizeStudentLoginId(nickname)) ||
+          "",
         mode: item.mode || "whiteboard",
-      };
-    })
-    .filter((item) => item.socketId);
+      });
+    });
+  return Array.from(studentsBySocketId.values());
 }
 
 async function getSessionOrThrow() {

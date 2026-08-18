@@ -697,6 +697,7 @@ io.on("connection", (socket) => {
       );
       io.to(teacherSocketId).emit("student-screen-update", {
         studentSocketId: socket.id,
+        nickname: classes[classCode].students[socket.id].nickname,
         classCode,
         dataUrl,
         viewport,

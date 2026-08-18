@@ -2130,13 +2130,7 @@ socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport })
     latestViewportByStudent[socketId] = viewport;
   }
 
-  // ★ ノート提出モード中は、ここで受け取ったサムネイルでは上書きしない
-  //    （ノート画像サムネは student-screen-update 側で作っている）
-  if (currentMode === "notebook") {
-    return;
-  }
-
-  // それ以外のモード（whiteboard / screen）のときだけ通常サムネを更新
+  // ノート提出モードも、台形補正後の画像が通常サムネイル経路で届く。
   latestThumbnails[socketId] = { nickname, dataUrl, mode: currentMode, viewport };
   renderTiles();
 });
@@ -2325,7 +2319,7 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action }) => {
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  async ({ studentSocketId, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync }) => {
+  async ({ studentSocketId, nickname, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync }) => {
     let boardData = null;
     if (isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
       const resolvedBoardData = await resolveRealtimeBoardData(
@@ -2347,6 +2341,11 @@ socket.on(
     });
 
     if (!studentSocketId) return;
+
+    // 画像更新だけが先に届いても、UUID の socketId ではなく認証済みの生徒IDを表示する。
+    if (nickname) {
+      studentNameMap[studentSocketId] = nickname;
+    }
 
     // 生徒ごとの最新モードを記録
     latestModeByStudent[studentSocketId] = effectiveMode;
@@ -2481,6 +2480,7 @@ socket.on(
 
           latestThumbnails[studentSocketId] = {
             nickname:
+              nickname ||
               getNotebookStudentIdForSocketId(studentSocketId) ||
               studentNameMap[studentSocketId] ||
               "",

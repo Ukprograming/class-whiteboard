@@ -142,6 +142,24 @@ if (studentSource.includes("joinedNotebookClassCode") || studentSource.includes(
   console.error("Notebook capture must not keep a duplicate class participation state.");
   ok = false;
 }
+const notebookTileContracts = [
+  [studentSource, 'if (viewMode === "notebook")'],
+  [studentSource, 'mode: "notebook"'],
+  [studentSource, 'const cornerSelectionCanvas = document.getElementById("cornerSelectionCanvas")'],
+  [studentSource, 'resetPerspectiveBtn?.addEventListener("click", resetPerspectiveCorrection)'],
+  [studentSource, "renderPerspectiveCorrection(srcCanvas, previewCanvas, sourcePoints)"],
+  [teacherSource, "latestThumbnails[socketId] = { nickname, dataUrl, mode: currentMode, viewport }"],
+  [teacherSource, "studentNameMap[studentSocketId] = nickname"],
+  [realtimeApiSource, "nickname: message.senderNickname"],
+  [realtimeApiSource, "const studentsBySocketId = new Map()"],
+];
+const missingNotebookTileContracts = notebookTileContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingNotebookTileContracts.length > 0) {
+  console.error(`Notebook tile contracts missing: ${missingNotebookTileContracts.join(", ")}`);
+  ok = false;
+}
 const securityMigrationSource = readFileSync(
   "supabase/migrations/20260817041821_harden_realtime_topics_and_shared_board_integrity.sql",
   "utf8"

@@ -17,8 +17,6 @@
   <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- OpenCV.js（ノート提出モード用） -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" type="text/javascript"></script>
 </head>
 
 <body class="app-root">
@@ -68,13 +66,25 @@
 
       <main class="student-notebook-content">
         <section class="video-section">
-          <div class="section-title">撮影中の映像（机上のノート）</div>
-          <video id="video" autoplay playsinline></video>
+          <div class="section-title notebook-section-title">
+            <span>撮影中の映像（ノートの四隅を順に選択）</span>
+            <span id="cornerInstruction" class="corner-instruction">左上をクリック</span>
+          </div>
+          <div class="notebook-camera-stage">
+            <video id="video" autoplay playsinline></video>
+            <canvas
+              id="cornerSelectionCanvas"
+              aria-label="ノートの四隅を左上、右上、右下、左下の順に選択"
+            ></canvas>
+          </div>
         </section>
 
         <section class="preview-section">
-          <div class="section-title">
-            台形補正後（送信イメージ：自動追尾＋用紙比率）
+          <div class="section-title notebook-section-title">
+            <span>台形補正後（教師への送信イメージ）</span>
+            <button id="resetPerspectiveBtn" type="button" class="topbar-btn small hidden">
+              台形補正をやり直す
+            </button>
           </div>
           <canvas id="previewCanvas"></canvas>
         </section>
@@ -429,7 +439,7 @@
         </label>
         <label>
           生徒ID
-          <input id="loginNickname" type="text" maxlength="24" pattern="[A-Za-z0-9_-]+" placeholder="例: s001" autocomplete="username" required />
+          <input id="loginNickname" type="text" maxlength="24" pattern="[A-Za-z0-9_\-]+" placeholder="例: s001" autocomplete="username" required />
           <span class="student-login-field-hint">先生が登録時に設定した生徒IDです。表示名ではありません。</span>
         </label>
         <label>
@@ -447,7 +457,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/student.js?v=notebook-session-20260818"></script>
+  <script type="module" src="./js/student.js?v=notebook-perspective-20260818"></script>
 
 </body>
 

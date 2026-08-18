@@ -4464,6 +4464,56 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   grid-row: 1;
 }
 
+.notebook-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.corner-instruction {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(47, 143, 190, 0.12);
+  color: #17658a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.corner-instruction.is-complete {
+  background: rgba(34, 197, 94, 0.14);
+  color: #166534;
+}
+
+.notebook-camera-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--cw-line);
+  border-radius: 8px;
+  background: #eef2f4;
+}
+
+.notebook-camera-stage video,
+.notebook-camera-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.notebook-camera-stage video {
+  object-fit: contain;
+}
+
+#cornerSelectionCanvas {
+  z-index: 1;
+  cursor: crosshair;
+  touch-action: none;
+}
+
 .student-notebook-toolbar,
 .video-section,
 .preview-section,

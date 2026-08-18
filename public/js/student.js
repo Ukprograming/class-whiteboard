@@ -1493,6 +1493,28 @@ chatReactionButtons.forEach(btn => {
 function sendWhiteboardThumbnail() {
   if (!currentClassCode || !nickname) return;
 
+  // ノート提出モードでは、ホワイトボードではなく台形補正後の画像を送る。
+  // 教師側のタイル表示はこの通常サムネイル経路を使うため、個別監視の開始を待たない。
+  if (viewMode === "notebook") {
+    if (!currentStream || !previewCanvas || !videoEl?.videoWidth || !videoEl?.videoHeight) {
+      return;
+    }
+    drawCorrectedFrameToPreview();
+    const dataUrl = encodeCanvasForRealtime(previewCanvas, {
+      maxWidth: 320,
+      quality: 0.58,
+    });
+    if (!dataUrl) return;
+    socket.emit("student-thumbnail", {
+      classCode: currentClassCode,
+      nickname,
+      dataUrl,
+      mode: "notebook",
+      viewport: { scale: 1, offsetX: 0, offsetY: 0 },
+    });
+    return;
+  }
+
   // 画面共有モード
   if (captureMode === "screen") {
     if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
@@ -1723,6 +1745,12 @@ const cameraSelect = document.getElementById("cameraSelect");
 const startCameraBtn = document.getElementById("startCameraBtn");
 const paperSizeSelect = document.getElementById("paperSizeSelect");
 const videoEl = document.getElementById("video");
+const cornerSelectionCanvas = document.getElementById("cornerSelectionCanvas");
+const cornerSelectionCtx = cornerSelectionCanvas
+  ? cornerSelectionCanvas.getContext("2d")
+  : null;
+const cornerInstruction = document.getElementById("cornerInstruction");
+const resetPerspectiveBtn = document.getElementById("resetPerspectiveBtn");
 const previewCanvas = document.getElementById("previewCanvas");
 const previewCtx = previewCanvas ? previewCanvas.getContext("2d") : null;
 const feedbackImage = document.getElementById("feedbackImage");
@@ -1794,32 +1822,90 @@ const PAPER_SIZES = {
 };
 let currentPaperSize = "A4";
 
-// OpenCV 用
-let opencvReady = false;
 const srcCanvas = document.createElement("canvas"); // 元映像を読む隠しキャンバス
-const srcCtx = srcCanvas.getContext("2d");
+const srcCtx = srcCanvas.getContext("2d", { willReadFrequently: true });
 
 // 「四隅クリック」用の状態（キャンバス座標を 0〜1 に正規化して持つ）
 // クリックルール：画面上で「左上 → 右上 → 右下 → 左下」の順にクリック
 let selectedCorners = []; // [{nx, ny}, ...] nx,ny: 0〜1
 let cornersLocked = false; // 4点揃ったら true
+const CORNER_LABELS = ["左上", "右上", "右下", "左下"];
 
-// OpenCVロード確認（プレビューキャンバスがある場合のみ）
-if (previewCanvas && previewCtx) {
-  let opencvChecksRemaining = 40;
-  const opencvCheckInterval = setInterval(() => {
-    if (typeof cv !== "undefined" && cv.Mat) {
-      opencvReady = true;
-      clearInterval(opencvCheckInterval);
-      console.log("OpenCV.js is ready");
-      return;
-    }
-    opencvChecksRemaining -= 1;
-    if (opencvChecksRemaining <= 0) {
-      clearInterval(opencvCheckInterval);
-      console.warn("OpenCV.js did not load; notebook preview will use the uncorrected camera image.");
-    }
-  }, 500);
+function getContainedVideoRect() {
+  if (!cornerSelectionCanvas || !videoEl?.videoWidth || !videoEl?.videoHeight) return null;
+  const rect = cornerSelectionCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const scale = Math.min(rect.width / videoEl.videoWidth, rect.height / videoEl.videoHeight);
+  const width = videoEl.videoWidth * scale;
+  const height = videoEl.videoHeight * scale;
+  return {
+    elementRect: rect,
+    x: (rect.width - width) / 2,
+    y: (rect.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function updateCornerSelectionUI() {
+  if (cornerInstruction) {
+    cornerInstruction.classList.toggle("is-complete", cornersLocked);
+    cornerInstruction.textContent = cornersLocked
+      ? "台形補正済み"
+      : `${selectedCorners.length + 1}/4 ${CORNER_LABELS[selectedCorners.length]}をクリック`;
+  }
+  resetPerspectiveBtn?.classList.toggle("hidden", !cornersLocked);
+  drawCornerSelectionOverlay();
+}
+
+function drawCornerSelectionOverlay() {
+  if (!cornerSelectionCanvas || !cornerSelectionCtx) return;
+  const rect = cornerSelectionCanvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const nextWidth = Math.max(1, Math.round(rect.width * dpr));
+  const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+  if (cornerSelectionCanvas.width !== nextWidth || cornerSelectionCanvas.height !== nextHeight) {
+    cornerSelectionCanvas.width = nextWidth;
+    cornerSelectionCanvas.height = nextHeight;
+  }
+  cornerSelectionCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cornerSelectionCtx.clearRect(0, 0, rect.width, rect.height);
+
+  const videoRect = getContainedVideoRect();
+  if (!videoRect || selectedCorners.length === 0) return;
+  const points = selectedCorners.map((point) => ({
+    x: videoRect.x + point.nx * videoRect.width,
+    y: videoRect.y + point.ny * videoRect.height,
+  }));
+
+  cornerSelectionCtx.save();
+  cornerSelectionCtx.lineWidth = 3;
+  cornerSelectionCtx.strokeStyle = cornersLocked ? "#22c55e" : "#f59e0b";
+  cornerSelectionCtx.font = "800 14px sans-serif";
+  cornerSelectionCtx.beginPath();
+  cornerSelectionCtx.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => cornerSelectionCtx.lineTo(point.x, point.y));
+  if (cornersLocked) cornerSelectionCtx.closePath();
+  cornerSelectionCtx.stroke();
+
+  points.forEach((point, index) => {
+    cornerSelectionCtx.beginPath();
+    cornerSelectionCtx.fillStyle = cornersLocked ? "#22c55e" : "#f59e0b";
+    cornerSelectionCtx.arc(point.x, point.y, 11, 0, Math.PI * 2);
+    cornerSelectionCtx.fill();
+    cornerSelectionCtx.fillStyle = "#ffffff";
+    cornerSelectionCtx.textAlign = "center";
+    cornerSelectionCtx.textBaseline = "middle";
+    cornerSelectionCtx.fillText(String(index + 1), point.x, point.y + 0.5);
+  });
+  cornerSelectionCtx.restore();
+}
+
+function resetPerspectiveCorrection() {
+  selectedCorners = [];
+  cornersLocked = false;
+  updateCornerSelectionUI();
+  drawCorrectedFrameToPreview();
 }
 
 // ★ 教員側からの「高画質ON/OFF」指示を受信
@@ -1903,6 +1989,9 @@ if (startCameraBtn) {
             height: videoEl.videoHeight
           });
           setupPreviewCanvas();
+          updateCornerSelectionUI();
+          captureAndSendImage();
+          sendWhiteboardThumbnail();
         };
       }
 
@@ -1945,77 +2034,34 @@ function setupPreviewCanvas() {
 
 // ====== 四隅クリック関連 ======
 
-// キャンバス上のクリック位置を、object-fit: contain による余白も考慮して 0〜1 に正規化して保存
-if (previewCanvas) {
-  previewCanvas.addEventListener("click", (e) => {
-    const rect = previewCanvas.getBoundingClientRect();
+// 撮影中の映像上で、左上 → 右上 → 右下 → 左下の順に四隅を指定する。
+if (cornerSelectionCanvas) {
+  cornerSelectionCanvas.addEventListener("pointerdown", (event) => {
+    if (cornersLocked) return;
+    const videoRect = getContainedVideoRect();
+    if (!videoRect) return;
+    const x = event.clientX - videoRect.elementRect.left - videoRect.x;
+    const y = event.clientY - videoRect.elementRect.top - videoRect.y;
+    if (x < 0 || y < 0 || x > videoRect.width || y > videoRect.height) return;
 
-    const canvasW = previewCanvas.width;
-    const canvasH = previewCanvas.height;
-    if (!canvasW || !canvasH) return;
-
-    const boxW = rect.width;
-    const boxH = rect.height;
-
-    const canvasAspect = canvasH / canvasW;
-    const boxAspect = boxH / boxW;
-
-    let drawnW, drawnH, offsetX, offsetY;
-
-    // object-fit: contain により、縦か横どちらかが「余る」ケースを考慮
-    if (canvasAspect > boxAspect) {
-      // キャンバスの方が縦長 → 高さがピッタリ、左右に余白
-      drawnH = boxH;
-      drawnW = boxH / canvasAspect;
-      offsetX = (boxW - drawnW) / 2;
-      offsetY = 0;
-    } else {
-      // キャンバスの方が横長 or 同じ → 幅がピッタリ、上下に余白
-      drawnW = boxW;
-      drawnH = boxW * canvasAspect;
-      offsetX = 0;
-      offsetY = (boxH - drawnH) / 2;
-    }
-
-    // クリック位置（CSSピクセル）から、実際の描画領域内座標へ変換
-    const cssX = e.clientX - rect.left - offsetX;
-    const cssY = e.clientY - rect.top - offsetY;
-
-    // 0〜1 の正規化座標に変換
-    let nx = cssX / drawnW;
-    let ny = cssY / drawnH;
-
-    // 念のため 0〜1 の範囲にクリップ（描画領域外をクリックした場合も端に寄せる）
-    nx = Math.min(1, Math.max(0, nx));
-    ny = Math.min(1, Math.max(0, ny));
-
-    if (!cornersLocked) {
-      selectedCorners.push({ nx, ny });
-
-      if (selectedCorners.length === 1) {
-        console.log("1点目: 自分から見て『左上』をクリックしてください");
-      } else if (selectedCorners.length === 2) {
-        console.log("2点目: 『右上』をクリックしてください");
-      } else if (selectedCorners.length === 3) {
-        console.log("3点目: 『右下』をクリックしてください");
-      } else if (selectedCorners.length === 4) {
-        cornersLocked = true;
-        console.log(
-          "4点目: 『左下』をクリックしました。四隅が確定しました（左上→右上→右下→左下）。"
-        );
-      }
-    }
-
+    selectedCorners.push({
+      nx: x / videoRect.width,
+      ny: y / videoRect.height,
+    });
+    if (selectedCorners.length === 4) cornersLocked = true;
+    updateCornerSelectionUI();
     drawCorrectedFrameToPreview();
+    if (cornersLocked) {
+      captureAndSendImage();
+      sendWhiteboardThumbnail();
+    }
   });
+}
 
-  // ダブルクリックで四隅リセット
-  previewCanvas.addEventListener("dblclick", () => {
-    selectedCorners = [];
-    cornersLocked = false;
-    console.log("Corners reset");
-    drawCorrectedFrameToPreview();
-  });
+resetPerspectiveBtn?.addEventListener("click", resetPerspectiveCorrection);
+
+if (cornerSelectionCanvas && typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(drawCornerSelectionOverlay).observe(cornerSelectionCanvas);
 }
 
 /**
@@ -2032,48 +2078,87 @@ function getOrderedCornersFromClicks() {
   return [p0, p1, p2, p3]; // TL, TR, BR, BL
 }
 
-// キャンバス上に四隅のガイドを描画（生徒向けの目安）
-function drawCornerOverlay() {
-  // 補正完了後（cornersLocked） はガイドを非表示にする
-  if (!previewCanvas || !previewCtx) return;
-  if (selectedCorners.length === 0 || cornersLocked) return;
+function getSquareToQuadrilateralTransform(points) {
+  const [p0, p1, p2, p3] = points;
+  const dx1 = p1.x - p2.x;
+  const dx2 = p3.x - p2.x;
+  const dy1 = p1.y - p2.y;
+  const dy2 = p3.y - p2.y;
+  const sx = p0.x - p1.x + p2.x - p3.x;
+  const sy = p0.y - p1.y + p2.y - p3.y;
+  const denominator = dx1 * dy2 - dx2 * dy1;
 
-  const w = previewCanvas.width;
-  const h = previewCanvas.height;
-
-  previewCtx.save();
-  previewCtx.lineWidth = 2;
-  previewCtx.strokeStyle = "rgba(0, 255, 0, 0.8)";
-  previewCtx.fillStyle = "rgba(0, 255, 0, 0.8)";
-  previewCtx.font = "14px sans-serif";
-
-  // 点の描画 + 番号ラベル
-  selectedCorners.forEach((p, idx) => {
-    const x = p.nx * w;
-    const y = p.ny * h;
-    previewCtx.beginPath();
-    previewCtx.arc(x, y, 4, 0, Math.PI * 2);
-    previewCtx.fill();
-    previewCtx.fillText(String(idx + 1), x + 6, y - 6);
-  });
-
-  // 4点すべてあるときは輪郭も描く（1→2→3→4→1 の順）
-  if (selectedCorners.length === 4) {
-    const pts = selectedCorners.map((p) => ({
-      x: p.nx * w,
-      y: p.ny * h
-    }));
-
-    previewCtx.beginPath();
-    previewCtx.moveTo(pts[0].x, pts[0].y); // TL
-    previewCtx.lineTo(pts[1].x, pts[1].y); // TR
-    previewCtx.lineTo(pts[2].x, pts[2].y); // BR
-    previewCtx.lineTo(pts[3].x, pts[3].y); // BL
-    previewCtx.closePath();
-    previewCtx.stroke();
+  let g = 0;
+  let h = 0;
+  if (Math.abs(sx) > 1e-7 || Math.abs(sy) > 1e-7) {
+    if (Math.abs(denominator) < 1e-7) return null;
+    g = (sx * dy2 - dx2 * sy) / denominator;
+    h = (dx1 * sy - sx * dy1) / denominator;
   }
 
-  previewCtx.restore();
+  return {
+    a: p1.x - p0.x + g * p1.x,
+    b: p3.x - p0.x + h * p3.x,
+    c: p0.x,
+    d: p1.y - p0.y + g * p1.y,
+    e: p3.y - p0.y + h * p3.y,
+    f: p0.y,
+    g,
+    h,
+  };
+}
+
+function renderPerspectiveCorrection(sourceCanvas, targetCanvas, sourcePoints) {
+  const transform = getSquareToQuadrilateralTransform(sourcePoints);
+  const targetCtx = targetCanvas.getContext("2d");
+  const sourceContext = sourceCanvas.getContext("2d");
+  if (!transform || !targetCtx || !sourceContext) return false;
+
+  const sourceWidth = sourceCanvas.width;
+  const sourceHeight = sourceCanvas.height;
+  const targetWidth = targetCanvas.width;
+  const targetHeight = targetCanvas.height;
+  if (!sourceWidth || !sourceHeight || !targetWidth || !targetHeight) return false;
+
+  const sourceImage = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight);
+  const targetImage = targetCtx.createImageData(targetWidth, targetHeight);
+  const sourceData = sourceImage.data;
+  const targetData = targetImage.data;
+  const { a, b, c, d, e, f, g, h } = transform;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    const v = targetHeight > 1 ? y / (targetHeight - 1) : 0;
+    for (let x = 0; x < targetWidth; x += 1) {
+      const u = targetWidth > 1 ? x / (targetWidth - 1) : 0;
+      const divisor = g * u + h * v + 1;
+      if (Math.abs(divisor) < 1e-7) continue;
+      const sourceX = Math.min(sourceWidth - 1, Math.max(0, (a * u + b * v + c) / divisor));
+      const sourceY = Math.min(sourceHeight - 1, Math.max(0, (d * u + e * v + f) / divisor));
+
+      const x0 = Math.floor(sourceX);
+      const y0 = Math.floor(sourceY);
+      const x1 = Math.min(sourceWidth - 1, x0 + 1);
+      const y1 = Math.min(sourceHeight - 1, y0 + 1);
+      const tx = sourceX - x0;
+      const ty = sourceY - y0;
+      const topLeft = (y0 * sourceWidth + x0) * 4;
+      const topRight = (y0 * sourceWidth + x1) * 4;
+      const bottomLeft = (y1 * sourceWidth + x0) * 4;
+      const bottomRight = (y1 * sourceWidth + x1) * 4;
+      const targetIndex = (y * targetWidth + x) * 4;
+
+      for (let channel = 0; channel < 4; channel += 1) {
+        const top = sourceData[topLeft + channel] * (1 - tx) +
+          sourceData[topRight + channel] * tx;
+        const bottom = sourceData[bottomLeft + channel] * (1 - tx) +
+          sourceData[bottomRight + channel] * tx;
+        targetData[targetIndex + channel] = top * (1 - ty) + bottom * ty;
+      }
+    }
+  }
+
+  targetCtx.putImageData(targetImage, 0, 0);
+  return true;
 }
 
 // 台形補正メイン
@@ -2091,82 +2176,31 @@ function drawCorrectedFrameToPreview() {
   const dw = previewCanvas.width;
   const dh = previewCanvas.height;
 
-  // OpenCV が使えない場合は単純に縮小表示
-  if (!opencvReady || typeof cv === "undefined") {
-    previewCtx.drawImage(videoEl, 0, 0, dw, dh);
-    drawCornerOverlay();
-    return;
-  }
-
   // 元映像を隠しキャンバスに描画
   srcCanvas.width = vw;
   srcCanvas.height = vh;
   srcCtx.drawImage(videoEl, 0, 0, vw, vh);
 
-  let src = cv.imread(srcCanvas);
-  let dst = new cv.Mat();
-
   try {
     if (selectedCorners.length === 4) {
-      // クリック順に基づき、四隅を TL,TR,BR,BL として使用
       const orderedNorm = getOrderedCornersFromClicks();
-
       if (orderedNorm) {
-        const [tlN, trN, brN, blN] = orderedNorm;
-
-        // 正規化座標 → 元映像のピクセル座標へ変換
-        const tl = { x: tlN.nx * vw, y: tlN.ny * vh };
-        const tr = { x: trN.nx * vw, y: trN.ny * vh };
-        const br = { x: brN.nx * vw, y: brN.ny * vh };
-        const bl = { x: blN.nx * vw, y: blN.ny * vh };
-
-        const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-          tl.x, tl.y,
-          tr.x, tr.y,
-          br.x, br.y,
-          bl.x, bl.y
-        ]);
-        const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-          0, 0,
-          dw, 0,
-          dw, dh,
-          0, dh
-        ]);
-
-        const M = cv.getPerspectiveTransform(srcTri, dstTri);
-        cv.warpPerspective(
-          src,
-          dst,
-          M,
-          new cv.Size(dw, dh),
-          cv.INTER_LINEAR,
-          cv.BORDER_CONSTANT,
-          new cv.Scalar()
-        );
-
-        cv.imshow(previewCanvas, dst);
-
-        srcTri.delete();
-        dstTri.delete();
-        M.delete();
+        const sourcePoints = orderedNorm.map((point) => ({
+          x: point.nx * (vw - 1),
+          y: point.ny * (vh - 1),
+        }));
+        if (!renderPerspectiveCorrection(srcCanvas, previewCanvas, sourcePoints)) {
+          previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+        }
       } else {
-        // 念のためフォールバック
         previewCtx.drawImage(videoEl, 0, 0, dw, dh);
       }
     } else {
-      // 四隅が未設定 → そのまま縮小表示（四隅クリックのための状態）
       previewCtx.drawImage(videoEl, 0, 0, dw, dh);
     }
-
-    // 四隅ガイドを上から描く（補正完了後は drawCornerOverlay 内で抑制）
-    drawCornerOverlay();
   } catch (e) {
-    console.error(e);
+    console.error("Perspective correction failed", e);
     previewCtx.drawImage(videoEl, 0, 0, dw, dh);
-    drawCornerOverlay();
-  } finally {
-    src.delete();
-    dst.delete();
   }
 }
 
@@ -2326,6 +2360,7 @@ window.addEventListener("load", async () => {
     }
   }
   setupPreviewCanvas();
+  updateCornerSelectionUI();
 });
 
 // beforeunload はファイル末尾付近で
