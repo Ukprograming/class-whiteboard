@@ -343,6 +343,7 @@ let role = null;
 let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
+let currentBoardOwnerKind = "teacher";
 let boardFileSaveInFlight = false;
 
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
@@ -374,6 +375,7 @@ let notebookStudents = {}; // { studentId: { latestImageData } }
 // ======== ホワイトボード保存/読み込みダイアログ関連 ========
 const teacherOpenSaveDialogBtn = document.getElementById("teacherOpenSaveDialogBtn");
 const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogBtn");
+const teacherDistributeBoardBtn = document.getElementById("teacherDistributeBoardBtn");
 const teacherSharedBoardToggleBtn = document.getElementById("teacherSharedBoardToggleBtn");
 const teacherManageClassesBtn = document.getElementById("teacherManageClassesBtn");
 const classManagementBackdrop = document.getElementById("classManagementBackdrop");
@@ -1381,6 +1383,7 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     } else {
       currentBoardFileName = finalFileName;
     }
+    currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
 
     lastUsedFolderPath = (folderPath || "").trim();
 
@@ -1462,6 +1465,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
       }
       currentBoardFileId = json.fileId || fileId || null;
       currentBoardFileName = json.fileName ? json.fileName.replace(/\.json$/i, "") : "";
+      currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
       lastUsedFolderPath = (folderPath || "").trim();
       alert("Loaded board.");
       closeBoardDialog();
@@ -1510,6 +1514,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
     } else {
       currentBoardFileName = "";
     }
+    currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
     lastUsedFolderPath = (folderPath || "").trim();
 
     alert("ホワイトボードを読み込みました。");
@@ -1556,6 +1561,114 @@ if (teacherOpenSaveDialogBtn) {
 
 if (teacherOpenLoadDialogBtn) {
   teacherOpenLoadDialogBtn.addEventListener("click", () => openBoardDialog("load"));
+}
+
+let distributionInFlight = false;
+
+function defaultDistributionTitle() {
+  if (currentBoardFileName) return currentBoardFileName;
+  const now = new Date();
+  const date = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+    .map((value, index) => index === 0 ? String(value) : String(value).padStart(2, "0"))
+    .join("-");
+  const time = [now.getHours(), now.getMinutes()]
+    .map(value => String(value).padStart(2, "0"))
+    .join("-");
+  return `配布資料_${date}_${time}`;
+}
+
+async function distributeCurrentBoardToClass() {
+  if (distributionInFlight) return;
+  if (!supabaseEnabled || !boardApi.enabled) {
+    alert("クラス一斉配布は Supabase 版で利用できます。");
+    return;
+  }
+  if (!currentClassCode) {
+    alert("先に配布先のクラスを開始してください。");
+    return;
+  }
+  if (!teacherBoard || typeof teacherBoard.exportBoardData !== "function") {
+    alert("現在のホワイトボードを取得できません。");
+    return;
+  }
+
+  const enteredTitle = window.prompt(
+    "生徒の「ファイルを開く」に表示するファイル名を入力してください。",
+    defaultDistributionTitle()
+  );
+  if (enteredTitle === null) return;
+  const title = enteredTitle.trim();
+  if (!title) {
+    alert("ファイル名を入力してください。");
+    return;
+  }
+  if (title.length > 120) {
+    alert("ファイル名は120文字以内にしてください。");
+    return;
+  }
+
+  distributionInFlight = true;
+  teacherDistributeBoardBtn.disabled = true;
+  teacherDistributeBoardBtn.innerHTML = '<span class="material-symbols-rounded">hourglass_top</span> 配布中…';
+
+  try {
+    const classes = await managementApi.listClasses();
+    managedClasses = classes;
+    saveTeacherClassHints(classes);
+    const selectedClass = classes.find(
+      klass => String(klass.class_code || "").toUpperCase() === currentClassCode.toUpperCase()
+    );
+    if (!selectedClass) {
+      throw new Error("現在のクラスを教師アカウントから確認できませんでした。");
+    }
+
+    const saveRevision = teacherBoard.getRevision?.();
+    const boardData = teacherBoard.exportBoardData();
+    const tracksCurrentTeacherFile = currentBoardOwnerKind === "teacher";
+    const sourceFileName = tracksCurrentTeacherFile && currentBoardFileName
+      ? currentBoardFileName
+      : title;
+    const savePayload = {
+      action: "saveBoard",
+      role: "teacher",
+      classCode: currentClassCode,
+      folderPath: tracksCurrentTeacherFile ? (lastUsedFolderPath || "") : "",
+      fileName: sourceFileName,
+      boardData,
+    };
+    if (tracksCurrentTeacherFile && currentBoardFileId) {
+      savePayload.fileId = currentBoardFileId;
+    }
+
+    const savedSource = await boardApi.saveBoard(savePayload);
+    teacherBoard.applyAssetReferences?.(savedSource.assetReferences);
+    if (tracksCurrentTeacherFile) {
+      currentBoardFileId = savedSource.fileId;
+      currentBoardFileName = String(savedSource.fileName || sourceFileName).replace(/\.json$/i, "");
+      currentBoardOwnerKind = "teacher";
+      teacherBoard.markSaved?.(saveRevision);
+    }
+
+    const result = await managementApi.copyBoardToClass({
+      sourceBoardId: savedSource.fileId,
+      classId: selectedClass.id,
+      title,
+      targetFolderPath: "",
+    });
+    const copiedCount = Number(result.copiedCount) || 0;
+    alert(`「${title}」を ${copiedCount} 人の生徒に配布しました。\n生徒は「ファイルを開く」から開けます。`);
+  } catch (error) {
+    console.error("Failed to distribute the current board", error);
+    alert(`クラスへの配布に失敗しました。\n${error?.message || error}`);
+  } finally {
+    distributionInFlight = false;
+    teacherDistributeBoardBtn.disabled = false;
+    teacherDistributeBoardBtn.innerHTML = '<span class="material-symbols-rounded">send</span> クラス全員に配布';
+  }
+}
+
+if (teacherDistributeBoardBtn) {
+  teacherDistributeBoardBtn.addEventListener("click", () => void distributeCurrentBoardToClass());
 }
 
 const teacherOverwriteSaveBtn = document.getElementById("teacherOverwriteSaveBtn");

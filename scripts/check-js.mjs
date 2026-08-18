@@ -118,6 +118,7 @@ const teacherSource = readFileSync("public/js/teacher.js", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
+const studentHtmlSource = readFileSync("public/student.html", "utf8");
 const notebookCaptureStart = studentSource.indexOf("// カメラ開始 / 再開始");
 const notebookCaptureEnd = studentSource.indexOf("// 教員からのフィードバック画像受信");
 const notebookCaptureSource = studentSource.slice(notebookCaptureStart, notebookCaptureEnd);
@@ -170,6 +171,10 @@ const copyBoardFunctionSource = readFileSync(
   "supabase/functions/copy-board-to-class/index.ts",
   "utf8"
 );
+const distributionMigrationSource = readFileSync(
+  "supabase/migrations/20260818031132_create_immutable_class_distributions.sql",
+  "utf8"
+);
 if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
     !whiteboardSource.includes('this._newEntityId("object")')) {
   console.error("Whiteboard entities must use collision-resistant IDs.");
@@ -213,6 +218,22 @@ if (missingDatabaseSecurityContracts.length > 0) {
 
 if (!copyBoardFunctionSource.includes('.rpc("copy_board_to_class_atomic"')) {
   console.error("Board distribution must use the atomic database function.");
+  ok = false;
+}
+const distributionContracts = [
+  [teacherHtmlSource, 'id="teacherDistributeBoardBtn"'],
+  [teacherSource, "managementApi.copyBoardToClass({"],
+  [studentHtmlSource, "ファイルを開く..."],
+  [copyBoardFunctionSource, ".copy(sourcePath, targetPath)"],
+  [copyBoardFunctionSource, "p_distribution_id: distributionId"],
+  [distributionMigrationSource, "p_snapshot_path is distinct from"],
+  [distributionMigrationSource, "storage_board_teacher_board_reference_read"],
+];
+const missingDistributionContracts = distributionContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingDistributionContracts.length > 0) {
+  console.error(`Immutable class distribution contracts missing: ${missingDistributionContracts.join(", ")}`);
   ok = false;
 }
 const assetStorageContracts = [
