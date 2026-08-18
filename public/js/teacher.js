@@ -191,9 +191,6 @@ let modalHasInitialBoardData = false;
 //   - false : ノート提出モードなど。画像への注釈専用（生徒WBは編集しない）
 let modalSyncToStudent = true;
 
-// ★ 追加: ノート提出モードでの画像共有を少しだけ間引くためのタイマーID
-let notebookShareTimeoutId = null;
-
 // ノート確認ビュー用
 const notebookInfo = document.getElementById("notebookInfo");
 const notebookStudentGrid = document.getElementById("notebookStudentGrid");
@@ -220,8 +217,6 @@ let drawing = false;
 let lastX = 0;
 let lastY = 0;                          // ★ 追加
 let eraseMode = false;                  // ★ 追加（消しゴムON/OFF）
-let isSharing = false;                  // ★ 追加（ノート共有ON/OFF）
-let shareIntervalId = null;             // ★ 追加（共有用 setInterval ID）
 let currentHighQualityStudentId = null; // ★ 追加（高画質対象の生徒ID）
 
 // チャット UI 要素（教員）
@@ -350,10 +345,6 @@ const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = Math.max(
   30000,
   Number(runtimeConfig.sharedBoardSnapshotIntervalMs) || 60000
-);
-const TEACHER_FEEDBACK_INTERVAL_MS = Math.max(
-  5000,
-  Number(runtimeConfig.monitoringIntervalMs) || 8000
 );
 let sharedBoardSession = null;
 let sharedBoardSnapshotTimerId = null;
@@ -2076,14 +2067,13 @@ function setTeacherViewMode(mode) {
     });
   };
 
-  // ★★★ ここで「生徒キャプチャ開始／停止」を制御 ★★★
+  // タイルを表示する画面では、全モード共通の生徒サムネイルを受信する。
   // currentClassCode が入っているときだけサーバーに通知する
   if (currentClassCode) {
-    if (mode === "student") {
-      // 生徒画面確認モードに入った → 生徒にキャプチャ開始してもらう
+    if (mode === "student" || mode === "notebook") {
       socket.emit("student-view-start", { classCode: currentClassCode });
     } else {
-      // ホワイトボード or ノート確認モード → 生徒のキャプチャは不要なので停止
+      // 教員ホワイトボードでは生徒タイルを表示しないため停止する。
       socket.emit("student-view-stop", { classCode: currentClassCode });
     }
   }
@@ -2183,8 +2173,12 @@ socket.on("student-list-update", (list) => {
   });
   connectedStudentSocketIds = nextStudentSocketIds;
 
-  // Notify students who join after the teacher has already opened screen view.
-  if (hasNewlyConnectedStudent && currentTeacherViewMode === "student" && currentClassCode) {
+  // タイル表示中に参加した生徒にも、共通の5秒更新を開始してもらう。
+  if (
+    hasNewlyConnectedStudent &&
+    (currentTeacherViewMode === "student" || currentTeacherViewMode === "notebook") &&
+    currentClassCode
+  ) {
     socket.emit("student-view-start", { classCode: currentClassCode });
   }
 
@@ -2247,6 +2241,12 @@ socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport })
 
   // ノート提出モードも、台形補正後の画像が通常サムネイル経路で届く。
   latestThumbnails[socketId] = { nickname, dataUrl, mode: currentMode, viewport };
+  if (currentMode === "notebook") {
+    const studentId = nickname || studentNameMap[socketId] || socketId;
+    notebookStudents[studentId] = { latestImageData: dataUrl };
+    renderNotebookTiles();
+    updateNotebookInfo();
+  }
   renderTiles();
 });
 
@@ -3053,12 +3053,8 @@ if (modalBackdrop && modalCloseBtn) {
     modalHasInitialBoardData = false;
 
 
-    // ★ ノート用の送信タイマーと同期フラグもリセット
+    // モーダルの同期方式を通常状態へ戻す。
     modalSyncToStudent = true;
-    if (notebookShareTimeoutId) {
-      clearTimeout(notebookShareTimeoutId);
-      notebookShareTimeoutId = null;
-    }
 
   };
 
@@ -3901,8 +3897,6 @@ function openFeedbackModal(studentId) {
 }
 
 function closeFeedbackModal() {
-  stopSharing();
-
   // 高画質OFF
   if (currentClassCode && currentHighQualityStudentId) {
     socket.emit("teacherSetHighQuality", {
@@ -3996,48 +3990,41 @@ if (clearAnnotationBtn) {
   });
 }
 
-// 共有開始/停止
+// 添削画像は、教員が送信ボタンを押したときだけ1回送る。
 if (shareToggleBtn) {
-  shareToggleBtn.addEventListener("click", () => {
-    if (!currentStudentId) return;
-    if (!isSharing) {
-      startSharing();
-    } else {
-      stopSharing();
-    }
+  shareToggleBtn.addEventListener("click", sendFeedbackImageOnce);
+}
+
+async function sendFeedbackImageOnce() {
+  if (!currentStudentId || !currentClassCode) return;
+  const targetStudentId = currentStudentId;
+  const data = encodeFeedbackCanvasForRealtime(feedbackCanvas, {
+    maxWidth: 960,
+    minWidth: 320,
+    quality: 0.72,
   });
-}
-
-function startSharing() {
-  isSharing = true;
-  shareToggleBtn.textContent = "共有停止";
-  shareToggleBtn.className = "share-on";
-
-  // 3秒ごとに送信
-  shareIntervalId = setInterval(() => {
-    if (!currentStudentId || !currentClassCode) return;
-    const data = encodeFeedbackCanvasForRealtime(feedbackCanvas, {
-      maxWidth: 960,
-      minWidth: 320,
-      quality: 0.72,
-    });
-    if (!data) return;
-    socket.emit("teacherShareToStudent", {
-      classCode: currentClassCode,
-      studentId: currentStudentId,
-      imageData: data
-    });
-  }, TEACHER_FEEDBACK_INTERVAL_MS);
-}
-
-function stopSharing() {
-  isSharing = false;
-  if (shareToggleBtn) {
-    shareToggleBtn.textContent = "共有開始";
-    shareToggleBtn.className = "share-off";
+  if (!data) {
+    alert("添削画像を送信用のサイズに変換できませんでした。");
+    return;
   }
-  if (shareIntervalId) {
-    clearInterval(shareIntervalId);
-    shareIntervalId = null;
+
+  shareToggleBtn.disabled = true;
+  shareToggleBtn.textContent = "送信中…";
+  try {
+    const sent = await socket.emit("teacherShareToStudent", {
+      classCode: currentClassCode,
+      studentId: targetStudentId,
+      imageData: data,
+    });
+    if (sent === false) {
+      alert("添削画像を送信できませんでした。通信状態を確認して、もう一度送信してください。");
+    }
+  } catch (error) {
+    console.error("[teacher] failed to send notebook feedback", error);
+    alert("添削画像を送信できませんでした。通信状態を確認して、もう一度送信してください。");
+  } finally {
+    shareToggleBtn.disabled = false;
+    shareToggleBtn.textContent = "送信";
+    shareToggleBtn.className = "share-off";
   }
 }

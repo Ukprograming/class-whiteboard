@@ -116,6 +116,7 @@ if (missingSecureRealtimeContracts.length > 0) {
 const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
 const teacherSource = readFileSync("public/js/teacher.js", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
+const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
@@ -143,8 +144,7 @@ if (notebookCaptureStart < 0 || notebookCaptureEnd <= notebookCaptureStart) {
 } else {
   const notebookSessionContracts = [
     "if (!currentClassCode || !nickname)",
-    "classCode: currentClassCode",
-    "studentId: nickname",
+    "sendWhiteboardThumbnail();",
   ];
   const missingNotebookSessionContracts = notebookSessionContracts.filter(
     (contract) => !notebookCaptureSource.includes(contract)
@@ -168,6 +168,8 @@ const notebookTileContracts = [
   [studentSource, "renderPerspectiveCorrection(srcCanvas, previewCanvas, sourcePoints)"],
   [teacherSource, "latestThumbnails[socketId] = { nickname, dataUrl, mode: currentMode, viewport }"],
   [teacherSource, "studentNameMap[studentSocketId] = nickname"],
+  [teacherSource, 'if (mode === "student" || mode === "notebook")'],
+  [teacherSource, "notebookStudents[studentId] = { latestImageData: dataUrl }"],
   [realtimeApiSource, "nickname: message.senderNickname"],
   [realtimeApiSource, "const studentsBySocketId = new Map()"],
 ];
@@ -176,6 +178,81 @@ const missingNotebookTileContracts = notebookTileContracts
   .map(([, contract]) => contract);
 if (missingNotebookTileContracts.length > 0) {
   console.error(`Notebook tile contracts missing: ${missingNotebookTileContracts.join(", ")}`);
+  ok = false;
+}
+
+const communicationIntervalContracts = [
+  [appConfigSource, "thumbnailIntervalMs: 5000"],
+  [appConfigSource, "monitoringIntervalMs: 3000"],
+  [studentSource, "Number(runtimeConfig.thumbnailIntervalMs) || 5000"],
+  [studentSource, "Number(runtimeConfig.monitoringIntervalMs) || 3000"],
+  [studentSource, "if (cornersLocked) {"],
+  [teacherSource, 'modalShareToStudentBtn.addEventListener("click"'],
+  [teacherSource, 'shareToggleBtn.addEventListener("click", sendFeedbackImageOnce)'],
+];
+const missingCommunicationIntervalContracts = communicationIntervalContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingCommunicationIntervalContracts.length > 0) {
+  console.error(
+    `Communication interval contracts missing: ${missingCommunicationIntervalContracts.join(", ")}`
+  );
+  ok = false;
+}
+if (!/videoEl\.onloadedmetadata\s*=\s*\(\)\s*=>\s*\{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\};/.test(notebookCaptureSource)) {
+  console.error("Notebook camera start must send an immediate thumbnail.");
+  ok = false;
+}
+if (!/if \(cornersLocked\) \{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\}/.test(notebookCaptureSource)) {
+  console.error("Completed perspective correction must send an immediate thumbnail.");
+  ok = false;
+}
+
+const obsoletePeriodicContracts = [
+  "notebookIntervalMs",
+  "captureIntervalIdNotebook",
+  "captureAndSendImage",
+  'socket.emit("studentImageUpdate"',
+];
+const remainingObsoletePeriodicContracts = obsoletePeriodicContracts.filter((contract) =>
+  studentSource.includes(contract)
+);
+if (remainingObsoletePeriodicContracts.length > 0) {
+  console.error(
+    `Obsolete notebook periodic sends remain: ${remainingObsoletePeriodicContracts.join(", ")}`
+  );
+  ok = false;
+}
+
+const obsoleteFeedbackSharingContracts = [
+  "shareIntervalId",
+  "notebookShareTimeoutId",
+  "TEACHER_FEEDBACK_INTERVAL_MS",
+  "startSharing()",
+  "stopSharing()",
+];
+const remainingObsoleteFeedbackSharingContracts = obsoleteFeedbackSharingContracts.filter((contract) =>
+  teacherSource.includes(contract)
+);
+if (remainingObsoleteFeedbackSharingContracts.length > 0) {
+  console.error(
+    `Obsolete periodic feedback sharing remains: ${remainingObsoleteFeedbackSharingContracts.join(", ")}`
+  );
+  ok = false;
+}
+
+const teacherActionStart = studentSource.indexOf('socket.on("teacher-whiteboard-action"');
+const teacherActionEnd = studentSource.indexOf(
+  "// ★ ホワイトボード操作の送信フック設定",
+  teacherActionStart
+);
+if (teacherActionStart < 0 || teacherActionEnd <= teacherActionStart) {
+  console.error("Teacher whiteboard action handler could not be found.");
+  ok = false;
+} else if (
+  studentSource.slice(teacherActionStart, teacherActionEnd).includes("forceNextBoardSync = true")
+) {
+  console.error("Teacher whiteboard actions must not trigger a later periodic full-board resend.");
   ok = false;
 }
 const securityMigrationSource = readFileSync(

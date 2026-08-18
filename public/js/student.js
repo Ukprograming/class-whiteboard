@@ -117,12 +117,8 @@ const MAX_REALTIME_IMAGE_BYTES = Math.min(
   Math.max(48000, REALTIME_PAYLOAD_LIMIT_BYTES - 60000)
 );
 const MONITORING_INTERVAL_MS = Math.max(
-  5000,
-  Number(runtimeConfig.monitoringIntervalMs) || 8000
-);
-const NOTEBOOK_INTERVAL_MS = Math.max(
-  7000,
-  Number(runtimeConfig.notebookIntervalMs) || 12000
+  3000,
+  Number(runtimeConfig.monitoringIntervalMs) || 3000
 );
 
 // チャット状態
@@ -145,15 +141,14 @@ let applyingSharedBoardRemote = false;
 let captureTimerId = null;
 let initialThumbnailTimerId = null;
 const CAPTURE_INTERVAL_MS = Math.max(
-  7000,
-  Number(runtimeConfig.thumbnailIntervalMs) || 12000
+  5000,
+  Number(runtimeConfig.thumbnailIntervalMs) || 5000
 );
 
 // キャプチャモード：'whiteboard' or 'screen'
 let captureMode = "whiteboard";
 // 画面表示モード：'whiteboard' | 'screen' | 'notebook'
 let viewMode = "whiteboard";
-let captureIntervalIdNotebook = null; // ノート提出用のキャプチャタイマー
 let currentStream = null; // ノート提出用カメラの MediaStream
 
 let screenStream = null;
@@ -1501,8 +1496,8 @@ function sendWhiteboardThumbnail() {
     }
     drawCorrectedFrameToPreview();
     const dataUrl = encodeCanvasForRealtime(previewCanvas, {
-      maxWidth: 320,
-      quality: 0.58,
+      maxWidth: highQualityMode ? 960 : 720,
+      quality: highQualityMode ? 0.72 : 0.52,
     });
     if (!dataUrl) return;
     socket.emit("student-thumbnail", {
@@ -1914,6 +1909,8 @@ socket.on("setHighQualityMode", ({ enabled }) => {
   console.log("High quality mode:", highQualityMode);
   // 解像度を切り替え
   setupPreviewCanvas();
+  // 教員の操作に応じた更新なので、次の5秒周期を待たずに送る。
+  if (viewMode === "notebook" && currentStream) sendWhiteboardThumbnail();
 });
 
 // 用紙サイズ変更（縦横比だけ反映）
@@ -1990,14 +1987,10 @@ if (startCameraBtn) {
           });
           setupPreviewCanvas();
           updateCornerSelectionUI();
-          captureAndSendImage();
+          // カメラ起動直後は、タイル更新周期を待たずに1回送る。
           sendWhiteboardThumbnail();
         };
       }
-
-      // ノート画像送信ループ開始（3秒おき）
-      if (captureIntervalIdNotebook) clearInterval(captureIntervalIdNotebook);
-      captureIntervalIdNotebook = setInterval(captureAndSendImage, NOTEBOOK_INTERVAL_MS);
     } catch (e) {
       console.error(e);
       alert("カメラの起動に失敗しました");
@@ -2052,7 +2045,7 @@ if (cornerSelectionCanvas) {
     updateCornerSelectionUI();
     drawCorrectedFrameToPreview();
     if (cornersLocked) {
-      captureAndSendImage();
+      // 台形補正が確定した画像を、次の5秒周期を待たずに送る。
       sendWhiteboardThumbnail();
     }
   });
@@ -2204,47 +2197,6 @@ function drawCorrectedFrameToPreview() {
   }
 }
 
-// 画像送信（ノート提出タイル用の静止画）
-function captureAndSendImage() {
-  if (
-    !currentStream ||
-    !currentClassCode ||
-    !nickname ||
-    !previewCanvas
-  ) {
-    return;
-  }
-  const width = videoEl ? videoEl.videoWidth : 0;
-  const height = videoEl ? videoEl.videoHeight : 0;
-  if (!width || !height) return;
-
-  // 台形補正 → previewCanvas に描画
-  try {
-    drawCorrectedFrameToPreview();
-  } catch (e) {
-    console.error("drawCorrectedFrameToPreview error in captureAndSendImage", e);
-    return;
-  }
-
-  // 高画質モード中のみ PNG、それ以外は JPEG(0.5)
-  let dataUrl;
-  if (highQualityMode && !FREE_TIER_MODE) {
-    dataUrl = previewCanvas.toDataURL("image/png");
-  } else {
-    dataUrl = encodeCanvasForRealtime(previewCanvas, {
-      maxWidth: highQualityMode ? 960 : 720,
-      quality: highQualityMode ? 0.72 : 0.52,
-    });
-  }
-  if (!dataUrl) return;
-
-  socket.emit("studentImageUpdate", {
-    classCode: currentClassCode,
-    studentId: nickname,
-    imageData: dataUrl
-  });
-}
-
 // 教員からのフィードバック画像受信（パン＆ズーム付きビューアに表示）
 // 先生 → 生徒へ「添削済み画像」を受信（中央・自動フィット拡大）
 // 教員からのフィードバック画像受信（中央フィット＋パン＆ズーム）
@@ -2329,10 +2281,6 @@ if (feedbackResetBtn) {
 
 // ノート提出用カメラ停止
 function stopNotebookCamera() {
-  if (captureIntervalIdNotebook) {
-    clearInterval(captureIntervalIdNotebook);
-    captureIntervalIdNotebook = null;
-  }
   if (currentStream) {
     currentStream.getTracks().forEach((t) => t.stop());
     currentStream = null;
@@ -2368,7 +2316,7 @@ window.addEventListener("load", async () => {
 
 
 /* ========================================
-   キャプチャループ管理（ホワイトボード / 画面共有）
+   タイル用キャプチャループ管理（ホワイトボード / 画面共有 / ノート提出）
    ======================================== */
 
 function restartCaptureLoop() {
@@ -2505,8 +2453,7 @@ socket.on("teacher-whiteboard-action", ({ action, teacherSocketId }) => {
     });
   }
   boardSyncRevision += 1;
-  // 教師の書き込みも次回の全体同期に含め、モーダルを開き直しても保持する。
-  forceNextBoardSync = true;
+  // 教員の操作は受信直後に適用・ACKする。定期的な全体再送は行わない。
 });
 
 // ★ ホワイトボード操作の送信フック設定
@@ -2603,7 +2550,7 @@ socket.on("start-monitoring", ({ teacherSocketId }) => {
 
   monitorIntervalId = setInterval(() => {
     void sendScreenUpdate(teacherSocketId);
-  }, MONITORING_INTERVAL_MS); // 無料枠向けに送信頻度を制限
+  }, MONITORING_INTERVAL_MS); // 個別モーダル表示中は3秒ごとに更新
 });
 
 // ★ モニタリング終了通知
@@ -2663,7 +2610,7 @@ async function sendScreenUpdate(teacherSocketId) {
       console.error("drawCorrectedFrameToPreview error in sendScreenUpdate", e);
     }
 
-    // ここでは中画質 JPEG で送信（高画質が必要な場合は別途 studentImageUpdate / PNG を使用）
+    // 個別モーダル用の中画質JPEGとして送信する。
     dataUrl = encodeCanvasForRealtime(previewCanvas, { maxWidth: 720, quality: 0.6 });
 
     // ノート画像なのでビューポートは固定

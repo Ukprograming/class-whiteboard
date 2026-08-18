@@ -10,9 +10,8 @@ window.CLASS_WHITEBOARD_CONFIG = {
   edgeFunctionBaseUrl: "https://jgovtvleosgymlffaxnu.supabase.co/functions/v1",
   realtimePrivateChannels: true,
   freeTierMode: true,
-  thumbnailIntervalMs: 12000,
-  monitoringIntervalMs: 8000,
-  notebookIntervalMs: 12000,
+  thumbnailIntervalMs: 5000,
+  monitoringIntervalMs: 3000,
   sharedBoardSnapshotIntervalMs: 60000,
   maxRealtimePayloadBytes: 180000,
 };
