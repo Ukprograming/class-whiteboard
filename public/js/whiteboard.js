@@ -660,6 +660,7 @@ export class Whiteboard {
   setTool(tool) {
     if (this.tool === tool) return;
     this.tool = tool;
+    this.canvas.style.cursor = "";
     if (this.editingObj) {
       this._commitTextEditor();
     }
@@ -2143,6 +2144,42 @@ export class Whiteboard {
     return null;
   }
 
+  _activateToolForObject(obj) {
+    if (!obj) return null;
+
+    if (obj.kind === "text" || obj.kind === "link") {
+      this.setTool("text");
+      return "text";
+    }
+    if (obj.kind === "sticky") {
+      this.setTool("sticky");
+      return "sticky";
+    }
+    if (
+      [
+        "line",
+        "arrow",
+        "double-arrow",
+        "triangle",
+        "rect",
+        "ellipse",
+        "tri-prism",
+        "rect-prism",
+        "cylinder"
+      ].includes(obj.kind)
+    ) {
+      this.setShapeType(obj.kind);
+      this.setTool("shape");
+      return "shape";
+    }
+    if (obj.kind === "stamp") {
+      if (obj.stampKey) this.setStampType(obj.stampKey);
+      this.setTool("stamp");
+      return "stamp";
+    }
+    return null;
+  }
+
   _createTextEditor() {
     const container = this.canvas.parentElement;
     const ta = document.createElement("textarea");
@@ -2838,6 +2875,13 @@ export class Whiteboard {
     };
 
     const move = e => {
+      if (!e.touches) {
+        const { sx, sy } = getPos(e);
+        const isHandleHovered =
+          this.tool === "select" && !!this._hitTestResizeHandle(sx, sy);
+        canvas.style.cursor = isHandleHovered ? "pointer" : "";
+      }
+
       // ---- ピンチズーム ----
       if (this.isPinchZoom && e.touches && e.touches.length >= 2) {
         e.preventDefault();
@@ -3279,6 +3323,10 @@ export class Whiteboard {
 
 
     const up = e => {
+      if (e.type === "mouseleave") {
+        canvas.style.cursor = "";
+      }
+
       if (this.isPinchZoom && (!e.touches || e.touches.length < 2)) {
         this.isPinchZoom = false;
       }
@@ -3531,13 +3579,10 @@ export class Whiteboard {
         return;
       }
 
-      if (hit.kind === "text") {
-        this._setSelected(hit);
-        this._openTextEditorForObject(hit);
-      }
+      this._setSelected(hit);
+      this._activateToolForObject(hit);
 
       if (hit.kind === "text" || hit.kind === "sticky") {
-        this._setSelected(hit);
         this._openTextEditorForObject(hit);
       }
     };

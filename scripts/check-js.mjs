@@ -116,6 +116,8 @@ if (missingSecureRealtimeContracts.length > 0) {
 const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
 const teacherSource = readFileSync("public/js/teacher.js", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
+const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
+const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const notebookCaptureStart = studentSource.indexOf("// カメラ開始 / 再開始");
 const notebookCaptureEnd = studentSource.indexOf("// 教員からのフィードバック画像受信");
 const notebookCaptureSource = studentSource.slice(notebookCaptureStart, notebookCaptureEnd);
@@ -171,6 +173,23 @@ const copyBoardFunctionSource = readFileSync(
 if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
     !whiteboardSource.includes('this._newEntityId("object")')) {
   console.error("Whiteboard entities must use collision-resistant IDs.");
+  ok = false;
+}
+
+const interactionContracts = [
+  [whiteboardSource, 'canvas.style.cursor = isHandleHovered ? "pointer" : ""'],
+  [whiteboardSource, "this._activateToolForObject(hit)"],
+  [boardUiSource, "wb.onToolChange = tool =>"],
+  [teacherHtmlSource, 'id="studentModalPreviousBtn"'],
+  [teacherHtmlSource, 'id="studentModalNextBtn"'],
+  [teacherSource, "function navigateStudentModal(direction)"],
+  [teacherSource, "updateStudentModalNavigation()"],
+];
+const missingInteractionContracts = interactionContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingInteractionContracts.length > 0) {
+  console.error(`Whiteboard interaction contracts missing: ${missingInteractionContracts.join(", ")}`);
   ok = false;
 }
 

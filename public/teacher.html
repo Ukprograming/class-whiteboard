@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=toolbar-chat-templates" rel="stylesheet" />
+  <link href="./style.css?v=modal-navigation-20260818" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -432,6 +432,14 @@
       <!-- ★ ここにタイトルバーを移動 -->
       <div class="modal-header-overlay">
         <div id="studentModalTitle" class="modal-title">生徒の画面</div>
+        <nav class="student-modal-navigation" aria-label="生徒の画面を切り替え">
+          <button id="studentModalPreviousBtn" class="student-modal-navigation-btn" type="button" title="前の生徒" aria-label="前の生徒">
+            <span class="material-symbols-rounded">arrow_back</span>
+          </button>
+          <button id="studentModalNextBtn" class="student-modal-navigation-btn" type="button" title="次の生徒" aria-label="次の生徒">
+            <span class="material-symbols-rounded">arrow_forward</span>
+          </button>
+        </nav>
         <button id="modalShareToStudentBtn" class="share-btn">
           生徒に送信
         </button>
@@ -511,7 +519,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=pages-staging-20260817-snapshot-cache"></script>
+  <script type="module" src="./js/teacher.js?v=modal-navigation-20260818"></script>
 </body>
 
 </html>

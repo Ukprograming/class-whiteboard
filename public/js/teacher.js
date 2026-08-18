@@ -1,6 +1,6 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=toolbar-chat-templates";
-import { Whiteboard } from "./whiteboard.js";
+import { initBoardUI } from "./board-ui.js?v=object-tool-switch-20260818";
+import { Whiteboard } from "./whiteboard.js?v=object-tool-switch-20260818";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
 import {
   getSelectedTeacherClass,
@@ -126,6 +126,8 @@ let modalOverlayCanvas = null;
 
 const modalTitle = document.getElementById("studentModalTitle");
 const modalCloseBtn = document.getElementById("studentModalCloseBtn");
+const modalPreviousStudentBtn = document.getElementById("studentModalPreviousBtn");
+const modalNextStudentBtn = document.getElementById("studentModalNextBtn");
 
 // 下レイヤー用の 2D コンテキスト（画像描画に使う）
 let modalCtx = null;
@@ -2140,6 +2142,7 @@ socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport })
 // ★ 高解像度画像受信時：今回は「モーダルを開く＋タイトル更新」だけ行う
 socket.on("student-highres", ({ socketId, nickname, dataUrl }) => {
   if (!modalBackdrop || !modalTitle) return;
+  if (!socketId || socketId !== currentMonitoringStudentSocketId) return;
 
   modalTitle.textContent = `${nickname || "生徒"} さんの画面`;
   modalBackdrop.style.display = "flex";
@@ -2522,6 +2525,61 @@ modalPenColorButtons.forEach(btn => {
 
 /* ===== 共同編集開始 / 終了ヘルパー ===== */
 
+function getStudentModalNavigationEntries() {
+  return Object.entries(latestThumbnails);
+}
+
+function updateStudentModalNavigation() {
+  if (!modalPreviousStudentBtn || !modalNextStudentBtn) return;
+
+  const entries = getStudentModalNavigationEntries();
+  const currentIndex = entries.findIndex(
+    ([socketId]) => socketId === currentMonitoringStudentSocketId
+  );
+  const previousEntry = currentIndex > 0 ? entries[currentIndex - 1] : null;
+  const nextEntry =
+    currentIndex >= 0 && currentIndex < entries.length - 1
+      ? entries[currentIndex + 1]
+      : null;
+
+  modalPreviousStudentBtn.disabled = !previousEntry;
+  modalNextStudentBtn.disabled = !nextEntry;
+  modalPreviousStudentBtn.title = previousEntry
+    ? `前の生徒：${previousEntry[1].nickname || "生徒"}`
+    : "前の生徒はいません";
+  modalNextStudentBtn.title = nextEntry
+    ? `次の生徒：${nextEntry[1].nickname || "生徒"}`
+    : "次の生徒はいません";
+  modalPreviousStudentBtn.setAttribute("aria-label", modalPreviousStudentBtn.title);
+  modalNextStudentBtn.setAttribute("aria-label", modalNextStudentBtn.title);
+}
+
+function navigateStudentModal(direction) {
+  const entries = getStudentModalNavigationEntries();
+  const currentIndex = entries.findIndex(
+    ([socketId]) => socketId === currentMonitoringStudentSocketId
+  );
+  const targetIndex = currentIndex + direction;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= entries.length) return;
+
+  const [studentSocketId, info] = entries[targetIndex];
+  if ((info.mode || latestModeByStudent[studentSocketId]) !== "whiteboard") {
+    socket.emit("request-highres", {
+      classCode: currentClassCode,
+      studentSocketId
+    });
+  }
+  startMonitoringStudent(studentSocketId, info.nickname);
+}
+
+modalPreviousStudentBtn?.addEventListener("click", () => {
+  navigateStudentModal(-1);
+});
+
+modalNextStudentBtn?.addEventListener("click", () => {
+  navigateStudentModal(1);
+});
+
 /**
  * 特定の生徒のタイルをクリックしたときに呼び出される。
  * - 以前監視していた生徒がいれば、そのセッションを終了
@@ -2552,6 +2610,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
   modalCurrentStudentMode = latestModeByStudent[studentSocketId] || "whiteboard";
   modalShowingSavedFeedback = false;
   updateModalRestoreFeedbackButton();
+  updateStudentModalNavigation();
 
   // ★ 初期同期フラグをリセット
   modalHasInitialBoardData = false;
@@ -2843,6 +2902,7 @@ function renderTiles() {
 
     tileGrid.appendChild(tile);
   });
+  updateStudentModalNavigation();
 }
 
 /**
@@ -2855,6 +2915,7 @@ if (modalBackdrop && modalCloseBtn) {
 
     // 監視を終了してから対象の生徒IDをリセットする。
     stopMonitoringStudent();
+    updateStudentModalNavigation();
     modalShowingSavedFeedback = false;
     updateModalRestoreFeedbackButton();
     if (modalChatInput) modalChatInput.value = "";

@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js";
+import { Whiteboard } from "./whiteboard.js?v=object-tool-switch-20260818";
 import { createStampElement } from "./stamps.js";
 import { replaceMaterialIcons } from "./ui-icons.js";
 
@@ -456,6 +456,12 @@ export function initBoardUI() {
     // ★ テキストスタイルパネルの表示切り替え
     updateTextStylePanelVisibility(activeTool);
   }
+
+  // Canvas-side tool changes (for example, double-clicking an existing object)
+  // must stay in sync with the toolbar and its settings panels.
+  wb.onToolChange = tool => {
+    updateToolButtons(tool);
+  };
 
   // ★ テキストスタイルパネルのセットアップ
   function setupTextStylePanel() {

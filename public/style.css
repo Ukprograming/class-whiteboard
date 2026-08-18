@@ -3244,8 +3244,51 @@ select:focus {
 
 .modal-header-overlay .modal-title {
   margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 24px;
   font-weight: 800;
+}
+
+.student-modal-navigation {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-right: 4px;
+}
+
+.student-modal-navigation-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--cw-line);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.student-modal-navigation-btn:hover:not(:disabled) {
+  background: #edf7fb;
+  border-color: rgba(47, 143, 190, 0.5);
+  color: #176b87;
+}
+
+.student-modal-navigation-btn:focus-visible {
+  outline: 3px solid rgba(47, 143, 190, 0.28);
+  outline-offset: 2px;
+}
+
+.student-modal-navigation-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
 .modal-sidebar {
