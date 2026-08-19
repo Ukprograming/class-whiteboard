@@ -12,6 +12,7 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/realtime-join-coordinator.js",
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
   "public/js/student.js",
@@ -39,12 +40,72 @@ for (const filePath of commonJsFiles) {
 
 const tempDir = mkdtempSync(join(tmpdir(), "class-whiteboard-check-"));
 try {
+  let realtimeJoinCoordinatorTempPath = "";
   let realtimeQueueTempPath = "";
   for (const filePath of moduleFiles) {
     const tempPath = join(tempDir, `${basename(filePath)}.mjs`);
     copyFileSync(filePath, tempPath);
     ok = runNodeCheck(tempPath) && ok;
+    if (filePath.endsWith("realtime-join-coordinator.js")) realtimeJoinCoordinatorTempPath = tempPath;
     if (filePath.endsWith("realtime-send-queue.js")) realtimeQueueTempPath = tempPath;
+  }
+
+  if (!realtimeJoinCoordinatorTempPath) {
+    console.error("Realtime join coordinator module was not checked.");
+    ok = false;
+  } else {
+    const { createRealtimeJoinCoordinator } = await import(
+      pathToFileURL(realtimeJoinCoordinatorTempPath).href
+    );
+    const starts = [];
+    const releases = [];
+    const startWaiters = new Map();
+    let activeJoins = 0;
+    let maxActiveJoins = 0;
+    const coordinateJoin = createRealtimeJoinCoordinator(async (label) => {
+      starts.push(label);
+      startWaiters.get(label)?.();
+      activeJoins += 1;
+      maxActiveJoins = Math.max(maxActiveJoins, activeJoins);
+      await new Promise((resolve) => releases.push(resolve));
+      activeJoins -= 1;
+      return label;
+    });
+
+    const firstStarted = new Promise((resolve) => startWaiters.set("first", resolve));
+    const firstJoin = coordinateJoin("student:AAAA:s001", "first");
+    const duplicateJoin = coordinateJoin("student:AAAA:s001", "duplicate");
+    await firstStarted;
+    if (starts.length !== 1 || starts[0] !== "first") {
+      console.error(`Duplicate Realtime joins were not coalesced: ${JSON.stringify(starts)}`);
+      ok = false;
+    }
+    releases.shift()?.();
+    const duplicateResults = await Promise.all([firstJoin, duplicateJoin]);
+    if (duplicateResults.some((result) => result !== "first")) {
+      console.error(`Duplicate Realtime join result mismatch: ${JSON.stringify(duplicateResults)}`);
+      ok = false;
+    }
+
+    const nextClassStarted = new Promise((resolve) => startWaiters.set("next-class", resolve));
+    const followingClassStarted = new Promise((resolve) => startWaiters.set("following-class", resolve));
+    const nextClassJoin = coordinateJoin("student:BBBB:s001", "next-class");
+    const followingClassJoin = coordinateJoin("student:CCCC:s001", "following-class");
+    await nextClassStarted;
+    if (starts.at(-1) !== "next-class") {
+      console.error(`First serialized Realtime join did not start: ${JSON.stringify(starts)}`);
+      ok = false;
+    }
+    releases.shift()?.();
+    await followingClassStarted;
+    if (starts.at(-1) !== "following-class" || maxActiveJoins !== 1) {
+      console.error(
+        `Realtime joins overlapped instead of serializing: starts=${JSON.stringify(starts)}, max=${maxActiveJoins}`
+      );
+      ok = false;
+    }
+    releases.shift()?.();
+    await Promise.all([nextClassJoin, followingClassJoin]);
   }
 
   if (!realtimeQueueTempPath) {
@@ -247,8 +308,8 @@ const reliableStrokeContracts = [
   [studentSource, "boardRevision: syncRevision"],
   [teacherSource, "latestStudentBoardRevisionByStudent"],
   [teacherSource, "isStaleStudentBoardRevision(studentSocketId, boardRevision"],
-  [studentHtmlSource, "student.js?v=stroke-delivery-20260818"],
-  [teacherHtmlSource, "teacher.js?v=stroke-delivery-20260818"],
+  [studentHtmlSource, "student.js?v=realtime-join-20260819"],
+  [teacherHtmlSource, "teacher.js?v=realtime-join-20260819"],
 ];
 const missingReliableStrokeContracts = reliableStrokeContracts
   .filter(([source, contract]) => !source.includes(contract))
@@ -256,6 +317,33 @@ const missingReliableStrokeContracts = reliableStrokeContracts
 if (missingReliableStrokeContracts.length > 0) {
   console.error(`Reliable stroke contracts missing: ${missingReliableStrokeContracts.join(", ")}`);
   ok = false;
+}
+
+const realtimeJoinContracts = [
+  [realtimeApiSource, "createRealtimeJoinCoordinator(performJoinRealtime)"],
+  [realtimeApiSource, "coordinateRealtimeJoin(requestedJoinKey, role, payload)"],
+  [studentSource, 'const joined = await socket.emit("join-class"'],
+];
+const missingRealtimeJoinContracts = realtimeJoinContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingRealtimeJoinContracts.length > 0) {
+  console.error(`Realtime join serialization contracts missing: ${missingRealtimeJoinContracts.join(", ")}`);
+  ok = false;
+}
+
+for (const [filePath, htmlSource] of [
+  ["public/teacher.html", teacherHtmlSource],
+  ["public/student.html", studentHtmlSource],
+]) {
+  for (const match of htmlSource.matchAll(/\bpattern="([^"]+)"/g)) {
+    try {
+      new RegExp(match[1], "v");
+    } catch (error) {
+      console.error(`${filePath} contains an invalid HTML pattern ${match[1]}: ${error.message}`);
+      ok = false;
+    }
+  }
 }
 if (!/videoEl\.onloadedmetadata\s*=\s*\(\)\s*=>\s*\{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\};/.test(notebookCaptureSource)) {
   console.error("Notebook camera start must send an immediate thumbnail.");

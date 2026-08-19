@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=stroke-delivery-20260818";
+} from "./supabase-api.js?v=realtime-join-20260819";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -369,8 +369,22 @@ if (studentLoginForm) {
     currentClassCode = canonicalClassCode;
     nickname = canonicalStudentId;
 
-    // サーバーへ参加リクエスト
-    socket.emit("join-class", { classCode: canonicalClassCode, nickname: canonicalStudentId });
+    // サーバーへ参加リクエスト。完了前に mode-change を送ると、同じ
+    // Supabase Presence channel への参加が二重に走るため必ず待つ。
+    try {
+      const joined = await socket.emit("join-class", {
+        classCode: canonicalClassCode,
+        nickname: canonicalStudentId,
+      });
+      if (supabaseEnabled && !joined) {
+        setStudentLoginMessage("クラスに参加できませんでした。", true);
+        return;
+      }
+    } catch (err) {
+      console.error("Supabase realtime join failed:", err);
+      setStudentLoginMessage(err.message || "クラスに参加できませんでした。", true);
+      return;
+    }
     if (supabaseEnabled) {
       if (studentLoginOverlay) studentLoginOverlay.classList.add("hidden");
       const displayLabel = signedInStudent?.displayName

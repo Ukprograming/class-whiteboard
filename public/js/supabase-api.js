@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
+import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819";
 import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
@@ -169,6 +170,7 @@ function createSupabaseRealtimeBridge() {
   const socketId = createSocketId();
   const privateChannels = config.realtimePrivateChannels !== false;
   const notebookStudentsSeen = new Set();
+  const coordinateRealtimeJoin = createRealtimeJoinCoordinator(performJoinRealtime);
   const whiteboardActionQueue = createOrderedRetryQueue(sendRealtimeEvent, {
     maxAttempts: 3,
     retryDelayMs: 120,
@@ -400,7 +402,23 @@ function createSupabaseRealtimeBridge() {
     }, 500);
   }
 
+  function getJoinRequestKey(role, payload = {}) {
+    const classCode = normalizeClassCode(payload.classCode || state.classCode);
+    const nickname = String(
+      payload.nickname ||
+      payload.studentId ||
+      state.nickname ||
+      (role === "teacher" ? "teacher" : "")
+    ).trim();
+    return `${role}:${classCode}:${nickname}`;
+  }
+
   async function joinRealtime(role, payload = {}) {
+    const requestedJoinKey = getJoinRequestKey(role, payload);
+    return coordinateRealtimeJoin(requestedJoinKey, role, payload);
+  }
+
+  async function performJoinRealtime(role, payload = {}) {
     const classCode = normalizeClassCode(payload.classCode || state.classCode);
     if (!classCode) {
       dispatch("join-error", "Class code is required.");

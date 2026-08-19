@@ -1,7 +1,7 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=stroke-delivery-20260818";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=realtime-join-20260819";
 import {
   getSelectedTeacherClass,
   saveTeacherClassHints,
