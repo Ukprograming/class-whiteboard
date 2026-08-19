@@ -1,7 +1,11 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=realtime-join-20260819";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819";
+import {
+  canAcceptTeacherBoardSnapshot,
+  isMatchingMonitorRequest,
+} from "./monitor-sync.js?v=monitor-sync-20260819";
 import {
   getSelectedTeacherClass,
   saveTeacherClassHints,
@@ -118,6 +122,9 @@ const modalBackdrop = document.getElementById("studentModalBackdrop");
 const modalBoardContainer = document.getElementById("studentModalBoardContainer");
 const modalShareToStudentBtn = document.getElementById("modalShareToStudentBtn");
 const modalRestoreFeedbackBtn = document.getElementById("modalRestoreFeedbackBtn");
+const modalBoardLoadingOverlay = document.getElementById("studentModalBoardLoading");
+const modalBoardLoadingMessage = document.getElementById("studentModalBoardLoadingMessage");
+const modalBoardRetryBtn = document.getElementById("studentModalBoardRetryBtn");
 
 // 下レイヤー：生徒の画面・ノート画像を描くキャンバス
 let modalCanvas = document.getElementById("studentModalCanvas");
@@ -184,6 +191,10 @@ const pendingTeacherSyncTokenByStudent = new Map();
 const teacherSyncAckTimerByStudent = new Map();
 const latestStudentBoardRevisionByStudent = new Map();
 let modalTeacherSyncCounter = 0;
+let currentModalMonitorRequestId = null;
+let modalBoardLoadState = "idle";
+let modalBoardLoadTimerId = null;
+const MODAL_BOARD_LOAD_TIMEOUT_MS = 10000;
 // ★ 追加: モーダル内のボードに「初期同期済み」かどうか
 let modalHasInitialBoardData = false;
 
@@ -2279,12 +2290,109 @@ async function resolveRealtimeBoardData(boardData, boardSnapshotPath, snapshotVe
   }
 }
 
+function createMonitorRequestId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `monitor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function clearModalBoardLoadTimer() {
+  if (!modalBoardLoadTimerId) return;
+  clearTimeout(modalBoardLoadTimerId);
+  modalBoardLoadTimerId = null;
+}
+
+function updateModalBoardInteractionLock() {
+  const isBlocked = modalBoardLoadState === "loading" || modalBoardLoadState === "error";
+  const editingControls = [
+    modalToolPenBtn,
+    modalToolHighlighterBtn,
+    modalToolEraserBtn,
+    modalPenColorInput,
+    ...modalPenColorButtons,
+  ].filter(Boolean);
+
+  editingControls.forEach(control => {
+    control.disabled = isBlocked;
+  });
+  if (modalShareToStudentBtn) modalShareToStudentBtn.disabled = isBlocked;
+  if (modalOverlayCanvas) {
+    modalOverlayCanvas.style.pointerEvents = isBlocked ? "none" : "auto";
+  }
+  modalBoardContainer?.setAttribute("aria-busy", String(modalBoardLoadState === "loading"));
+}
+
+function setModalBoardLoadState(state, message = "") {
+  modalBoardLoadState = state;
+  const isBlocked = state === "loading" || state === "error";
+  if (modalBoardLoadingOverlay) {
+    modalBoardLoadingOverlay.hidden = !isBlocked;
+    modalBoardLoadingOverlay.dataset.state = state;
+  }
+  if (modalBoardLoadingMessage) {
+    modalBoardLoadingMessage.textContent = message || (
+      state === "error"
+        ? "生徒ボードを読み込めませんでした。"
+        : "生徒ボードを読み込み中…"
+    );
+  }
+  if (modalBoardRetryBtn) modalBoardRetryBtn.hidden = state !== "error";
+  updateModalBoardInteractionLock();
+}
+
+function isCurrentMonitorResponse(studentSocketId, monitorRequestId) {
+  return studentSocketId === currentMonitoringStudentSocketId &&
+    isMatchingMonitorRequest(currentModalMonitorRequestId, monitorRequestId);
+}
+
+function completeStudentModalBoardLoad(studentSocketId, monitorRequestId) {
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return false;
+  clearModalBoardLoadTimer();
+  setModalBoardLoadState("ready");
+  return true;
+}
+
+function requestStudentModalBoardState(studentSocketId) {
+  if (!currentClassCode || !studentSocketId) return null;
+
+  clearModalBoardLoadTimer();
+  clearPendingTeacherSync(studentSocketId);
+  latestTeacherSyncTokenByStudent.delete(studentSocketId);
+  latestStudentBoardRevisionByStudent.delete(studentSocketId);
+
+  const monitorRequestId = createMonitorRequestId();
+  currentModalMonitorRequestId = monitorRequestId;
+  setModalBoardLoadState("loading", "生徒の画面を読み込み中…");
+  modalBoardLoadTimerId = setTimeout(() => {
+    if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
+    setModalBoardLoadState(
+      "error",
+      "生徒の画面を読み込めませんでした。再読み込みしてください。"
+    );
+  }, MODAL_BOARD_LOAD_TIMEOUT_MS);
+
+  void socket.emit("start-monitoring", {
+    classCode: currentClassCode,
+    studentSocketId,
+    monitorRequestId,
+  });
+  return monitorRequestId;
+}
+
+modalBoardRetryBtn?.addEventListener("click", () => {
+  if (!currentMonitoringStudentSocketId) return;
+  requestStudentModalBoardState(currentMonitoringStudentSocketId);
+});
+
 function isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) {
   const expectedToken = latestTeacherSyncTokenByStudent.get(studentSocketId);
   const pendingToken = pendingTeacherSyncTokenByStudent.get(studentSocketId);
-  return (!expectedToken && !pendingToken) ||
-    teacherSyncToken === expectedToken ||
-    teacherSyncToken === pendingToken;
+  return canAcceptTeacherBoardSnapshot({
+    expectedToken,
+    pendingToken,
+    snapshotToken: teacherSyncToken,
+  });
 }
 
 function clearPendingTeacherSync(studentSocketId, teacherSyncToken = null) {
@@ -2318,13 +2426,20 @@ function rememberStudentBoardRevision(studentSocketId, boardRevision) {
   }
 }
 
-async function sendTeacherWhiteboardAction(studentSocketId, action, teacherSyncToken) {
+async function sendTeacherWhiteboardAction(
+  studentSocketId,
+  action,
+  teacherSyncToken,
+  monitorRequestId
+) {
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return false;
   clearPendingTeacherSync(studentSocketId);
   pendingTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
 
   const sent = await socket.emit("teacher-whiteboard-action", {
     classCode: currentClassCode,
     targetStudentSocketId: studentSocketId,
+    monitorRequestId,
     action: {
       ...action,
       teacherSyncToken,
@@ -2354,10 +2469,17 @@ async function sendTeacherWhiteboardAction(studentSocketId, action, teacherSyncT
   return true;
 }
 
-socket.on("student-teacher-action-ack", ({ studentSocketId, teacherSyncToken }) => {
+socket.on("student-teacher-action-ack", ({
+  studentSocketId,
+  teacherSyncToken,
+  boardRevision,
+  monitorRequestId,
+}) => {
   if (!studentSocketId || !teacherSyncToken) return;
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
   if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
   latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+  rememberStudentBoardRevision(studentSocketId, boardRevision);
 });
 
 function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
@@ -2399,8 +2521,19 @@ function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision }) => {
-  if (!studentSocketId || !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+socket.on("student-board-state", async ({
+  studentSocketId,
+  boardData: incomingBoardData,
+  boardSnapshotPath,
+  teacherSyncToken,
+  snapshotVersion,
+  boardRevision,
+  monitorRequestId,
+}) => {
+  if (
+    !isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
+    !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)
+  ) {
     return;
   }
   if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
@@ -2409,7 +2542,10 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
     boardSnapshotPath,
     snapshotVersion
   );
-  if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) {
+  if (
+    !isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
+    !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)
+  ) {
     return;
   }
   if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
@@ -2421,6 +2557,9 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
   if (!studentSocketId || !boardData) return;
 
   rememberStudentBoardRevision(studentSocketId, boardRevision);
+  if (teacherSyncToken) {
+    latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+  }
   latestBoardDataByStudent[studentSocketId] = boardData;
 
   // ★ その生徒の現在モード（なければ whiteboard とみなす）
@@ -2437,25 +2576,30 @@ socket.on("student-board-state", async ({ studentSocketId, boardData: incomingBo
     return;
   }
 
-  importStudentBoardDataIntoModal(
+  const imported = importStudentBoardDataIntoModal(
     boardData,
     studentSocketId,
     latestViewportByStudent[studentSocketId]
   );
+  if (imported) completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
 });
 
 
 
 // 生徒側の増分操作（ペン・消しゴム・図形など）
-socket.on("student-whiteboard-action", ({ studentSocketId, action, boardRevision }) => {
+socket.on("student-whiteboard-action", ({
+  studentSocketId,
+  action,
+  boardRevision,
+  monitorRequestId,
+}) => {
   console.log("[teacher] student-whiteboard-action", {
     studentSocketId,
     hasAction: !!action
   });
 
   // 今監視している生徒以外の操作は無視
-  if (!currentMonitoringStudentSocketId ||
-    studentSocketId !== currentMonitoringStudentSocketId) {
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) {
     return;
   }
 
@@ -2472,7 +2616,23 @@ socket.on("student-whiteboard-action", ({ studentSocketId, action, boardRevision
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
 socket.on(
   "student-screen-update",
-  async ({ studentSocketId, nickname, classCode, dataUrl, viewport, mode, boardData: incomingBoardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, isSync, boardRevision }) => {
+  async ({
+    studentSocketId,
+    nickname,
+    classCode,
+    dataUrl,
+    viewport,
+    mode,
+    boardData: incomingBoardData,
+    boardSnapshotPath,
+    teacherSyncToken,
+    snapshotVersion,
+    isSync,
+    boardRevision,
+    monitorRequestId,
+  }) => {
+    if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
+    const effectiveMode = mode || "whiteboard";
     let boardData = null;
     if (
       isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
@@ -2484,13 +2644,13 @@ socket.on(
         snapshotVersion
       );
       if (
+        isCurrentMonitorResponse(studentSocketId, monitorRequestId) &&
         isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
         !isStaleStudentBoardRevision(studentSocketId, boardRevision, false)
       ) {
         boardData = resolvedBoardData;
       }
     }
-    const effectiveMode = mode || "whiteboard";
 
     console.log("[teacher] student-screen-update", {
       studentSocketId,
@@ -2525,6 +2685,9 @@ socket.on(
     // 最新の boardData は保持しておく（whiteboardモード用）
     if (boardData) {
       rememberStudentBoardRevision(studentSocketId, boardRevision);
+      if (teacherSyncToken) {
+        latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+      }
       latestBoardDataByStudent[studentSocketId] = boardData;
     }
 
@@ -2569,13 +2732,12 @@ socket.on(
 
       // 初期同期がまだ、または強制同期(isSync=true)の場合に取り込む
       if ((!modalHasInitialBoardData || isSync) && boardData) {
-        importStudentBoardDataIntoModal(boardData, studentSocketId, viewport);
+        const imported = importStudentBoardDataIntoModal(boardData, studentSocketId, viewport);
+        if (imported) completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
       }
 
       // whiteboardモードでは overlay 上に書きながら、生徒WBと同期（onActionで emit）
-      if (modalOverlayCanvas) {
-        modalOverlayCanvas.style.pointerEvents = "auto";
-      }
+      updateModalBoardInteractionLock();
 
       // Never mix the low-resolution screen capture into whiteboard mode.
       // Initial state and later updates arrive as structured board data/actions.
@@ -2590,15 +2752,10 @@ socket.on(
     // どちらも「下レイヤーに画像を表示し、上レイヤーはローカル描画のみ」という動きに統一
     if (!dataUrl) return;
 
-    // 上レイヤーはローカル注釈用
-    if (modalOverlayCanvas) {
-      modalOverlayCanvas.style.pointerEvents = "auto";
-    }
-
     const img = new Image();
     img.onload = () => {
       // ===== モーダル用の描画 =====
-      if (modalCanvas && modalCtx && currentMonitoringStudentSocketId === studentSocketId) {
+      if (modalCanvas && modalCtx && isCurrentMonitorResponse(studentSocketId, monitorRequestId)) {
         const cw = modalCanvas.width;
         const ch = modalCanvas.height;
         if (cw && ch) {
@@ -2613,6 +2770,7 @@ socket.on(
           modalCtx.drawImage(img, dx, dy, drawW, drawH);
         }
       }
+      completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
 
       // ===== ノート提出モードのときは、タイル用サムネイルも更新 =====
       if (effectiveMode === "notebook") {
@@ -2756,10 +2914,14 @@ function startMonitoringStudent(studentSocketId, nickname) {
     currentMonitoringStudentSocketId &&
     currentMonitoringStudentSocketId !== studentSocketId
   ) {
+    const previousStudentSocketId = currentMonitoringStudentSocketId;
+    const previousMonitorRequestId = currentModalMonitorRequestId;
     socket.emit("stop-monitoring", {
       classCode: currentClassCode,
-      studentSocketId: currentMonitoringStudentSocketId
+      studentSocketId: previousStudentSocketId,
+      monitorRequestId: previousMonitorRequestId,
     });
+    clearPendingTeacherSync(previousStudentSocketId);
   }
 
   // 今回選択した生徒を「現在監視中」として記録
@@ -2772,11 +2934,8 @@ function startMonitoringStudent(studentSocketId, nickname) {
   // ★ 初期同期フラグをリセット
   modalHasInitialBoardData = false;
 
-  // サーバーに共同編集セッション開始を通知
-  socket.emit("start-monitoring", {
-    classCode: currentClassCode,
-    studentSocketId
-  });
+  // 最新状態の取得が完了するまで、モーダル内の編集をロックする。
+  requestStudentModalBoardState(studentSocketId);
 
   // ★ ここでモーダルを開く
   if (modalBackdrop) {
@@ -2829,6 +2988,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
     // Whiteboard は「上レイヤー」に紐づける
     modalBoard = new Whiteboard({ canvas: modalOverlayCanvas });
     modalBoard.setTeacherMode(true);
+    updateModalBoardInteractionLock();
 
     // ★ ノート提出モードならグリッド非表示
     if (modalCurrentStudentMode === "notebook") {
@@ -2886,6 +3046,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
     // 線を書いたときのactionフック
     modalBoard.onAction = (action) => {
       if (!currentClassCode || !currentMonitoringStudentSocketId) return;
+      if (modalBoardLoadState !== "ready" || !currentModalMonitorRequestId) return;
 
       // ★ notebook / screen モードのときは、生徒ホワイトボードを変更しない
       if (modalCurrentStudentMode !== "whiteboard") {
@@ -2898,7 +3059,8 @@ function startMonitoringStudent(studentSocketId, nickname) {
       void sendTeacherWhiteboardAction(
         currentMonitoringStudentSocketId,
         action,
-        teacherSyncToken
+        teacherSyncToken,
+        currentModalMonitorRequestId
       );
     };
   }
@@ -2920,12 +3082,19 @@ function startMonitoringStudent(studentSocketId, nickname) {
 function stopMonitoringStudent() {
   if (!currentClassCode || !currentMonitoringStudentSocketId) return;
 
+  const stoppedStudentSocketId = currentMonitoringStudentSocketId;
+
   socket.emit("stop-monitoring", {
     classCode: currentClassCode,
-    studentSocketId: currentMonitoringStudentSocketId
+    studentSocketId: stoppedStudentSocketId,
+    monitorRequestId: currentModalMonitorRequestId,
   });
 
+  clearPendingTeacherSync(stoppedStudentSocketId);
+  clearModalBoardLoadTimer();
+  currentModalMonitorRequestId = null;
   currentMonitoringStudentSocketId = null;
+  setModalBoardLoadState("idle");
 
   if (statusLabel) {
     statusLabel.textContent = `クラスコード ${currentClassCode} で待機中…`;

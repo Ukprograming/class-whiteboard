@@ -12,6 +12,7 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/monitor-sync.js",
   "public/js/realtime-join-coordinator.js",
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
@@ -42,12 +43,14 @@ const tempDir = mkdtempSync(join(tmpdir(), "class-whiteboard-check-"));
 try {
   let realtimeJoinCoordinatorTempPath = "";
   let realtimeQueueTempPath = "";
+  let monitorSyncTempPath = "";
   for (const filePath of moduleFiles) {
     const tempPath = join(tempDir, `${basename(filePath)}.mjs`);
     copyFileSync(filePath, tempPath);
     ok = runNodeCheck(tempPath) && ok;
     if (filePath.endsWith("realtime-join-coordinator.js")) realtimeJoinCoordinatorTempPath = tempPath;
     if (filePath.endsWith("realtime-send-queue.js")) realtimeQueueTempPath = tempPath;
+    if (filePath.endsWith("monitor-sync.js")) monitorSyncTempPath = tempPath;
   }
 
   if (!realtimeJoinCoordinatorTempPath) {
@@ -142,6 +145,38 @@ try {
       ok = false;
     }
   }
+
+  if (!monitorSyncTempPath) {
+    console.error("Monitor sync module was not checked.");
+    ok = false;
+  } else {
+    const {
+      canAcceptTeacherBoardSnapshot,
+      isMatchingMonitorRequest,
+    } = await import(pathToFileURL(monitorSyncTempPath).href);
+    const delayedInitialSnapshotRejected = !canAcceptTeacherBoardSnapshot({
+      expectedToken: "teacher-action-1",
+      pendingToken: "teacher-action-2",
+      snapshotToken: "teacher-action-1",
+    });
+    const pendingSnapshotAccepted = canAcceptTeacherBoardSnapshot({
+      expectedToken: "teacher-action-1",
+      pendingToken: "teacher-action-2",
+      snapshotToken: "teacher-action-2",
+    });
+    const staleMonitorResponseRejected = !isMatchingMonitorRequest(
+      "monitor-current",
+      "monitor-previous"
+    );
+    if (
+      !delayedInitialSnapshotRejected ||
+      !pendingSnapshotAccepted ||
+      !staleMonitorResponseRejected
+    ) {
+      console.error("Monitor snapshot ordering contract failed.");
+      ok = false;
+    }
+  }
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
@@ -220,6 +255,46 @@ const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
+const serverSource = readFileSync("server.js", "utf8");
+const monitorSyncContracts = [
+  [teacherSource, "requestStudentModalBoardState(studentSocketId)"],
+  [teacherSource, 'setModalBoardLoadState("loading", "生徒の画面を読み込み中…")'],
+  [teacherSource, 'if (modalBoardLoadState !== "ready" || !currentModalMonitorRequestId) return;'],
+  [studentSource, "monitorRequestId: currentMonitorRequestId"],
+  [realtimeApiSource, "monitorRequestId: payload.monitorRequestId"],
+  [serverSource, "monitorRequestId,"],
+  [teacherHtmlSource, 'id="studentModalBoardLoading"'],
+  [teacherHtmlSource, 'id="studentModalBoardRetryBtn"'],
+];
+const missingMonitorSyncContracts = monitorSyncContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingMonitorSyncContracts.length > 0) {
+  console.error(`Monitor loading/sync contracts missing: ${missingMonitorSyncContracts.join(", ")}`);
+  ok = false;
+}
+
+const teacherActionHandlerStart = studentSource.indexOf(
+  'socket.on("teacher-whiteboard-action"'
+);
+const teacherActionHandlerEnd = studentSource.indexOf(
+  "// ★ ホワイトボード操作の送信フック設定",
+  teacherActionHandlerStart
+);
+const teacherActionHandlerSource = studentSource.slice(
+  teacherActionHandlerStart,
+  teacherActionHandlerEnd
+);
+if (
+  teacherActionHandlerStart < 0 ||
+  teacherActionHandlerEnd <= teacherActionHandlerStart ||
+  teacherActionHandlerSource.indexOf("boardSyncRevision += 1") < 0 ||
+  teacherActionHandlerSource.indexOf("boardSyncRevision += 1") >
+    teacherActionHandlerSource.indexOf('socket.emit("student-teacher-action-ack"')
+) {
+  console.error("Student board revision must advance before acknowledging a teacher action.");
+  ok = false;
+}
 const selectionChangeStart = whiteboardSource.indexOf("  _fireSelectionChange() {");
 const selectionChangeEnd = whiteboardSource.indexOf(
   "  // ★ 選択中オブジェクトを最前面へ",
@@ -308,8 +383,8 @@ const reliableStrokeContracts = [
   [studentSource, "boardRevision: syncRevision"],
   [teacherSource, "latestStudentBoardRevisionByStudent"],
   [teacherSource, "isStaleStudentBoardRevision(studentSocketId, boardRevision"],
-  [studentHtmlSource, "student.js?v=realtime-join-20260819"],
-  [teacherHtmlSource, "teacher.js?v=realtime-join-20260819"],
+  [studentHtmlSource, "student.js?v=monitor-sync-20260819"],
+  [teacherHtmlSource, "teacher.js?v=monitor-sync-20260819"],
 ];
 const missingReliableStrokeContracts = reliableStrokeContracts
   .filter(([source, contract]) => !source.includes(contract))

@@ -622,7 +622,7 @@ io.on("connection", (socket) => {
      ========================= */
 
   // 教員 → 生徒：モニタリング開始（共同編集セッション開始）
-  socket.on("start-monitoring", ({ classCode, studentSocketId }) => {
+  socket.on("start-monitoring", ({ classCode, studentSocketId, monitorRequestId }) => {
     const code = classCode || joinedClassCode;
     const targetSocketId = studentSocketId;
     if (
@@ -640,11 +640,12 @@ io.on("connection", (socket) => {
     io.to(targetSocketId).emit("start-monitoring", {
       classCode: code,
       teacherSocketId: socket.id,
+      monitorRequestId,
     });
   });
 
   // 教員 → 生徒：モニタリング終了
-  socket.on("stop-monitoring", ({ classCode, studentSocketId }) => {
+  socket.on("stop-monitoring", ({ classCode, studentSocketId, monitorRequestId }) => {
     const code = classCode || joinedClassCode;
     const targetSocketId = studentSocketId;
     if (
@@ -660,11 +661,12 @@ io.on("connection", (socket) => {
 
     io.to(targetSocketId).emit("stop-monitoring", {
       classCode: code,
+      monitorRequestId,
     });
   });
 
   // 生徒 → 教員：ボードの全状態（初期同期用）
-  socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision }) => {
+  socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision, monitorRequestId }) => {
     if (
       !targetTeacherSocketId ||
       (!boardData && !boardSnapshotPath) ||
@@ -681,13 +683,14 @@ io.on("connection", (socket) => {
       teacherSyncToken,
       snapshotVersion,
       boardRevision,
+      monitorRequestId,
     });
   });
 
   // ★★ 生徒 → 教員：モニタリング中の画面更新（連続）
   socket.on(
     "student-screen-update",
-    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision, isSync }) => {
+    ({ classCode, teacherSocketId, dataUrl, viewport, mode, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision, monitorRequestId, isSync }) => {
       if (
         !teacherSocketId ||
         !classCode ||
@@ -709,6 +712,7 @@ io.on("connection", (socket) => {
         teacherSyncToken,
         snapshotVersion,
         boardRevision,
+        monitorRequestId,
         isSync,
       });
     }
@@ -717,7 +721,7 @@ io.on("connection", (socket) => {
   // 教員 → 生徒：ホワイトボード操作（リアルタイム）
   socket.on(
     "teacher-whiteboard-action",
-    ({ targetSocketId, targetStudentSocketId, action }) => {
+    ({ targetSocketId, targetStudentSocketId, action, monitorRequestId }) => {
       const dest = targetSocketId || targetStudentSocketId;
       if (
         !dest ||
@@ -730,12 +734,34 @@ io.on("connection", (socket) => {
       );
       io.to(dest).emit("teacher-whiteboard-action", {
         action,
+        teacherSocketId: socket.id,
+        monitorRequestId,
       });
     }
   );
 
+  socket.on("student-teacher-action-ack", ({
+    targetTeacherSocketId,
+    teacherSyncToken,
+    boardRevision,
+    monitorRequestId,
+  }) => {
+    if (
+      !targetTeacherSocketId ||
+      !teacherSyncToken ||
+      !isStudentForClass(joinedClassCode) ||
+      classes[joinedClassCode]?.teacherSocketId !== targetTeacherSocketId
+    ) return;
+    io.to(targetTeacherSocketId).emit("student-teacher-action-ack", {
+      studentSocketId: socket.id,
+      teacherSyncToken,
+      boardRevision,
+      monitorRequestId,
+    });
+  });
+
   // 生徒 → 教員：ホワイトボード操作（リアルタイム）
-  socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action, boardRevision }) => {
+  socket.on("student-whiteboard-action", ({ targetTeacherSocketId, action, boardRevision, monitorRequestId }) => {
     if (
       !targetTeacherSocketId ||
       !action ||
@@ -749,6 +775,7 @@ io.on("connection", (socket) => {
       studentSocketId: socket.id,
       action,
       boardRevision,
+      monitorRequestId,
     });
   });
 

@@ -530,6 +530,21 @@
       <!-- 右側：ホワイトボード表示エリア -->
       <div id="studentModalBoardContainer" class="modal-board-container">
         <canvas id="studentModalCanvas"></canvas>
+        <div
+          id="studentModalBoardLoading"
+          class="student-modal-board-loading"
+          role="status"
+          aria-live="polite"
+          hidden
+        >
+          <span class="student-modal-board-loading-spinner" aria-hidden="true"></span>
+          <div id="studentModalBoardLoadingMessage" class="student-modal-board-loading-message">
+            生徒ボードを読み込み中…
+          </div>
+          <button id="studentModalBoardRetryBtn" class="share-btn" type="button" hidden>
+            再読み込み
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -540,7 +555,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=realtime-join-20260819"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819"></script>
 </body>
 
 </html>

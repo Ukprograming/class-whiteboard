@@ -887,6 +887,7 @@ function createSupabaseRealtimeBridge() {
           teacherSyncToken: payload.teacherSyncToken,
           snapshotVersion: payload.snapshotVersion,
           boardRevision: payload.boardRevision ?? payload.syncRevision,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       case "student-whiteboard-action":
@@ -895,6 +896,7 @@ function createSupabaseRealtimeBridge() {
           studentSocketId: message.senderSocketId,
           action: payload.action,
           boardRevision: payload.boardRevision,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       case "student-teacher-action-ack":
@@ -902,6 +904,8 @@ function createSupabaseRealtimeBridge() {
         dispatch("student-teacher-action-ack", {
           studentSocketId: message.senderSocketId,
           teacherSyncToken: payload.teacherSyncToken,
+          boardRevision: payload.boardRevision,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       case "student-screen-update":
@@ -919,6 +923,7 @@ function createSupabaseRealtimeBridge() {
           snapshotVersion: payload.snapshotVersion,
           isSync: payload.isSync,
           boardRevision: payload.boardRevision,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       case "studentImageUpdate": {
@@ -978,11 +983,15 @@ function createSupabaseRealtimeBridge() {
         dispatch("start-monitoring", {
           classCode: payload.classCode,
           teacherSocketId: message.senderSocketId,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       case "stop-monitoring":
         if (payload.studentSocketId && payload.studentSocketId !== socketId) return;
-        dispatch("stop-monitoring", { classCode: payload.classCode });
+        dispatch("stop-monitoring", {
+          classCode: payload.classCode,
+          monitorRequestId: payload.monitorRequestId,
+        });
         break;
       case "teacher-whiteboard-action": {
         const target = payload.targetSocketId || payload.targetStudentSocketId;
@@ -990,6 +999,7 @@ function createSupabaseRealtimeBridge() {
         dispatch("teacher-whiteboard-action", {
           action: payload.action,
           teacherSocketId: message.senderSocketId,
+          monitorRequestId: payload.monitorRequestId,
         });
         break;
       }

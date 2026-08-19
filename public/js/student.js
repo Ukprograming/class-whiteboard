@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=realtime-join-20260819";
+} from "./supabase-api.js?v=monitor-sync-20260819";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -2394,6 +2394,7 @@ let forceNextBoardSync = false;
 let boardSnapshotSaveInFlight = null;
 let lastAppliedTeacherSyncToken = null;
 let boardSyncRevision = 0;
+let currentMonitorRequestId = null;
 
 async function createBoardSyncPayload() {
   if (!whiteboard || !currentClassCode || !nickname) return null;
@@ -2438,11 +2439,13 @@ async function createBoardSyncPayload() {
   return boardSnapshotSaveInFlight;
 }
 
-async function sendBoardStateToTeacher(teacherSocketId) {
+async function sendBoardStateToTeacher(teacherSocketId, monitorRequestId = currentMonitorRequestId) {
   const syncPayload = await createBoardSyncPayload();
   if (!syncPayload || !teacherSocketId) return false;
+  if (monitorRequestId !== currentMonitorRequestId) return false;
   const sent = await socket.emit("student-board-state", {
     targetTeacherSocketId: teacherSocketId,
+    monitorRequestId,
     ...syncPayload,
     boardRevision: syncPayload.syncRevision,
   });
@@ -2457,17 +2460,20 @@ socket.on("teacher-joined-session", ({ teacherSocketId }) => {
 });
 
 // ★ 教員からのホワイトボード操作受信
-socket.on("teacher-whiteboard-action", ({ action, teacherSocketId }) => {
+socket.on("teacher-whiteboard-action", ({ action, teacherSocketId, monitorRequestId }) => {
   if (!whiteboard) return;
+  if (monitorRequestId && monitorRequestId !== currentMonitorRequestId) return;
   whiteboard.applyAction(action);
+  boardSyncRevision += 1;
   if (action?.teacherSyncToken) {
     lastAppliedTeacherSyncToken = action.teacherSyncToken;
     void socket.emit("student-teacher-action-ack", {
       targetTeacherSocketId: teacherSocketId || currentTeacherSocketId,
       teacherSyncToken: action.teacherSyncToken,
+      boardRevision: boardSyncRevision,
+      monitorRequestId: currentMonitorRequestId,
     });
   }
-  boardSyncRevision += 1;
   // 教員の操作は受信直後に適用・ACKする。定期的な全体再送は行わない。
 });
 
@@ -2501,6 +2507,7 @@ if (whiteboard) {
         targetTeacherSocketId: currentTeacherSocketId,
         action,
         boardRevision: boardSyncRevision,
+        monitorRequestId: currentMonitorRequestId,
       });
     }
   };
@@ -2550,9 +2557,10 @@ socket.on("shared-board-action", ({ sharedBoardId, action }) => {
   }
 });
 
-socket.on("start-monitoring", ({ teacherSocketId }) => {
+socket.on("start-monitoring", ({ teacherSocketId, monitorRequestId }) => {
   console.log("Monitoring started by", teacherSocketId);
   currentTeacherSocketId = teacherSocketId;
+  currentMonitorRequestId = monitorRequestId || null;
   hasSentInitialBoardData = false; // モニタリング開始時にリセット
   forceNextBoardSync = false;
 
@@ -2562,24 +2570,26 @@ socket.on("start-monitoring", ({ teacherSocketId }) => {
   if (monitorIntervalId) clearInterval(monitorIntervalId);
 
   // 初回即時送信
-  void sendScreenUpdate(teacherSocketId);
+  void sendScreenUpdate(teacherSocketId, currentMonitorRequestId);
 
   monitorIntervalId = setInterval(() => {
-    void sendScreenUpdate(teacherSocketId);
+    void sendScreenUpdate(teacherSocketId, currentMonitorRequestId);
   }, MONITORING_INTERVAL_MS); // 個別モーダル表示中は3秒ごとに更新
 });
 
 // ★ モニタリング終了通知
-socket.on("stop-monitoring", () => {
+socket.on("stop-monitoring", ({ monitorRequestId } = {}) => {
+  if (monitorRequestId && monitorRequestId !== currentMonitorRequestId) return;
   console.log("Monitoring stopped");
   currentTeacherSocketId = null;
+  currentMonitorRequestId = null;
   if (monitorIntervalId) {
     clearInterval(monitorIntervalId);
     monitorIntervalId = null;
   }
 });
 
-async function sendScreenUpdate(teacherSocketId) {
+async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonitorRequestId) {
   if (!currentClassCode) return;
 
   const monitoringMode = viewMode;
@@ -2666,7 +2676,10 @@ async function sendScreenUpdate(teacherSocketId) {
   }
 
   if (!dataUrl && monitoringMode !== "whiteboard") return;
-  if (currentTeacherSocketId !== teacherSocketId) return;
+  if (
+    currentTeacherSocketId !== teacherSocketId ||
+    monitorRequestId !== currentMonitorRequestId
+  ) return;
 
   const sent = await socket.emit("student-screen-update", {
     classCode: currentClassCode,
@@ -2681,6 +2694,7 @@ async function sendScreenUpdate(teacherSocketId) {
     teacherSyncToken,
     snapshotVersion,
     boardRevision: syncRevision,
+    monitorRequestId,
     isSync: !!(boardData || boardSnapshotPath)
   });
   if (sent !== false && shouldCommitBoardSync) {

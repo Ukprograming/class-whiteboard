@@ -1900,6 +1900,57 @@ body {
   touch-action: none;
 }
 
+.student-modal-board-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  background: rgba(243, 246, 248, 0.9);
+  color: #263640;
+  text-align: center;
+  backdrop-filter: blur(2px);
+}
+
+.student-modal-board-loading[hidden] {
+  display: none;
+}
+
+.student-modal-board-loading-spinner {
+  width: 34px;
+  height: 34px;
+  border: 4px solid rgba(47, 143, 190, 0.2);
+  border-top-color: #2f8fbe;
+  border-radius: 50%;
+  animation: student-modal-board-loading-spin 0.8s linear infinite;
+}
+
+.student-modal-board-loading[data-state="error"] .student-modal-board-loading-spinner {
+  display: none;
+}
+
+.student-modal-board-loading-message {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+@keyframes student-modal-board-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .student-modal-board-loading-spinner {
+    animation-duration: 1.6s;
+  }
+}
+
 .modal-header-overlay {
   position: absolute;
   top: 16px;
