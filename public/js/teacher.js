@@ -273,6 +273,68 @@ let studentListForBoardScope = []; // [{ socketId, nickname }, ...]
 // ★ 生徒画面モーダルの現在モード（whiteboard / screen / notebook）
 let modalCurrentStudentMode = "whiteboard";
 
+// 画面共有・ノート画像も Whiteboard と同じビューポートで描画する。
+// 画像だけをキャンバスへ固定表示すると、注釈レイヤーのズーム／パンと
+// 座標系が分かれ、ペン幅も画像に対して不自然に太く見えてしまう。
+let modalImageElement = null;
+let modalImageViewportKey = "";
+
+function clearModalImageViewport() {
+  modalImageElement = null;
+  modalImageViewportKey = "";
+  if (!modalCanvas || !modalCtx) return;
+  modalCtx.setTransform(1, 0, 0, 1, 0, 0);
+  modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+}
+
+function fitModalImageViewport(img) {
+  if (!modalBoard || !modalCanvas || !img?.naturalWidth || !img?.naturalHeight) {
+    return false;
+  }
+
+  const rect = modalCanvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const viewportWidth = rect.width || modalCanvas.width / dpr;
+  const viewportHeight = rect.height || modalCanvas.height / dpr;
+  if (!viewportWidth || !viewportHeight) return false;
+
+  const scale = Math.min(
+    viewportWidth / img.naturalWidth,
+    viewportHeight / img.naturalHeight
+  );
+  modalBoard.scale = scale;
+  modalBoard.offsetX = (viewportWidth - img.naturalWidth * scale) / 2;
+  modalBoard.offsetY = (viewportHeight - img.naturalHeight * scale) / 2;
+  return true;
+}
+
+function renderModalImageLayer() {
+  if (!modalCanvas || !modalCtx) return;
+
+  modalCtx.setTransform(1, 0, 0, 1, 0, 0);
+  modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+  if (
+    modalCurrentStudentMode === "whiteboard" ||
+    !modalImageElement ||
+    !modalBoard
+  ) {
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  modalCtx.imageSmoothingEnabled = true;
+  modalCtx.setTransform(
+    modalBoard.scale * dpr,
+    0,
+    0,
+    modalBoard.scale * dpr,
+    modalBoard.offsetX * dpr,
+    modalBoard.offsetY * dpr
+  );
+  modalCtx.drawImage(modalImageElement, 0, 0);
+  modalCtx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
 // ★ 追加: ノート提出モード用に「socketId → 生徒ID（ここではニックネーム）」を取得するヘルパー
 function getNotebookStudentIdForSocketId(socketId) {
   if (!socketId) return "";
@@ -2759,15 +2821,15 @@ socket.on(
         const cw = modalCanvas.width;
         const ch = modalCanvas.height;
         if (cw && ch) {
-          const scale = Math.min(cw / img.width, ch / img.height);
-          const drawW = img.width * scale;
-          const drawH = img.height * scale;
-          const dx = (cw - drawW) / 2;
-          const dy = (ch - drawH) / 2;
+          const viewportKey = `${studentSocketId}:${effectiveMode}:${img.naturalWidth}x${img.naturalHeight}`;
+          const shouldFitViewport = modalImageViewportKey !== viewportKey;
+          modalImageElement = img;
+          modalImageViewportKey = viewportKey;
 
-          // ★ 下レイヤーだけを描き替える。上レイヤーの先生の書き込みは残る。
-          modalCtx.clearRect(0, 0, cw, ch);
-          modalCtx.drawImage(img, dx, dy, drawW, drawH);
+          // 最初の画像だけ全体が収まる倍率へ合わせる。以後の定期更新では
+          // 教員がズーム／パンした位置を維持する。
+          if (shouldFitViewport) fitModalImageViewport(img);
+          modalBoard?.render?.();
         }
       }
       completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
@@ -2926,6 +2988,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
 
   // 今回選択した生徒を「現在監視中」として記録
   currentMonitoringStudentSocketId = studentSocketId;
+  clearModalImageViewport();
   modalCurrentStudentMode = latestModeByStudent[studentSocketId] || "whiteboard";
   modalShowingSavedFeedback = false;
   updateModalRestoreFeedbackButton();
@@ -2988,6 +3051,20 @@ function startMonitoringStudent(studentSocketId, nickname) {
     // Whiteboard は「上レイヤー」に紐づける
     modalBoard = new Whiteboard({ canvas: modalOverlayCanvas });
     modalBoard.setTeacherMode(true);
+
+    // Whiteboard がズーム／パン／ピンチ操作で再描画されるたびに、下の
+    // ノート画像も同じ scale / offset で描き直す。
+    const renderModalOverlay = modalBoard.render.bind(modalBoard);
+    modalBoard.render = () => {
+      renderModalImageLayer();
+      if (modalShowingSavedFeedback) {
+        const overlayCtx = modalOverlayCanvas?.getContext("2d");
+        overlayCtx?.setTransform(1, 0, 0, 1, 0, 0);
+        overlayCtx?.clearRect(0, 0, modalOverlayCanvas.width, modalOverlayCanvas.height);
+        return;
+      }
+      renderModalOverlay();
+    };
     updateModalBoardInteractionLock();
 
     // ★ ノート提出モードならグリッド非表示
@@ -3120,13 +3197,10 @@ function drawSavedFeedbackInModal(imageData) {
 
   const img = new Image();
   img.onload = () => {
-    const { width: cw, height: ch } = modalCanvas;
-    if (!cw || !ch) return;
-    const scale = Math.min(cw / img.width, ch / img.height);
-    const drawW = img.width * scale;
-    const drawH = img.height * scale;
-    modalCtx.clearRect(0, 0, cw, ch);
-    modalCtx.drawImage(img, (cw - drawW) / 2, (ch - drawH) / 2, drawW, drawH);
+    modalImageElement = img;
+    modalImageViewportKey = `saved:${currentMonitoringStudentSocketId}:${img.naturalWidth}x${img.naturalHeight}`;
+    fitModalImageViewport(img);
+    renderModalImageLayer();
     if (modalOverlayCanvas) {
       modalOverlayCanvas.getContext("2d")?.clearRect(
         0,
