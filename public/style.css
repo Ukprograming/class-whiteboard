@@ -2306,6 +2306,7 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  touch-action: none;
   background: #ffffff;
   border-radius: 4px;
   border: 1px solid #d1d5db;
@@ -4760,6 +4761,43 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   gap: 10px;
 }
 
+.notebook-section-heading,
+.notebook-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.notebook-section-heading {
+  flex-wrap: wrap;
+}
+
+.notebook-view-controls {
+  flex: 0 0 auto;
+}
+
+.notebook-zoom-label,
+#feedbackZoomLabel {
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.notebook-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.notebook-expand-btn .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.expanded-only {
+  display: none;
+}
+
 .corner-instruction {
   flex: 0 0 auto;
   padding: 4px 9px;
@@ -4785,15 +4823,23 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   background: #eef2f4;
 }
 
-.notebook-camera-stage video,
-.notebook-camera-stage canvas {
+.notebook-camera-surface {
+  position: absolute;
+  inset: 0;
+  transform: translate(0, 0) scale(1);
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.notebook-camera-surface video,
+.notebook-camera-surface canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-.notebook-camera-stage video {
+.notebook-camera-surface video {
   object-fit: contain;
 }
 
@@ -4801,6 +4847,69 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   z-index: 1;
   cursor: crosshair;
   touch-action: none;
+}
+
+.video-section.is-expanded,
+.feedback-section.is-expanded {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1300;
+  width: auto;
+  height: auto;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  background: #f5f8fa;
+  box-sizing: border-box;
+}
+
+.video-section.is-expanded .expanded-only {
+  display: inline-flex;
+}
+
+.video-section.is-expanded .notebook-section-title,
+.feedback-section.is-expanded > .section-title {
+  flex: 0 0 auto;
+  min-height: 50px;
+  margin-bottom: 10px;
+}
+
+.video-section.is-expanded .notebook-camera-stage,
+.feedback-section.is-expanded .feedback-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(31, 50, 64, 0.16);
+}
+
+.video-section.is-expanded #cornerSelectionCanvas {
+  cursor: grab;
+}
+
+.video-section.is-expanded #cornerSelectionCanvas.is-panning,
+.feedback-viewport.is-panning #feedbackImage {
+  cursor: grabbing;
+}
+
+body.notebook-panel-expanded {
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .video-section.is-expanded,
+  .feedback-section.is-expanded {
+    padding: 10px;
+  }
+
+  .notebook-section-title,
+  .feedback-toolbar,
+  .feedback-toolbar-right {
+    flex-wrap: wrap;
+  }
+
+  .notebook-expand-label {
+    display: none;
+  }
 }
 
 .student-notebook-toolbar,

@@ -1754,24 +1754,36 @@ const cameraSelect = document.getElementById("cameraSelect");
 const startCameraBtn = document.getElementById("startCameraBtn");
 const paperSizeSelect = document.getElementById("paperSizeSelect");
 const videoEl = document.getElementById("video");
+const videoSection = document.querySelector(".video-section");
+const notebookCameraStage = document.querySelector(".notebook-camera-stage");
+const notebookCameraSurface = document.getElementById("notebookCameraSurface");
 const cornerSelectionCanvas = document.getElementById("cornerSelectionCanvas");
 const cornerSelectionCtx = cornerSelectionCanvas
   ? cornerSelectionCanvas.getContext("2d")
   : null;
 const cornerInstruction = document.getElementById("cornerInstruction");
 const resetPerspectiveBtn = document.getElementById("resetPerspectiveBtn");
+const cameraExpandBtn = document.getElementById("cameraExpandBtn");
+const cameraZoomOutBtn = document.getElementById("cameraZoomOutBtn");
+const cameraZoomInBtn = document.getElementById("cameraZoomInBtn");
+const cameraResetViewBtn = document.getElementById("cameraResetViewBtn");
+const cameraZoomLabel = document.getElementById("cameraZoomLabel");
 const previewCanvas = document.getElementById("previewCanvas");
 const previewCtx = previewCanvas ? previewCanvas.getContext("2d") : null;
+const feedbackSection = document.querySelector(".feedback-section");
 const feedbackImage = document.getElementById("feedbackImage");
 const feedbackViewport = document.getElementById("feedbackViewport");
 const feedbackResetBtn = document.getElementById("feedbackResetBtn");
+const feedbackExpandBtn = document.getElementById("feedbackExpandBtn");
+const feedbackZoomOutBtn = document.getElementById("feedbackZoomOutBtn");
+const feedbackZoomInBtn = document.getElementById("feedbackZoomInBtn");
 const feedbackZoomLabel = document.getElementById("feedbackZoomLabel");
 
 // ズーム・パン状態
 let fbScale = 1;
 let fbOffsetX = 0;
 let fbOffsetY = 0;
-let fbIsDragging = false;
+let fbPointerId = null;
 let fbLastX = 0;
 let fbLastY = 0;
 
@@ -1789,6 +1801,21 @@ function updateFeedbackTransform() {
   }
 }
 
+function setFeedbackZoom(nextScale, clientX, clientY) {
+  if (!feedbackViewport || !feedbackImage?.src) return;
+  const rect = feedbackViewport.getBoundingClientRect();
+  const anchorX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+  const anchorY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+  const imageX = (anchorX - fbOffsetX) / fbScale;
+  const imageY = (anchorY - fbOffsetY) / fbScale;
+  const boundedScale = Math.max(0.05, Math.min(nextScale, 8));
+
+  fbOffsetX = anchorX - imageX * boundedScale;
+  fbOffsetY = anchorY - imageY * boundedScale;
+  fbScale = boundedScale;
+  updateFeedbackTransform();
+}
+
 // 画像をビューポート中央に、できるだけ大きくフィットさせる
 function centerFeedbackImage() {
   if (!feedbackViewport || !fbImgWidth || !fbImgHeight) return;
@@ -1802,20 +1829,12 @@ function centerFeedbackImage() {
   const fitScale = Math.min(vw / fbImgWidth, vh / fbImgHeight);
 
   // ちょっとだけ大きめにしたいなら *1.1 など（ここでは等倍で）
-  fbScale = Math.max(0.5, Math.min(fitScale, 5));
+  fbScale = Math.max(0.05, Math.min(fitScale, 8));
 
   // 中央に来るようにオフセットを計算
   fbOffsetX = (vw - fbImgWidth * fbScale) / 2;
   fbOffsetY = (vh - fbImgHeight * fbScale) / 2;
 
-  updateFeedbackTransform();
-}
-
-
-function resetFeedbackView() {
-  fbScale = 1;
-  fbOffsetX = 0;
-  fbOffsetY = 0;
   updateFeedbackTransform();
 }
 
@@ -1840,17 +1859,117 @@ let selectedCorners = []; // [{nx, ny}, ...] nx,ny: 0〜1
 let cornersLocked = false; // 4点揃ったら true
 const CORNER_LABELS = ["左上", "右上", "右下", "左下"];
 
+// 拡大した撮影映像のズーム・パン状態
+let cameraScale = 1;
+let cameraOffsetX = 0;
+let cameraOffsetY = 0;
+let cameraPointerId = null;
+let cameraPointerStartX = 0;
+let cameraPointerStartY = 0;
+let cameraLastX = 0;
+let cameraLastY = 0;
+let cameraPointerMoved = false;
+
+function clampCameraPan() {
+  if (!notebookCameraStage || cameraScale <= 1) {
+    cameraOffsetX = 0;
+    cameraOffsetY = 0;
+    return;
+  }
+  const minX = notebookCameraStage.clientWidth * (1 - cameraScale);
+  const minY = notebookCameraStage.clientHeight * (1 - cameraScale);
+  cameraOffsetX = Math.max(minX, Math.min(0, cameraOffsetX));
+  cameraOffsetY = Math.max(minY, Math.min(0, cameraOffsetY));
+}
+
+function updateCameraTransform() {
+  if (!notebookCameraSurface) return;
+  clampCameraPan();
+  notebookCameraSurface.style.transform =
+    `translate(${cameraOffsetX}px, ${cameraOffsetY}px) scale(${cameraScale})`;
+  if (cameraZoomLabel) {
+    cameraZoomLabel.textContent = `${Math.round(cameraScale * 100)}%`;
+  }
+}
+
+function setCameraZoom(nextScale, clientX, clientY) {
+  if (!notebookCameraStage) return;
+  const rect = notebookCameraStage.getBoundingClientRect();
+  const anchorX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+  const anchorY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+  const surfaceX = (anchorX - cameraOffsetX) / cameraScale;
+  const surfaceY = (anchorY - cameraOffsetY) / cameraScale;
+  const boundedScale = Math.max(1, Math.min(nextScale, 6));
+
+  cameraOffsetX = anchorX - surfaceX * boundedScale;
+  cameraOffsetY = anchorY - surfaceY * boundedScale;
+  cameraScale = boundedScale;
+  updateCameraTransform();
+}
+
+function resetCameraView() {
+  cameraScale = 1;
+  cameraOffsetX = 0;
+  cameraOffsetY = 0;
+  updateCameraTransform();
+}
+
+function updateExpandedButton(button, expanded) {
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(expanded));
+  const icon = button.querySelector(".material-symbols-rounded");
+  const label = button.querySelector(".notebook-expand-label");
+  if (icon) icon.textContent = expanded ? "close_fullscreen" : "open_in_full";
+  if (label) label.textContent = expanded ? "縮小する" : "拡大表示";
+}
+
+function closeExpandedNotebookPanel() {
+  const cameraWasExpanded = videoSection?.classList.contains("is-expanded");
+  const feedbackWasExpanded = feedbackSection?.classList.contains("is-expanded");
+  videoSection?.classList.remove("is-expanded");
+  feedbackSection?.classList.remove("is-expanded");
+  updateExpandedButton(cameraExpandBtn, false);
+  updateExpandedButton(feedbackExpandBtn, false);
+  document.body.classList.remove("notebook-panel-expanded");
+
+  if (cameraWasExpanded) resetCameraView();
+  requestAnimationFrame(() => {
+    if (cameraWasExpanded) drawCornerSelectionOverlay();
+    if (feedbackWasExpanded) centerFeedbackImage();
+  });
+}
+
+function openExpandedNotebookPanel(section, button) {
+  const alreadyExpanded = section?.classList.contains("is-expanded");
+  closeExpandedNotebookPanel();
+  if (!section || alreadyExpanded) return;
+
+  section.classList.add("is-expanded");
+  updateExpandedButton(button, true);
+  document.body.classList.add("notebook-panel-expanded");
+  requestAnimationFrame(() => {
+    if (section === videoSection) {
+      resetCameraView();
+      drawCornerSelectionOverlay();
+    } else if (section === feedbackSection) {
+      centerFeedbackImage();
+    }
+  });
+}
+
 function getContainedVideoRect() {
-  if (!cornerSelectionCanvas || !videoEl?.videoWidth || !videoEl?.videoHeight) return null;
-  const rect = cornerSelectionCanvas.getBoundingClientRect();
-  if (!rect.width || !rect.height) return null;
-  const scale = Math.min(rect.width / videoEl.videoWidth, rect.height / videoEl.videoHeight);
+  if (!notebookCameraStage || !videoEl?.videoWidth || !videoEl?.videoHeight) return null;
+  const elementRect = notebookCameraStage.getBoundingClientRect();
+  const stageWidth = notebookCameraStage.clientWidth;
+  const stageHeight = notebookCameraStage.clientHeight;
+  if (!stageWidth || !stageHeight) return null;
+  const scale = Math.min(stageWidth / videoEl.videoWidth, stageHeight / videoEl.videoHeight);
   const width = videoEl.videoWidth * scale;
   const height = videoEl.videoHeight * scale;
   return {
-    elementRect: rect,
-    x: (rect.width - width) / 2,
-    y: (rect.height - height) / 2,
+    elementRect,
+    x: (stageWidth - width) / 2,
+    y: (stageHeight - height) / 2,
     width,
     height,
   };
@@ -1868,17 +1987,19 @@ function updateCornerSelectionUI() {
 }
 
 function drawCornerSelectionOverlay() {
-  if (!cornerSelectionCanvas || !cornerSelectionCtx) return;
-  const rect = cornerSelectionCanvas.getBoundingClientRect();
+  if (!cornerSelectionCanvas || !cornerSelectionCtx || !notebookCameraStage) return;
+  const width = notebookCameraStage.clientWidth;
+  const height = notebookCameraStage.clientHeight;
+  if (!width || !height) return;
   const dpr = window.devicePixelRatio || 1;
-  const nextWidth = Math.max(1, Math.round(rect.width * dpr));
-  const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+  const nextWidth = Math.max(1, Math.round(width * dpr));
+  const nextHeight = Math.max(1, Math.round(height * dpr));
   if (cornerSelectionCanvas.width !== nextWidth || cornerSelectionCanvas.height !== nextHeight) {
     cornerSelectionCanvas.width = nextWidth;
     cornerSelectionCanvas.height = nextHeight;
   }
   cornerSelectionCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cornerSelectionCtx.clearRect(0, 0, rect.width, rect.height);
+  cornerSelectionCtx.clearRect(0, 0, width, height);
 
   const videoRect = getContainedVideoRect();
   if (!videoRect || selectedCorners.length === 0) return;
@@ -2044,11 +2165,47 @@ function setupPreviewCanvas() {
 // 撮影中の映像上で、左上 → 右上 → 右下 → 左下の順に四隅を指定する。
 if (cornerSelectionCanvas) {
   cornerSelectionCanvas.addEventListener("pointerdown", (event) => {
-    if (cornersLocked) return;
+    if (event.button !== undefined && event.button !== 0) return;
+    cameraPointerId = event.pointerId;
+    cameraPointerStartX = event.clientX;
+    cameraPointerStartY = event.clientY;
+    cameraLastX = event.clientX;
+    cameraLastY = event.clientY;
+    cameraPointerMoved = false;
+    cornerSelectionCanvas.setPointerCapture?.(event.pointerId);
+  });
+
+  cornerSelectionCanvas.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== cameraPointerId) return;
+    const totalDx = event.clientX - cameraPointerStartX;
+    const totalDy = event.clientY - cameraPointerStartY;
+    if (Math.hypot(totalDx, totalDy) > 6) cameraPointerMoved = true;
+
+    if (cameraPointerMoved && cameraScale > 1) {
+      cameraOffsetX += event.clientX - cameraLastX;
+      cameraOffsetY += event.clientY - cameraLastY;
+      updateCameraTransform();
+      cornerSelectionCanvas.classList.add("is-panning");
+    }
+    cameraLastX = event.clientX;
+    cameraLastY = event.clientY;
+  });
+
+  const finishCameraPointer = (event, cancelled = false) => {
+    if (event.pointerId !== cameraPointerId) return;
+    cornerSelectionCanvas.releasePointerCapture?.(event.pointerId);
+    cornerSelectionCanvas.classList.remove("is-panning");
+    cameraPointerId = null;
+    if (cancelled || cameraPointerMoved || cornersLocked) return;
+
     const videoRect = getContainedVideoRect();
     if (!videoRect) return;
-    const x = event.clientX - videoRect.elementRect.left - videoRect.x;
-    const y = event.clientY - videoRect.elementRect.top - videoRect.y;
+    const surfaceX =
+      (event.clientX - videoRect.elementRect.left - cameraOffsetX) / cameraScale;
+    const surfaceY =
+      (event.clientY - videoRect.elementRect.top - cameraOffsetY) / cameraScale;
+    const x = surfaceX - videoRect.x;
+    const y = surfaceY - videoRect.y;
     if (x < 0 || y < 0 || x > videoRect.width || y > videoRect.height) return;
 
     selectedCorners.push({
@@ -2062,13 +2219,43 @@ if (cornerSelectionCanvas) {
       // 台形補正が確定した画像を、次の5秒周期を待たずに送る。
       sendWhiteboardThumbnail();
     }
+  };
+
+  cornerSelectionCanvas.addEventListener("pointerup", (event) => {
+    finishCameraPointer(event);
   });
+  cornerSelectionCanvas.addEventListener("pointercancel", (event) => {
+    finishCameraPointer(event, true);
+  });
+  cornerSelectionCanvas.addEventListener("wheel", (event) => {
+    if (!videoSection?.classList.contains("is-expanded")) return;
+    event.preventDefault();
+    setCameraZoom(cameraScale * (event.deltaY < 0 ? 1.15 : 0.87), event.clientX, event.clientY);
+  }, { passive: false });
 }
 
 resetPerspectiveBtn?.addEventListener("click", resetPerspectiveCorrection);
+cameraZoomOutBtn?.addEventListener("click", () => setCameraZoom(cameraScale / 1.25));
+cameraZoomInBtn?.addEventListener("click", () => setCameraZoom(cameraScale * 1.25));
+cameraResetViewBtn?.addEventListener("click", resetCameraView);
+cameraExpandBtn?.addEventListener("click", () => {
+  openExpandedNotebookPanel(videoSection, cameraExpandBtn);
+});
+feedbackExpandBtn?.addEventListener("click", () => {
+  openExpandedNotebookPanel(feedbackSection, feedbackExpandBtn);
+});
 
-if (cornerSelectionCanvas && typeof ResizeObserver !== "undefined") {
-  new ResizeObserver(drawCornerSelectionOverlay).observe(cornerSelectionCanvas);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("notebook-panel-expanded")) {
+    closeExpandedNotebookPanel();
+  }
+});
+
+if (notebookCameraStage && typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => {
+    updateCameraTransform();
+    drawCornerSelectionOverlay();
+  }).observe(notebookCameraStage);
 }
 
 /**
@@ -2243,28 +2430,23 @@ if (feedbackViewport) {
     if (!feedbackImage || !feedbackImage.src) return;
 
     e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    fbScale *= zoomFactor;
-
-    // ズームの上限/下限（お好みで調整）
-    fbScale = Math.max(0.5, Math.min(fbScale, 5));
-
-    updateFeedbackTransform();
-  });
+    setFeedbackZoom(fbScale * (e.deltaY < 0 ? 1.15 : 0.87), e.clientX, e.clientY);
+  }, { passive: false });
 
   // ドラッグでパン
-  feedbackViewport.addEventListener("mousedown", (e) => {
+  feedbackViewport.addEventListener("pointerdown", (e) => {
     if (!feedbackImage || !feedbackImage.src) return;
-    if (e.button !== 0) return; // 左クリックのみ
+    if (e.button !== undefined && e.button !== 0) return;
 
-    fbIsDragging = true;
+    fbPointerId = e.pointerId;
     fbLastX = e.clientX;
     fbLastY = e.clientY;
-    feedbackImage.style.cursor = "grabbing";
+    feedbackViewport.setPointerCapture?.(e.pointerId);
+    feedbackViewport.classList.add("is-panning");
   });
 
-  window.addEventListener("mousemove", (e) => {
-    if (!fbIsDragging) return;
+  feedbackViewport.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== fbPointerId) return;
 
     const dx = e.clientX - fbLastX;
     const dy = e.clientY - fbLastY;
@@ -2276,20 +2458,19 @@ if (feedbackViewport) {
     updateFeedbackTransform();
   });
 
-  window.addEventListener("mouseup", () => {
-    if (fbIsDragging) {
-      fbIsDragging = false;
-      feedbackImage.style.cursor = "grab";
-    }
-  });
+  const finishFeedbackPointer = (e) => {
+    if (e.pointerId !== fbPointerId) return;
+    feedbackViewport.releasePointerCapture?.(e.pointerId);
+    feedbackViewport.classList.remove("is-panning");
+    fbPointerId = null;
+  };
+  feedbackViewport.addEventListener("pointerup", finishFeedbackPointer);
+  feedbackViewport.addEventListener("pointercancel", finishFeedbackPointer);
 }
 
-// リセットボタン
-if (feedbackResetBtn) {
-  feedbackResetBtn.addEventListener("click", () => {
-    centerFeedbackImage();
-  });
-}
+feedbackZoomOutBtn?.addEventListener("click", () => setFeedbackZoom(fbScale / 1.25));
+feedbackZoomInBtn?.addEventListener("click", () => setFeedbackZoom(fbScale * 1.25));
+feedbackResetBtn?.addEventListener("click", centerFeedbackImage);
 
 
 

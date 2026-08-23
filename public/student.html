@@ -67,15 +67,35 @@
       <main class="student-notebook-content">
         <section class="video-section">
           <div class="section-title notebook-section-title">
-            <span>撮影中の映像（ノートの四隅を順に選択）</span>
-            <span id="cornerInstruction" class="corner-instruction">左上をクリック</span>
+            <div class="notebook-section-heading">
+              <span>撮影中の映像（ノートの四隅を順に選択）</span>
+              <span id="cornerInstruction" class="corner-instruction">左上をクリック</span>
+            </div>
+            <div class="notebook-view-controls">
+              <button id="cameraZoomOutBtn" type="button" class="topbar-btn small expanded-only" aria-label="撮影映像を縮小">
+                −
+              </button>
+              <span id="cameraZoomLabel" class="notebook-zoom-label expanded-only">100%</span>
+              <button id="cameraZoomInBtn" type="button" class="topbar-btn small expanded-only" aria-label="撮影映像を拡大">
+                ＋
+              </button>
+              <button id="cameraResetViewBtn" type="button" class="topbar-btn small expanded-only">
+                表示をリセット
+              </button>
+              <button id="cameraExpandBtn" type="button" class="topbar-btn small notebook-expand-btn" aria-pressed="false">
+                <span class="material-symbols-rounded" aria-hidden="true">open_in_full</span>
+                <span class="notebook-expand-label">拡大表示</span>
+              </button>
+            </div>
           </div>
           <div class="notebook-camera-stage">
-            <video id="video" autoplay playsinline></video>
-            <canvas
-              id="cornerSelectionCanvas"
-              aria-label="ノートの四隅を左上、右上、右下、左下の順に選択"
-            ></canvas>
+            <div id="notebookCameraSurface" class="notebook-camera-surface">
+              <video id="video" autoplay playsinline></video>
+              <canvas
+                id="cornerSelectionCanvas"
+                aria-label="ノートの四隅を左上、右上、右下、左下の順に選択。拡大時はドラッグで移動できます"
+              ></canvas>
+            </div>
           </div>
         </section>
 
@@ -96,10 +116,20 @@
             <div class="feedback-toolbar">
               <span>先生からのフィードバック</span>
               <div class="feedback-toolbar-right">
-                <button id="feedbackResetBtn" type="button" class="topbar-btn small">
-                  リセット
+                <button id="feedbackZoomOutBtn" type="button" class="topbar-btn small" aria-label="フィードバック画像を縮小">
+                  −
                 </button>
                 <span id="feedbackZoomLabel">100%</span>
+                <button id="feedbackZoomInBtn" type="button" class="topbar-btn small" aria-label="フィードバック画像を拡大">
+                  ＋
+                </button>
+                <button id="feedbackResetBtn" type="button" class="topbar-btn small">
+                  全体表示
+                </button>
+                <button id="feedbackExpandBtn" type="button" class="topbar-btn small notebook-expand-btn" aria-pressed="false">
+                  <span class="material-symbols-rounded" aria-hidden="true">open_in_full</span>
+                  <span class="notebook-expand-label">拡大表示</span>
+                </button>
               </div>
             </div>
 
