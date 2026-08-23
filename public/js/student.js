@@ -1917,10 +1917,12 @@ function resetCameraView() {
 function updateExpandedButton(button, expanded) {
   if (!button) return;
   button.setAttribute("aria-pressed", String(expanded));
-  const icon = button.querySelector(".material-symbols-rounded");
   const label = button.querySelector(".notebook-expand-label");
-  if (icon) icon.textContent = expanded ? "close_fullscreen" : "open_in_full";
   if (label) label.textContent = expanded ? "縮小する" : "拡大表示";
+  const targetName = button === feedbackExpandBtn ? "フィードバック" : "撮影映像";
+  const actionLabel = expanded ? `${targetName}を元の大きさに戻す` : `${targetName}を拡大表示`;
+  button.setAttribute("aria-label", actionLabel);
+  button.title = actionLabel;
 }
 
 function closeExpandedNotebookPanel() {

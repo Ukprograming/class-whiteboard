@@ -4765,33 +4765,161 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
 .notebook-view-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
 .notebook-section-heading {
+  flex: 1 1 auto;
   flex-wrap: wrap;
 }
 
 .notebook-view-controls {
   flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.feedback-toolbar {
+  gap: 10px;
+}
+
+.feedback-toolbar > span:first-child {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.feedback-toolbar-right {
+  flex: 0 0 auto;
+  gap: 6px;
 }
 
 .notebook-zoom-label,
 #feedbackZoomLabel {
-  min-width: 48px;
+  min-width: 50px;
+  height: 36px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   text-align: center;
+  color: #294552;
+  font-size: 13px;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
 
-.notebook-expand-btn {
+.notebook-control-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 11px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 7px;
+  appearance: none;
+  border: 1px solid rgba(165, 190, 203, 0.92);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 2px 7px rgba(31, 71, 91, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #294552;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
-.notebook-expand-btn .material-symbols-rounded {
-  font-size: 18px;
+.notebook-control-btn:hover {
+  border-color: rgba(81, 145, 174, 0.86);
+  background: #f7fbfc;
+  color: #17658a;
+  box-shadow:
+    0 5px 12px rgba(31, 71, 91, 0.12),
+    inset 0 1px 0 #ffffff;
+  transform: translateY(-1px);
+}
+
+.notebook-control-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.notebook-control-btn:focus-visible {
+  outline: 3px solid rgba(47, 143, 190, 0.28);
+  outline-offset: 2px;
+}
+
+.notebook-icon-control {
+  width: 36px;
+  padding: 0;
+}
+
+.notebook-control-btn .app-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.notebook-expand-btn {
+  border-color: rgba(151, 196, 214, 0.92);
+  background: #eaf5f8;
+  color: #17658a;
+}
+
+.notebook-expand-btn:hover {
+  border-color: rgba(47, 143, 190, 0.72);
+  background: #dff0f5;
+  color: #114f6c;
+}
+
+.notebook-expand-icon {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.notebook-expand-icon .app-icon {
+  position: absolute;
+  inset: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.notebook-collapse-glyph,
+.notebook-expand-btn[aria-pressed="true"] .notebook-expand-glyph {
+  display: none;
+}
+
+.notebook-expand-btn[aria-pressed="true"] .notebook-collapse-glyph {
+  display: block;
+}
+
+.notebook-expand-btn-compact {
+  width: 38px;
+  padding: 0;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 
 .expanded-only {
@@ -4826,6 +4954,12 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
 .notebook-camera-surface {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  display: block;
+  overflow: hidden;
   transform: translate(0, 0) scale(1);
   transform-origin: top left;
   will-change: transform;
@@ -4837,10 +4971,15 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   inset: 0;
   width: 100%;
   height: 100%;
+  max-width: none;
+  max-height: none;
+  display: block;
 }
 
 .notebook-camera-surface video {
+  z-index: 0;
   object-fit: contain;
+  background: #eef2f4;
 }
 
 #cornerSelectionCanvas {
@@ -4893,6 +5032,22 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
 
 body.notebook-panel-expanded {
   overflow: hidden;
+}
+
+body.notebook-panel-expanded .student-notebook-layout {
+  z-index: 1200;
+  padding: 0;
+}
+
+@media (max-width: 1450px) {
+  .feedback-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .feedback-toolbar-right {
+    justify-content: flex-end;
+  }
 }
 
 @media (max-width: 720px) {
