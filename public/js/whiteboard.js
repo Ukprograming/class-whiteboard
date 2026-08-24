@@ -1812,6 +1812,13 @@ export class Whiteboard {
     this._notifyPages();
   }
 
+  restoreBoardDraft(data) {
+    if (!data) return;
+    this.importBoardData(data);
+    // 再読み込み前の下書きは、復元後も「未保存」のまま扱う。
+    this._markDirty();
+  }
+
   _importSinglePageData(data, options = {}) {
     if (!data) return;
 

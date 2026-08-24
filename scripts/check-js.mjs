@@ -532,6 +532,32 @@ if (missingRealtimeJoinContracts.length > 0) {
   ok = false;
 }
 
+const studentSessionRecoveryContracts = [
+  [studentSource, "authApi.getStudentSession()"],
+  [studentSource, "restoreStudentDraft(currentClassCode, nickname)"],
+  [studentSource, "STUDENT_DRAFT_MARKER_KEY"],
+  [studentSource, 'window.addEventListener("pagehide"'],
+  [studentSource, 'socket.emit("leave-class")'],
+  [studentSource, "if (!whiteboard?.isBoardDirty)"],
+  [studentSource, "保存せずにファイルを開きますか？"],
+  [teacherSource, "保存せずにファイルを開きますか？"],
+  [realtimeApiSource, "async getStudentSession()"],
+  [realtimeApiSource, "worker: true"],
+  [whiteboardSource, "restoreBoardDraft(data)"],
+  [whiteboardSource, "this._markDirty();"],
+  [studentHtmlSource, "session-recovery=20260824"],
+  [teacherHtmlSource, "session-recovery=20260824"],
+];
+const missingStudentSessionRecoveryContracts = studentSessionRecoveryContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingStudentSessionRecoveryContracts.length > 0) {
+  console.error(
+    `Student refresh/session recovery contracts missing: ${missingStudentSessionRecoveryContracts.join(", ")}`
+  );
+  ok = false;
+}
+
 for (const [filePath, htmlSource] of [
   ["public/teacher.html", teacherHtmlSource],
   ["public/student.html", studentHtmlSource],

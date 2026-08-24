@@ -121,6 +121,11 @@ export const supabase = supabaseEnabled
       storage: getAuthStorage(),
       storageKey: getAuthStorageKey(),
     },
+    realtime: {
+      // バックグラウンドタブでも heartbeat がブラウザのタイマー抑制を
+      // 受けにくいよう、Realtime の heartbeat を Web Worker で動かす。
+      worker: true,
+    },
   })
   : null;
 
@@ -1227,6 +1232,38 @@ export const authApi = {
 
     return {
       ...data,
+      classCode: klass.class_code,
+      studentLoginId: student.student_login_id,
+      displayName: student.display_name,
+    };
+  },
+
+  async getStudentSession() {
+    assertSupabase();
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    const session = sessionData.session;
+    if (!session || session.user?.app_metadata?.role !== "student") return null;
+
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("id, class_id, student_login_id, display_name, active")
+      .eq("auth_user_id", session.user.id)
+      .eq("active", true)
+      .maybeSingle();
+    if (studentError) throw studentError;
+    if (!student) return null;
+
+    const { data: klass, error: classError } = await supabase
+      .from("classes")
+      .select("id, class_code")
+      .eq("id", student.class_id)
+      .maybeSingle();
+    if (classError) throw classError;
+    if (!klass) return null;
+
+    return {
+      session,
       classCode: klass.class_code,
       studentLoginId: student.student_login_id,
       displayName: student.display_name,

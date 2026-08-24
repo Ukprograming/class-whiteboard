@@ -1,12 +1,12 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824&session-recovery=20260824";
 import {
   authApi,
   boardApi,
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
 
 // 共通ホワイトボード UI 初期化
@@ -192,6 +192,9 @@ function encodeCanvasForRealtime(sourceCanvas, options = {}) {
 
 async function loadActiveSharedBoard(classCode) {
   if (!boardApi.enabled || !whiteboard || !classCode) return;
+  // 再接続や再読み込みの直後に、復元した未保存ボードを共有スナップショットで
+  // 上書きしない。未保存状態がないときだけサーバー側の共有ボードを読む。
+  if (whiteboard.isBoardDirty) return;
   try {
     const result = await boardApi.getActiveSharedBoard({ classCode });
     const sharedBoard = result.sharedBoard;
@@ -243,6 +246,193 @@ let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
 let boardFileSaveInFlight = false;
+const STUDENT_DRAFT_MARKER_KEY = "classWhiteboard.studentDraftMarker.v1";
+const STUDENT_DRAFT_PAYLOAD_PREFIX = "classWhiteboard.studentDraft.v1:";
+const STUDENT_DRAFT_DB_NAME = "class-whiteboard-student-drafts";
+const STUDENT_DRAFT_STORE_NAME = "drafts";
+const STUDENT_DRAFT_SAVE_DELAY_MS = 150;
+let studentDraftSaveTimerId = null;
+let studentSessionRestoreInProgress = false;
+let hasRestoredStudentDraft = false;
+
+function getStudentDraftKey(classCode = currentClassCode, studentId = nickname) {
+  const normalizedClassCode = String(classCode || "").trim().toUpperCase();
+  const normalizedStudentId = String(studentId || "").trim().toLowerCase();
+  return normalizedClassCode && normalizedStudentId
+    ? `${normalizedClassCode}:${normalizedStudentId}`
+    : "";
+}
+
+function getStudentDraftSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    console.warn("Session storage is unavailable; board refresh recovery is limited.", error);
+    return null;
+  }
+}
+
+function openStudentDraftDatabase() {
+  if (!window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(STUDENT_DRAFT_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(STUDENT_DRAFT_STORE_NAME)) {
+        request.result.createObjectStore(STUDENT_DRAFT_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Draft database could not be opened."));
+  });
+}
+
+async function writeStudentDraftToDatabase(draftKey, draft) {
+  const database = await openStudentDraftDatabase();
+  if (!database) return;
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(STUDENT_DRAFT_STORE_NAME, "readwrite");
+    transaction.objectStore(STUDENT_DRAFT_STORE_NAME).put(draft, draftKey);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error("Draft could not be saved."));
+    transaction.onabort = () => reject(transaction.error || new Error("Draft save was aborted."));
+  });
+  database.close();
+}
+
+async function readStudentDraftFromDatabase(draftKey) {
+  const database = await openStudentDraftDatabase();
+  if (!database) return null;
+  const draft = await new Promise((resolve, reject) => {
+    const transaction = database.transaction(STUDENT_DRAFT_STORE_NAME, "readonly");
+    const request = transaction.objectStore(STUDENT_DRAFT_STORE_NAME).get(draftKey);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error("Draft could not be read."));
+  });
+  database.close();
+  return draft;
+}
+
+async function deleteStudentDraftFromDatabase(draftKey) {
+  if (!draftKey) return;
+  const database = await openStudentDraftDatabase();
+  if (!database) return;
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(STUDENT_DRAFT_STORE_NAME, "readwrite");
+    transaction.objectStore(STUDENT_DRAFT_STORE_NAME).delete(draftKey);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error("Draft could not be cleared."));
+  });
+  database.close();
+}
+
+function createStudentDraft() {
+  const draftKey = getStudentDraftKey();
+  if (!draftKey || !whiteboard || !whiteboard.isBoardDirty) return null;
+  return {
+    version: 1,
+    draftKey,
+    classCode: currentClassCode,
+    studentId: nickname,
+    savedAt: new Date().toISOString(),
+    boardData: whiteboard.exportBoardData(),
+    currentBoardFileId,
+    currentBoardFileName,
+    lastUsedFolderPath,
+  };
+}
+
+function persistStudentDraftNow() {
+  if (studentDraftSaveTimerId) {
+    clearTimeout(studentDraftSaveTimerId);
+    studentDraftSaveTimerId = null;
+  }
+  const draft = createStudentDraft();
+  if (!draft) return Promise.resolve(false);
+
+  const storage = getStudentDraftSessionStorage();
+  if (storage) {
+    try {
+      storage.setItem(STUDENT_DRAFT_MARKER_KEY, draft.draftKey);
+      storage.setItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draft.draftKey}`, JSON.stringify(draft));
+    } catch (error) {
+      // 大きな画像を含むボードは sessionStorage の上限を超えるため、
+      // IndexedDB 側の保存を継続する。
+      console.warn("Board draft exceeded session storage; using IndexedDB.", error);
+    }
+  }
+
+  return writeStudentDraftToDatabase(draft.draftKey, draft)
+    .then(() => true)
+    .catch((error) => {
+      console.warn("Failed to persist the board draft in IndexedDB.", error);
+      return Boolean(storage);
+    });
+}
+
+function scheduleStudentDraftSave() {
+  if (!currentClassCode || !nickname || !whiteboard) return;
+  if (studentDraftSaveTimerId) clearTimeout(studentDraftSaveTimerId);
+  studentDraftSaveTimerId = setTimeout(() => {
+    void persistStudentDraftNow();
+  }, STUDENT_DRAFT_SAVE_DELAY_MS);
+}
+
+async function clearStudentDraft(draftKey = getStudentDraftKey()) {
+  if (!draftKey) return;
+  if (studentDraftSaveTimerId) {
+    clearTimeout(studentDraftSaveTimerId);
+    studentDraftSaveTimerId = null;
+  }
+  const storage = getStudentDraftSessionStorage();
+  if (storage?.getItem(STUDENT_DRAFT_MARKER_KEY) === draftKey) {
+    storage.removeItem(STUDENT_DRAFT_MARKER_KEY);
+  }
+  storage?.removeItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`);
+  try {
+    await deleteStudentDraftFromDatabase(draftKey);
+  } catch (error) {
+    console.warn("Failed to clear the stored board draft.", error);
+  }
+}
+
+async function restoreStudentDraft(classCode, studentId) {
+  const draftKey = getStudentDraftKey(classCode, studentId);
+  const storage = getStudentDraftSessionStorage();
+  if (!draftKey || storage?.getItem(STUDENT_DRAFT_MARKER_KEY) !== draftKey) return false;
+
+  let draft = null;
+  const rawDraft = storage.getItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`);
+  if (rawDraft) {
+    try {
+      draft = JSON.parse(rawDraft);
+    } catch (error) {
+      console.warn("Stored board draft could not be parsed.", error);
+    }
+  }
+  if (!draft) {
+    try {
+      draft = await readStudentDraftFromDatabase(draftKey);
+    } catch (error) {
+      console.warn("Stored board draft could not be read from IndexedDB.", error);
+    }
+  }
+  if (!draft?.boardData || draft.draftKey !== draftKey) return false;
+
+  if (typeof whiteboard.restoreBoardDraft === "function") {
+    whiteboard.restoreBoardDraft(draft.boardData);
+  } else {
+    whiteboard.importBoardData(draft.boardData);
+  }
+  currentBoardFileId = draft.currentBoardFileId || null;
+  currentBoardFileName = draft.currentBoardFileName || "";
+  lastUsedFolderPath = draft.lastUsedFolderPath || "";
+  hasRestoredStudentDraft = true;
+  if (statusLabel) {
+    const savedAt = draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString() : "直前";
+    statusLabel.textContent = `編集中のボードを復元しました（${savedAt}）: ${classCode} / ${studentId}`;
+  }
+  return true;
+}
 
 
 // ========= 左パネル折りたたみ（旧 UI 用） =========
@@ -424,6 +614,52 @@ if (studentLoginForm) {
   });
 }
 
+async function restoreStudentSessionOnLoad() {
+  if (!supabaseEnabled || studentLoginInProgress || !studentLoginOverlay) return;
+  studentSessionRestoreInProgress = true;
+  setStudentLoginPending(true);
+  setStudentLoginMessage("前回のログイン状態と編集中のボードを確認中…");
+  try {
+    const restoredSession = await authApi.getStudentSession();
+    if (!restoredSession) {
+      setStudentLoginMessage("");
+      return;
+    }
+
+    currentClassCode = restoredSession.classCode;
+    nickname = restoredSession.studentLoginId;
+    const joined = await socket.emit("join-class", {
+      classCode: currentClassCode,
+      nickname,
+    });
+    if (!joined) {
+      setStudentLoginMessage("前回のクラスへの再参加に失敗しました。もう一度ログインしてください。", true);
+      return;
+    }
+
+    studentLoginOverlay.classList.add("hidden");
+    const displayLabel = restoredSession.displayName
+      ? `${restoredSession.displayName}（ID: ${nickname}）`
+      : nickname;
+    if (statusLabel) statusLabel.textContent = `クラス: ${currentClassCode} / ${displayLabel}`;
+    updateModeUI();
+
+    const draftRestored = await restoreStudentDraft(currentClassCode, nickname);
+    if (!draftRestored) {
+      await loadActiveSharedBoard(currentClassCode);
+    }
+  } catch (error) {
+    console.error("Failed to restore the student session:", error);
+    setStudentLoginMessage(
+      "前回のログイン状態を復元できませんでした。通信を確認して、必要ならもう一度ログインしてください。",
+      true
+    );
+  } finally {
+    studentSessionRestoreInProgress = false;
+    setStudentLoginPending(false);
+  }
+}
+
 // 参加成功
 socket.on("join-success", (payload) => {
   if (studentLoginOverlay) {
@@ -439,7 +675,9 @@ socket.on("join-success", (payload) => {
 
   // ★ クラス参加後に現在モード（初期値: whiteboard）をサーバーに通知
   updateModeUI();
-  void loadActiveSharedBoard(payload.classCode);
+  if (!studentSessionRestoreInProgress && !hasRestoredStudentDraft) {
+    void loadActiveSharedBoard(payload.classCode);
+  }
 
   // 既存ボードデータの読み込みなどがあればここで行う
   // socket.emit("request-board-state", ...);
@@ -932,6 +1170,10 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     const savedCurrentRevision = typeof whiteboard.markSaved === "function"
       ? whiteboard.markSaved(saveRevision)
       : true;
+    if (savedCurrentRevision !== false) {
+      hasRestoredStudentDraft = false;
+      await clearStudentDraft();
+    }
 
     const savedMessage = json.message ||
       (mode === "update"
@@ -963,6 +1205,16 @@ async function studentLoadBoardInternal(folderPath, fileId) {
     alert("読み込むファイルを選択してください。");
     return;
   }
+  if (
+    whiteboard.isBoardDirty &&
+    !window.confirm(
+      "現在のホワイトボードには未保存の変更があります。\n" +
+      "別のファイルを開くと、この変更は失われます。\n\n" +
+      "保存せずにファイルを開きますか？"
+    )
+  ) {
+    return;
+  }
 
   try {
     const payload = {
@@ -992,6 +1244,8 @@ async function studentLoadBoardInternal(folderPath, fileId) {
       currentBoardFileId = json.fileId || fileId || null;
       currentBoardFileName = json.fileName ? json.fileName.replace(/\.json$/i, "") : "";
       lastUsedFolderPath = (folderPath || "").trim();
+      hasRestoredStudentDraft = false;
+      await clearStudentDraft();
       alert("Loaded board.");
       closeBoardDialog();
       return;
@@ -1045,6 +1299,8 @@ async function studentLoadBoardInternal(folderPath, fileId) {
       currentBoardFileName = "";
     }
     lastUsedFolderPath = (folderPath || "").trim();
+    hasRestoredStudentDraft = false;
+    await clearStudentDraft();
 
     alert("ホワイトボードを読み込みました。");
     closeBoardDialog();
@@ -1506,7 +1762,9 @@ socket.on("realtime-disconnected", () => {
 socket.on("realtime-reconnected", ({ classCode }) => {
   const restoredClassCode = classCode || currentClassCode;
   if (!restoredClassCode) return;
-  void loadActiveSharedBoard(restoredClassCode);
+  if (!whiteboard?.isBoardDirty) {
+    void loadActiveSharedBoard(restoredClassCode);
+  }
   if (currentTeacherSocketId) {
     void sendBoardStateToTeacher(currentTeacherSocketId);
   }
@@ -2616,6 +2874,7 @@ socket.on("student-view-stop", () => {
 
 
 window.addEventListener("beforeunload", () => {
+  void persistStudentDraftNow();
   captureLoopActive = false;
   captureLoopGeneration += 1;
   if (captureTimerId) {
@@ -2626,6 +2885,13 @@ window.addEventListener("beforeunload", () => {
   }
   stopScreenCapture();
   stopNotebookCamera();
+});
+
+window.addEventListener("pagehide", () => {
+  // 確認で離脱を取り消した場合には発火せず、実際に更新・閉じるときだけ
+  // Presence から明示的に抜ける。通信断はこの経路に入らず再接続を待てる。
+  void persistStudentDraftNow();
+  void socket.emit("leave-class");
 });
 // ========= 生徒画面モニタリング（高機能版）関連 =========
 
@@ -2705,6 +2971,7 @@ socket.on("teacher-whiteboard-action", ({ action, teacherSocketId, monitorReques
   if (!whiteboard) return;
   if (monitorRequestId && monitorRequestId !== currentMonitorRequestId) return;
   whiteboard.applyAction(action);
+  scheduleStudentDraftSave();
   boardSyncRevision += 1;
   if (action?.teacherSyncToken) {
     lastAppliedTeacherSyncToken = action.teacherSyncToken;
@@ -2720,7 +2987,11 @@ socket.on("teacher-whiteboard-action", ({ action, teacherSocketId, monitorReques
 
 // ★ ホワイトボード操作の送信フック設定
 if (whiteboard) {
+  whiteboard.onDirtyChange = (isDirty) => {
+    if (isDirty) scheduleStudentDraftSave();
+  };
   whiteboard.onAction = (action) => {
+    scheduleStudentDraftSave();
     boardSyncRevision += 1;
 
     if (sharedBoardSession && !applyingSharedBoardRemote) {
@@ -2793,6 +3064,7 @@ socket.on("shared-board-action", ({ sharedBoardId, action }) => {
   applyingSharedBoardRemote = true;
   try {
     whiteboard.applyAction(action);
+    scheduleStudentDraftSave();
   } finally {
     applyingSharedBoardRemote = false;
   }
@@ -2961,5 +3233,9 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
     }
   }
 }
+
+// すべての Realtime ハンドラと下書き保存フックを登録してから、保存済みの
+// Supabase セッションを使った自動再参加・下書き復元を開始する。
+void restoreStudentSessionOnLoad();
 
 
