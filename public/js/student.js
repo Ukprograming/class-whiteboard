@@ -276,11 +276,27 @@ let loginStudentPasswordInput = document.getElementById("loginStudentPassword");
 let loginSavedAccountSelect = document.getElementById("loginSavedAccount");
 const loginSavedAccountLabel = document.getElementById("loginSavedAccountLabel");
 const studentLoginMessage = document.getElementById("studentLoginMessage");
+const studentLoginSubmitButton = studentLoginForm?.querySelector("button[type='submit']");
+let studentLoginInProgress = false;
 
 function setStudentLoginMessage(message, isError = false) {
   if (!studentLoginMessage) return;
   studentLoginMessage.textContent = message || "";
   studentLoginMessage.classList.toggle("is-error", isError);
+}
+
+function setStudentLoginPending(isPending) {
+  studentLoginInProgress = isPending;
+  if (studentLoginSubmitButton) {
+    studentLoginSubmitButton.disabled = isPending;
+    studentLoginSubmitButton.textContent = isPending ? "ログイン中…" : "ログインして参加";
+    studentLoginSubmitButton.setAttribute("aria-busy", String(isPending));
+  }
+  if (isPending) {
+    studentLoginForm?.setAttribute("aria-busy", "true");
+  } else {
+    studentLoginForm?.removeAttribute("aria-busy");
+  }
 }
 
 function ensureStudentPasswordLoginControls() {
@@ -334,6 +350,8 @@ if (studentLoginForm) {
 
   studentLoginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (studentLoginInProgress) return;
+
     const code = loginClassCodeInput.value.trim();
     const studentLoginId = loginStudentIdInput.value.trim();
     const password = loginStudentPasswordInput ? loginStudentPasswordInput.value : "";
@@ -348,50 +366,56 @@ if (studentLoginForm) {
       return;
     }
 
-    let signedInStudent = null;
-    if (supabaseEnabled) {
-      setStudentLoginMessage("ログインしています…");
-      try {
-        signedInStudent = await authApi.signInStudent({
-          classCode: code,
-          studentLoginId,
-          password,
-        });
-      } catch (err) {
-        console.error("Supabase student login failed:", err);
-        setStudentLoginMessage(err.message || "ログインできませんでした。", true);
-        return;
-      }
-    }
+    setStudentLoginPending(true);
+    setStudentLoginMessage("ログイン中…");
 
-    const canonicalClassCode = signedInStudent?.classCode || code;
-    const canonicalStudentId = signedInStudent?.studentLoginId || studentLoginId;
-    currentClassCode = canonicalClassCode;
-    nickname = canonicalStudentId;
-
-    // サーバーへ参加リクエスト。完了前に mode-change を送ると、同じ
-    // Supabase Presence channel への参加が二重に走るため必ず待つ。
     try {
-      const joined = await socket.emit("join-class", {
-        classCode: canonicalClassCode,
-        nickname: canonicalStudentId,
-      });
-      if (supabaseEnabled && !joined) {
-        setStudentLoginMessage("クラスに参加できませんでした。", true);
+      let signedInStudent = null;
+      if (supabaseEnabled) {
+        try {
+          signedInStudent = await authApi.signInStudent({
+            classCode: code,
+            studentLoginId,
+            password,
+          });
+        } catch (err) {
+          console.error("Supabase student login failed:", err);
+          setStudentLoginMessage(err.message || "ログインできませんでした。", true);
+          return;
+        }
+      }
+
+      const canonicalClassCode = signedInStudent?.classCode || code;
+      const canonicalStudentId = signedInStudent?.studentLoginId || studentLoginId;
+      currentClassCode = canonicalClassCode;
+      nickname = canonicalStudentId;
+
+      // サーバーへ参加リクエスト。完了前に mode-change を送ると、同じ
+      // Supabase Presence channel への参加が二重に走るため必ず待つ。
+      try {
+        const joined = await socket.emit("join-class", {
+          classCode: canonicalClassCode,
+          nickname: canonicalStudentId,
+        });
+        if (supabaseEnabled && !joined) {
+          setStudentLoginMessage("クラスに参加できませんでした。", true);
+          return;
+        }
+      } catch (err) {
+        console.error("Supabase realtime join failed:", err);
+        setStudentLoginMessage(err.message || "クラスに参加できませんでした。", true);
         return;
       }
-    } catch (err) {
-      console.error("Supabase realtime join failed:", err);
-      setStudentLoginMessage(err.message || "クラスに参加できませんでした。", true);
-      return;
-    }
-    if (supabaseEnabled) {
-      if (studentLoginOverlay) studentLoginOverlay.classList.add("hidden");
-      const displayLabel = signedInStudent?.displayName
-        ? `${signedInStudent.displayName}（ID: ${canonicalStudentId}）`
-        : canonicalStudentId;
-      if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
-      updateModeUI();
+      if (supabaseEnabled) {
+        if (studentLoginOverlay) studentLoginOverlay.classList.add("hidden");
+        const displayLabel = signedInStudent?.displayName
+          ? `${signedInStudent.displayName}（ID: ${canonicalStudentId}）`
+          : canonicalStudentId;
+        if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
+        updateModeUI();
+      }
+    } finally {
+      setStudentLoginPending(false);
     }
   });
 }

@@ -11,11 +11,27 @@ const passwordInput = document.getElementById("teacherPassword");
 const classSelect = document.getElementById("teacherClassSelect");
 const classHelp = document.getElementById("teacherClassHelp");
 const messageEl = document.getElementById("teacherLoginMessage");
+const submitButton = form?.querySelector("button[type='submit']");
+let loginInProgress = false;
 
 function setMessage(message, isError = false) {
   if (!messageEl) return;
   messageEl.textContent = message || "";
   messageEl.classList.toggle("is-error", isError);
+}
+
+function setLoginPending(isPending) {
+  loginInProgress = isPending;
+  if (submitButton) {
+    submitButton.disabled = isPending;
+    submitButton.textContent = isPending ? "ログイン中…" : "ログイン";
+    submitButton.setAttribute("aria-busy", String(isPending));
+  }
+  if (isPending) {
+    form?.setAttribute("aria-busy", "true");
+  } else {
+    form?.removeAttribute("aria-busy");
+  }
 }
 
 function renderSavedClasses() {
@@ -48,7 +64,10 @@ if (new URLSearchParams(window.location.search).get("registered") === "1") {
 if (form && supabaseEnabled) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setMessage("処理中...");
+    if (loginInProgress) return;
+
+    setLoginPending(true);
+    setMessage("ログイン中…");
 
     const email = emailInput?.value.trim();
     const password = passwordInput?.value || "";
@@ -62,10 +81,19 @@ if (form && supabaseEnabled) {
     } catch (error) {
       console.error(error);
       setMessage(error.message || "ログインに失敗しました。", true);
+      setLoginPending(false);
     }
   });
 } else if (form && !supabaseEnabled) {
   form.action = "/teacher/login";
   if (emailInput) emailInput.required = false;
   setMessage("Supabase未設定のため、既存サーバーのログインを使います。");
+  form.addEventListener("submit", (event) => {
+    if (loginInProgress) {
+      event.preventDefault();
+      return;
+    }
+    setLoginPending(true);
+    setMessage("ログイン中…");
+  });
 }
