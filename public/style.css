@@ -5154,6 +5154,38 @@ body.notebook-panel-expanded .student-notebook-layout {
     top: 10px;
   }
 
+  .chat-panel {
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    top: max(8px, env(safe-area-inset-top));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    transform: none;
+    transition: opacity 0.18s ease, visibility 0s linear;
+  }
+
+  .chat-panel.collapsed {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: none;
+    transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+  }
+
+  .chat-panel-header,
+  .chat-target-area,
+  .chat-template-area,
+  .chat-input-area {
+    flex-shrink: 0;
+  }
+
+  .chat-messages,
+  .chat-input-area input {
+    min-width: 0;
+    min-height: 0;
+  }
+
   .topbar-center {
     position: static;
     transform: none;
@@ -5201,6 +5233,52 @@ body.notebook-panel-expanded .student-notebook-layout {
 
   .view-header h2 {
     font-size: 26px;
+  }
+}
+
+@media (max-width: 640px) and (max-height: 420px) {
+  .chat-panel-header {
+    padding: 10px 14px;
+  }
+
+  .chat-title {
+    font-size: 18px;
+  }
+
+  .chat-target-area {
+    padding: 6px 14px;
+  }
+
+  .chat-template-area {
+    gap: 6px;
+    padding: 8px 14px;
+  }
+
+  .chat-template-btn {
+    min-height: 34px;
+    padding: 5px 8px;
+  }
+
+  .chat-messages {
+    padding: 8px 14px;
+  }
+
+  .chat-input-area {
+    padding: 8px 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .chat-input-area {
+    flex-wrap: wrap;
+  }
+
+  .chat-reaction-bar {
+    flex-basis: 100%;
+  }
+
+  .chat-input-area input {
+    flex-basis: 0;
   }
 }
 
