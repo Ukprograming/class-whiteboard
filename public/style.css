@@ -4408,6 +4408,18 @@ body {
   width: min(398px, calc(100vw - 36px));
   border-radius: 18px;
   z-index: 700;
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.18s ease, visibility 0s linear;
+}
+
+.chat-panel.collapsed {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+  transition: opacity 0.18s ease, visibility 0s linear 0.18s;
 }
 
 .chat-title {
@@ -5161,16 +5173,6 @@ body.notebook-panel-expanded .student-notebook-layout {
     bottom: max(8px, env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
-    transform: none;
-    transition: opacity 0.18s ease, visibility 0s linear;
-  }
-
-  .chat-panel.collapsed {
-    visibility: hidden;
-    opacity: 0;
-    pointer-events: none;
-    transform: none;
-    transition: opacity 0.18s ease, visibility 0s linear 0.18s;
   }
 
   .chat-panel-header,
