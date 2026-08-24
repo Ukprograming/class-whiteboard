@@ -2,7 +2,7 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824&modal-tool-scope=20260824";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,

@@ -185,9 +185,9 @@ try {
       presenceEventsPerSecond.set(bucket, (presenceEventsPerSecond.get(bucket) || 0) + 1);
     }
     const peakPresenceEvents = Math.max(...presenceEventsPerSecond.values());
-    const initialChannelJoins = [0, 80, 160, 240];
+    const initialChannelJoins = Array.from({ length: 24 }, (_, index) => index * 80);
     for (const delayMs of studentDelays) {
-      for (const channelOffsetMs of [0, 80, 160, 240, 320]) {
+      for (const channelOffsetMs of [0, 80, 160, 240]) {
         initialChannelJoins.push(delayMs + channelOffsetMs);
       }
     }
@@ -263,6 +263,10 @@ try {
 }
 
 const realtimeApiSource = readFileSync("public/js/supabase-api.js", "utf8");
+const duplexRealtimeMigrationSource = readFileSync(
+  "supabase/migrations/20260824065229_make_student_realtime_channels_duplex.sql",
+  "utf8"
+);
 const emittedEvents = ["public/js/teacher.js", "public/js/student.js"].flatMap((filePath) => {
   const source = readFileSync(filePath, "utf8")
     .split(/\r?\n/)
@@ -292,20 +296,35 @@ if (missingRoleMappings.length > 0) {
   ok = false;
 }
 
-const teacherInboxContracts = [
+const studentDuplexContracts = [
   "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
-  "supabase.channel(`class:${classCode}:teacher-inbox`",
+  'const teacherInboxChannel = role === "teacher"',
   "await subscribeChannel(teacherInboxChannel, \"Teacher inbox\")",
-  "await subscribeChannel(teacherInboxChannel, \"Teacher outbox\")",
+  "for (const studentRecordId of new Set(membership.studentIdByLoginId.values()))",
+  "handleRemoteEvent(eventPayload, \"teacher-inbox\")",
   "targetChannel = await getStudentOutboxChannel(studentRecordId)",
   "channelStatuses.get(targetChannel) !== \"SUBSCRIBED\"",
-  "targetChannel = state.teacherInboxChannel",
+  "targetChannel = state.studentInboxChannel",
 ];
-const missingTeacherInboxContracts = teacherInboxContracts.filter(
+const missingStudentDuplexContracts = studentDuplexContracts.filter(
   (contract) => !realtimeApiSource.includes(contract)
 );
-if (missingTeacherInboxContracts.length > 0) {
-  console.error("Student-to-teacher events are not fully routed through the teacher inbox.");
+if (missingStudentDuplexContracts.length > 0) {
+  console.error("Student duplex Realtime routing contracts are incomplete.");
+  ok = false;
+}
+const studentDuplexPolicyContracts = [
+  'create policy "class teachers can read realtime student inbox"',
+  'create policy "class students can write realtime student inbox"',
+  "where c.teacher_id = (select auth.uid())",
+  "where s.auth_user_id = (select auth.uid())",
+  "('class:' || c.class_code || ':student:' || s.id::text)",
+];
+const missingStudentDuplexPolicyContracts = studentDuplexPolicyContracts.filter(
+  (contract) => !duplexRealtimeMigrationSource.includes(contract)
+);
+if (missingStudentDuplexPolicyContracts.length > 0) {
+  console.error("Student duplex Realtime RLS contracts are incomplete.");
   ok = false;
 }
 if (realtimeApiSource.includes(".httpSend(")) {

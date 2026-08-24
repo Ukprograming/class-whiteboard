@@ -6,7 +6,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
 
 // 共通ホワイトボード UI 初期化

@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824";
 import {
   getSelectedTeacherClass,
   getTeacherClassHints,

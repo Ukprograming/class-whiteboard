@@ -279,11 +279,25 @@ function createSupabaseRealtimeBridge() {
     if (state.role !== "teacher") return;
     for (const item of Object.values(presenceState || {}).flat()) {
       if (item?.role !== "student") continue;
-      rememberStudentSocketRoute(
+      const studentRecordId = rememberStudentSocketRoute(
         item.socketId,
         item.nickname,
         item.studentId
       );
+      if (state.online) {
+        void Promise.resolve(
+          studentRecordId || resolveTargetStudentRecordId({
+            targetSocketId: item.socketId,
+            studentId: item.studentId || item.nickname,
+          })
+        )
+          .then((resolvedStudentRecordId) => resolvedStudentRecordId
+            ? getStudentOutboxChannel(resolvedStudentRecordId)
+            : null)
+          .catch((error) => {
+            console.warn("[realtime] failed to subscribe a newly active student channel.", error);
+          });
+      }
     }
   }
 
@@ -535,12 +549,14 @@ function createSupabaseRealtimeBridge() {
         broadcast: { self: false, ack: true },
       },
     });
-    const teacherInboxChannel = supabase.channel(`class:${classCode}:teacher-inbox`, {
-      config: {
-        private: privateChannels,
-        broadcast: { self: false, ack: true },
-      },
-    });
+    const teacherInboxChannel = role === "teacher"
+      ? supabase.channel(`class:${classCode}:teacher-inbox`, {
+        config: {
+          private: privateChannels,
+          broadcast: { self: false, ack: true },
+        },
+      })
+      : null;
     const studentInboxChannel = role === "student"
       ? supabase.channel(`class:${classCode}:student:${membership.studentRecordId}`, {
         config: {
@@ -617,12 +633,13 @@ function createSupabaseRealtimeBridge() {
         if (state.sharedChannel !== sharedChannel) return false;
         if (role === "teacher") {
           await subscribeChannel(teacherInboxChannel, "Teacher inbox");
+          for (const studentRecordId of new Set(membership.studentIdByLoginId.values())) {
+            await getStudentOutboxChannel(studentRecordId);
+          }
         } else if (studentInboxChannel) {
-          // A private Broadcast sender must also join its write-only channel.
-          // Once joined, channel.send() remains on the WebSocket and avoids a
-          // separate Realtime Authorization database query for every message.
-          await subscribeChannel(teacherInboxChannel, "Teacher outbox");
-          if (state.teacherInboxChannel !== teacherInboxChannel) return false;
+          // Student traffic uses the same per-student private topic in both
+          // directions. This keeps classmates isolated while allowing all
+          // messages to remain on the subscribed WebSocket channel.
           await subscribeChannel(studentInboxChannel, "Student inbox");
         }
         return true;
@@ -768,6 +785,11 @@ function createSupabaseRealtimeBridge() {
         },
       }
     );
+    channel.on(
+      "broadcast",
+      { event: "socket-event" },
+      ({ payload: eventPayload }) => handleRemoteEvent(eventPayload, "teacher-inbox")
+    );
     state.studentOutboxChannels.set(studentRecordId, channel);
     const ready = subscribeChannel(channel, `Student outbox ${studentRecordId}`);
     state.studentOutboxReady.set(studentRecordId, ready);
@@ -801,7 +823,7 @@ function createSupabaseRealtimeBridge() {
 
     try {
       if (isTeacherInboxEvent && state.role === "student") {
-        targetChannel = state.teacherInboxChannel;
+        targetChannel = state.studentInboxChannel;
       } else if (isSharedEvent && (state.role === "teacher" || state.role === "student")) {
         targetChannel = state.sharedChannel;
       } else if (isAnnouncementEvent && state.role === "teacher") {
