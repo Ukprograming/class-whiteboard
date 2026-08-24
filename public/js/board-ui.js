@@ -181,6 +181,31 @@ export function initBoardUI() {
   // 現在のペン設定
   let currentPenColor = "#111827";
   let currentPenWidth = 3;
+  let currentHighlighterColor = "#facc15";
+  let currentHighlighterWidth = 30;
+
+  // ペンと同じ4段階の表示を使いながら、蛍光ペンに適した太さへ変換する。
+  const highlighterWidthPresets = Object.freeze({
+    2: 14,
+    3: 30,
+    5: 42,
+    8: 56
+  });
+
+  function updateDrawSettingsUI(tool) {
+    const isHighlighter = tool === "highlighter";
+    const color = isHighlighter ? currentHighlighterColor : currentPenColor;
+    const widthValue = isHighlighter
+      ? Object.entries(highlighterWidthPresets).find(
+        ([, width]) => width === currentHighlighterWidth
+      )?.[0] || "3"
+      : String(currentPenWidth);
+
+    penColorButtons.forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.penColor === color);
+    });
+    if (penWidthSelect) penWidthSelect.value = widthValue;
+  }
 
 
   // 初期表示を 100% にしておく
@@ -439,6 +464,7 @@ export function initBoardUI() {
     if (penSettings) {
       if (activeTool === "pen" || activeTool === "highlighter") {
         if (settingsOpenTool === activeTool) {
+          updateDrawSettingsUI(activeTool);
           penSettings.classList.remove("hidden");
           showMenu = true;
         } else {
@@ -746,12 +772,13 @@ export function initBoardUI() {
           hasSettings && currentTool === tool && settingsOpenTool !== tool;
 
         wb.setTool(tool);
-        updateToolButtons(tool, { showSettings });
-
-        // ★ 蛍光ペンは毎回黄色を初期色にしておく
-        if (tool === "highlighter" && typeof wb.setHighlighterColor === "function") {
-          wb.setHighlighterColor("#facc15");
+        if (tool === "pen") {
+          wb.setPen(currentPenColor, currentPenWidth);
+        } else if (tool === "highlighter") {
+          wb.setHighlighterColor?.(currentHighlighterColor);
+          wb.setHighlighterWidth?.(currentHighlighterWidth);
         }
+        updateToolButtons(tool, { showSettings });
         return;
       }
 
@@ -924,9 +951,8 @@ export function initBoardUI() {
   // ★ テキストスタイルパネルを初期化
   setupTextStylePanel();
 
-  if (wb.setHighlighterColor) {
-    wb.setHighlighterColor(currentPenColor);
-  }
+  wb.setHighlighterColor?.(currentHighlighterColor);
+  wb.setHighlighterWidth?.(currentHighlighterWidth);
 
   // ========= ペン色パレット =========
   if (penColorButtons.length > 0) {
@@ -934,10 +960,12 @@ export function initBoardUI() {
       btn.addEventListener("click", () => {
         const color = btn.dataset.penColor;
         if (!color) return;
-        currentPenColor = color;
-        wb.setPen(currentPenColor, currentPenWidth);
-        if (wb.setHighlighterColor) {
-          wb.setHighlighterColor(currentPenColor);
+        if (settingsOpenTool === "highlighter") {
+          currentHighlighterColor = color;
+          wb.setHighlighterColor?.(currentHighlighterColor);
+        } else {
+          currentPenColor = color;
+          wb.setPen(currentPenColor, currentPenWidth);
         }
 
         penColorButtons.forEach(b =>
@@ -951,8 +979,13 @@ export function initBoardUI() {
   if (penWidthSelect) {
     penWidthSelect.addEventListener("change", () => {
       const width = parseInt(penWidthSelect.value, 10) || 3;
-      currentPenWidth = width;
-      wb.setPen(currentPenColor, currentPenWidth);
+      if (settingsOpenTool === "highlighter") {
+        currentHighlighterWidth = highlighterWidthPresets[width] || 30;
+        wb.setHighlighterWidth?.(currentHighlighterWidth);
+      } else {
+        currentPenWidth = width;
+        wb.setPen(currentPenColor, currentPenWidth);
+      }
     });
   }
 

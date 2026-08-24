@@ -662,6 +662,27 @@ if (missingInteractionContracts.length > 0) {
   ok = false;
 }
 
+const highlighterSettingContracts = [
+  "let currentHighlighterColor = \"#facc15\"",
+  "let currentHighlighterWidth = 30",
+  "wb.setHighlighterColor?.(currentHighlighterColor)",
+  "wb.setHighlighterWidth?.(currentHighlighterWidth)",
+  "currentHighlighterWidth = highlighterWidthPresets[width] || 30",
+];
+const missingHighlighterSettingContracts = highlighterSettingContracts.filter(
+  (contract) => !boardUiSource.includes(contract)
+);
+if (missingHighlighterSettingContracts.length > 0) {
+  console.error(
+    `Highlighter setting persistence contracts missing: ${missingHighlighterSettingContracts.join(", ")}`
+  );
+  ok = false;
+}
+if (/setHighlighterColor\(["']#facc15["']\)/.test(boardUiSource)) {
+  console.error("Highlighter color must not reset when its tool menu is toggled.");
+  ok = false;
+}
+
 const databaseSecurityContracts = [
   '"class teachers can write realtime announcements"',
   '"class students can read realtime student inbox"',
