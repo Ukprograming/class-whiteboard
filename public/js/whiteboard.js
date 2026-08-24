@@ -227,15 +227,41 @@ export class Whiteboard {
     return `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  _releaseAssetObjectUrls() {
+  _collectAssetObjectUrls(data) {
+    const objectUrls = new Set();
+    const pages = Array.isArray(data?.pages) && data.pages.length
+      ? data.pages.map(page => page?.boardData)
+      : [data];
+    for (const pageData of pages) {
+      if (!pageData) continue;
+      const backgroundUrl = pageData.background?.objectUrl;
+      if (typeof backgroundUrl === "string" && backgroundUrl.startsWith("blob:")) {
+        objectUrls.add(backgroundUrl);
+      }
+      for (const object of pageData.objects || []) {
+        const objectUrl = object?.imageObjectUrl;
+        if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
+          objectUrls.add(objectUrl);
+        }
+      }
+    }
+    return objectUrls;
+  }
+
+  _releaseAssetObjectUrls(exceptUrls = new Set()) {
+    const retainedUrls = new Set();
     for (const url of this._assetObjectUrls || []) {
+      if (exceptUrls.has(url)) {
+        retainedUrls.add(url);
+        continue;
+      }
       try {
         URL.revokeObjectURL(url);
       } catch (error) {
         console.warn("Failed to release a board asset URL.", error);
       }
     }
-    this._assetObjectUrls?.clear();
+    this._assetObjectUrls = retainedUrls;
   }
 
   _registerAssetObjectUrls(data) {
@@ -1760,7 +1786,8 @@ export class Whiteboard {
   importBoardData(data) {
     if (!data) return;
 
-    this._releaseAssetObjectUrls();
+    const incomingObjectUrls = this._collectAssetObjectUrls(data);
+    this._releaseAssetObjectUrls(incomingObjectUrls);
     this._ensureBoardAssetKeys(data);
     this._registerAssetObjectUrls(data);
 
@@ -1936,8 +1963,12 @@ export class Whiteboard {
         if (imageSource) {
           const img = new Image();
           img.onload = () => this.render();
-          img.src = imageSource;
+          img.onerror = () => {
+            if (obj.image === img) obj.image = null;
+            this.render();
+          };
           obj.image = img;
+          img.src = imageSource;
           if (obj.sourceType === "pdf-page" && o.imageDataUrl) {
             obj.cachedImageDataUrl = o.imageDataUrl;
             obj.cachedImageWidth = o.imageWidth || 0;
@@ -3887,7 +3918,12 @@ export class Whiteboard {
       const fillColor = obj.fill || "transparent";
       const strokeWidth = obj.strokeWidth || 2;
 
-      if (kind === "image" && obj.image) {
+      if (
+        kind === "image" &&
+        obj.image?.complete &&
+        obj.image.naturalWidth > 0 &&
+        obj.image.naturalHeight > 0
+      ) {
         ctx.save();
 
         if (obj.sourceType === "pdf-page") {

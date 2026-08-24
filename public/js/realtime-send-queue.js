@@ -9,9 +9,9 @@ function wait(ms) {
 /**
  * Realtime差分を必ず1件ずつ送るための小さなキュー。
  *
- * HTTP Broadcastを同時並行で送ると、連続ストロークの到着順が前後したり、
+ * Broadcastを同時並行で送ると、連続ストロークの到着順が前後したり、
  * 一時的な失敗がそのまま欠落になったりする。送信前のpayloadを複製し、
- * サーバー受領が確認できるまで短い間隔で再試行してから次へ進む。
+ * サーバー受領が確認できるまで間隔を広げながら再試行してから次へ進む。
  */
 export function createOrderedRetryQueue(send, options = {}) {
   if (typeof send !== "function") {
@@ -23,6 +23,10 @@ export function createOrderedRetryQueue(send, options = {}) {
   const retryDelayMs = Number.isFinite(configuredRetryDelayMs)
     ? Math.max(0, configuredRetryDelayMs)
     : 120;
+  const retryBackoffFactor = Math.max(1, Number(options.retryBackoffFactor) || 1);
+  const retryJitterMs = Math.max(0, Number(options.retryJitterMs) || 0);
+  const random = typeof options.random === "function" ? options.random : Math.random;
+  const waitForRetry = typeof options.wait === "function" ? options.wait : wait;
   const onRetry = typeof options.onRetry === "function" ? options.onRetry : null;
   let tail = Promise.resolve();
 
@@ -45,8 +49,13 @@ export function createOrderedRetryQueue(send, options = {}) {
 
         if (sent) return true;
         if (attempt < maxAttempts) {
-          onRetry?.({ eventName, attempt, maxAttempts });
-          if (retryDelayMs > 0) await wait(retryDelayMs * attempt);
+          const backoffMs = retryDelayMs * (retryBackoffFactor ** (attempt - 1));
+          const jitterMs = retryJitterMs > 0
+            ? Math.floor(random() * (retryJitterMs + 1))
+            : 0;
+          const delayMs = Math.round(backoffMs + jitterMs);
+          onRetry?.({ eventName, attempt, maxAttempts, delayMs });
+          if (delayMs > 0) await waitForRetry(delayMs);
         }
       }
       return false;

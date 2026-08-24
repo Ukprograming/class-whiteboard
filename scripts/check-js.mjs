@@ -14,6 +14,7 @@ const moduleFiles = [
   "public/js/board-ui.js",
   "public/js/monitor-sync.js",
   "public/js/realtime-join-coordinator.js",
+  "public/js/realtime-load-control.js",
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
   "public/js/student.js",
@@ -42,6 +43,7 @@ for (const filePath of commonJsFiles) {
 const tempDir = mkdtempSync(join(tmpdir(), "class-whiteboard-check-"));
 try {
   let realtimeJoinCoordinatorTempPath = "";
+  let realtimeLoadControlTempPath = "";
   let realtimeQueueTempPath = "";
   let monitorSyncTempPath = "";
   for (const filePath of moduleFiles) {
@@ -49,6 +51,7 @@ try {
     copyFileSync(filePath, tempPath);
     ok = runNodeCheck(tempPath) && ok;
     if (filePath.endsWith("realtime-join-coordinator.js")) realtimeJoinCoordinatorTempPath = tempPath;
+    if (filePath.endsWith("realtime-load-control.js")) realtimeLoadControlTempPath = tempPath;
     if (filePath.endsWith("realtime-send-queue.js")) realtimeQueueTempPath = tempPath;
     if (filePath.endsWith("monitor-sync.js")) monitorSyncTempPath = tempPath;
   }
@@ -144,6 +147,84 @@ try {
       console.error(`Realtime send queue order/retry contract failed: ${JSON.stringify(sendOrder)}`);
       ok = false;
     }
+
+    const retryDelays = [];
+    let backoffAttempts = 0;
+    const backoffQueue = createOrderedRetryQueue(async () => {
+      backoffAttempts += 1;
+      return backoffAttempts >= 3;
+    }, {
+      maxAttempts: 3,
+      retryDelayMs: 800,
+      retryBackoffFactor: 2,
+      retryJitterMs: 0,
+      wait: async (delayMs) => retryDelays.push(delayMs),
+    });
+    const backoffResult = await backoffQueue.enqueue("start-monitoring", {});
+    if (!backoffResult || JSON.stringify(retryDelays) !== JSON.stringify([800, 1600])) {
+      console.error(`Realtime retry backoff contract failed: ${JSON.stringify(retryDelays)}`);
+      ok = false;
+    }
+  }
+
+  if (!realtimeLoadControlTempPath) {
+    console.error("Realtime load control module was not checked.");
+    ok = false;
+  } else {
+    const { deterministicSpreadDelay, jitteredInterval } = await import(
+      pathToFileURL(realtimeLoadControlTempPath).href
+    );
+    const studentDelays = Array.from(
+      { length: 20 },
+      (_, index) => deterministicSpreadDelay(`class:test-student-${index + 1}`, 3000)
+    );
+    const presenceEvents = [0, ...studentDelays];
+    const presenceEventsPerSecond = new Map();
+    for (const delayMs of presenceEvents) {
+      const bucket = Math.floor(delayMs / 1000);
+      presenceEventsPerSecond.set(bucket, (presenceEventsPerSecond.get(bucket) || 0) + 1);
+    }
+    const peakPresenceEvents = Math.max(...presenceEventsPerSecond.values());
+    const initialChannelJoins = [0, 80, 160, 240];
+    for (const delayMs of studentDelays) {
+      for (const channelOffsetMs of [0, 80, 160, 240, 320]) {
+        initialChannelJoins.push(delayMs + channelOffsetMs);
+      }
+    }
+    const channelJoinsPerSecond = new Map();
+    for (const delayMs of initialChannelJoins) {
+      const bucket = Math.floor(delayMs / 1000);
+      channelJoinsPerSecond.set(bucket, (channelJoinsPerSecond.get(bucket) || 0) + 1);
+    }
+    const peakChannelJoins = Math.max(...channelJoinsPerSecond.values());
+    const thumbnailEventsPerSecond = new Map();
+    for (let index = 0; index < 20; index += 1) {
+      const phaseMs = deterministicSpreadDelay(`thumbnail:test-student-${index + 1}`, 4999);
+      const bucket = Math.floor(phaseMs / 1000);
+      thumbnailEventsPerSecond.set(bucket, (thumbnailEventsPerSecond.get(bucket) || 0) + 1);
+    }
+    const peakThumbnailEvents = Math.max(...thumbnailEventsPerSecond.values());
+    if (
+      new Set(studentDelays).size < 15 ||
+      Math.max(...studentDelays) - Math.min(...studentDelays) < 1500 ||
+      peakPresenceEvents > 20 ||
+      peakChannelJoins > 100 ||
+      peakThumbnailEvents > 20 ||
+      jitteredInterval(5000, 750, () => 0) !== 4250 ||
+      jitteredInterval(5000, 750, () => 1) !== 5750
+    ) {
+      console.error(
+        `20-client load spreading contract failed: delays=${JSON.stringify(studentDelays)}, ` +
+        `peakPresenceEvents=${peakPresenceEvents}, peakChannelJoins=${peakChannelJoins}, ` +
+        `peakThumbnailEvents=${peakThumbnailEvents}`
+      );
+      ok = false;
+    } else {
+      console.log(
+        `20-client load model passed: presence=${peakPresenceEvents}/s, ` +
+        `channelJoins=${peakChannelJoins}/s, thumbnails=${peakThumbnailEvents}/s.`
+      );
+    }
   }
 
   if (!monitorSyncTempPath) {
@@ -214,8 +295,10 @@ if (missingRoleMappings.length > 0) {
 const teacherInboxContracts = [
   "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
   "supabase.channel(`class:${classCode}:teacher-inbox`",
-  "subscriptions.push(subscribeChannel(teacherInboxChannel, \"Teacher inbox\"))",
-  "targetChannel.httpSend(\"socket-event\", outboundPayload)",
+  "await subscribeChannel(teacherInboxChannel, \"Teacher inbox\")",
+  "await subscribeChannel(teacherInboxChannel, \"Teacher outbox\")",
+  "targetChannel = await getStudentOutboxChannel(studentRecordId)",
+  "channelStatuses.get(targetChannel) !== \"SUBSCRIBED\"",
   "targetChannel = state.teacherInboxChannel",
 ];
 const missingTeacherInboxContracts = teacherInboxContracts.filter(
@@ -223,6 +306,10 @@ const missingTeacherInboxContracts = teacherInboxContracts.filter(
 );
 if (missingTeacherInboxContracts.length > 0) {
   console.error("Student-to-teacher events are not fully routed through the teacher inbox.");
+  ok = false;
+}
+if (realtimeApiSource.includes(".httpSend(")) {
+  console.error("Realtime Broadcast must not fall back to per-message HTTP authorization.");
   ok = false;
 }
 
@@ -362,6 +449,9 @@ const communicationIntervalContracts = [
   [studentSource, "Number(runtimeConfig.thumbnailIntervalMs) || 5000"],
   [studentSource, "Number(runtimeConfig.monitoringIntervalMs) || 3000"],
   [studentSource, "if (cornersLocked) {"],
+  [studentSource, "jitteredInterval(CAPTURE_INTERVAL_MS, 750)"],
+  [studentSource, "jitteredInterval(MONITORING_INTERVAL_MS, 500)"],
+  [studentSource, "await Promise.resolve(sendWhiteboardThumbnail())"],
   [teacherSource, 'modalShareToStudentBtn.addEventListener("click"'],
   [teacherSource, 'shareToggleBtn.addEventListener("click", sendFeedbackImageOnce)'],
 ];
@@ -372,6 +462,22 @@ if (missingCommunicationIntervalContracts.length > 0) {
   console.error(
     `Communication interval contracts missing: ${missingCommunicationIntervalContracts.join(", ")}`
   );
+  ok = false;
+}
+
+const brokenImageContracts = [
+  [whiteboardSource, "const incomingObjectUrls = this._collectAssetObjectUrls(data)"],
+  [whiteboardSource, "img.onerror = () => {"],
+  [whiteboardSource, "obj.image?.complete"],
+  [whiteboardSource, "obj.image.naturalWidth > 0"],
+  [teacherSource, "delete latestBoardDataByStudent[studentSocketId]"],
+  [teacherSource, "requestStudentModalBoardState(studentSocketId)"],
+];
+const missingBrokenImageContracts = brokenImageContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingBrokenImageContracts.length > 0) {
+  console.error(`Broken image recovery contracts missing: ${missingBrokenImageContracts.join(", ")}`);
   ok = false;
 }
 

@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=pages-staging-20260817-snapshot-cache";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
 
 const form = document.querySelector("[data-teacher-signup-form]");
 const emailInput = document.getElementById("teacherEmail");

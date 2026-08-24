@@ -1,8 +1,8 @@
 // public/js/teacher.js
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824&modal-tool-scope=20260824";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -2678,10 +2678,7 @@ async function sendTeacherWhiteboardAction(
   });
   if (sent === false) {
     if (clearPendingTeacherSync(studentSocketId, teacherSyncToken)) {
-      void socket.emit("request-highres", {
-        classCode: currentClassCode,
-        studentSocketId,
-      });
+      requestStudentModalBoardState(studentSocketId);
     }
     return false;
   }
@@ -2690,10 +2687,7 @@ async function sendTeacherWhiteboardAction(
   if (pendingTeacherSyncTokenByStudent.get(studentSocketId) === teacherSyncToken) {
     const timerId = setTimeout(() => {
       if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
-      void socket.emit("request-highres", {
-        classCode: currentClassCode,
-        studentSocketId,
-      });
+      requestStudentModalBoardState(studentSocketId);
     }, 8000);
     teacherSyncAckTimerByStudent.set(studentSocketId, timerId);
   }
@@ -3122,11 +3116,19 @@ modalNextStudentBtn?.addEventListener("click", () => {
 function startMonitoringStudent(studentSocketId, nickname) {
   if (!currentClassCode) return;
 
+  const previousStudentSocketId = currentMonitoringStudentSocketId;
   // The overlay canvas is reused between modal sessions. Remove the previous
   // Whiteboard listeners before attaching a new instance; otherwise an old pen
   // tool and the current highlighter tool both react to the same pointer input.
   closeModalToolMenu();
   destroyModalBoard();
+  if (previousStudentSocketId) {
+    delete latestBoardDataByStudent[previousStudentSocketId];
+  }
+  // Always request a fresh structured snapshot. A cached board can contain
+  // blob: URLs owned by the destroyed Whiteboard instance and therefore no
+  // longer valid in a new modal session.
+  delete latestBoardDataByStudent[studentSocketId];
 
   // すでに別の生徒を監視していた場合は一旦終了
   if (
@@ -3231,19 +3233,6 @@ function startMonitoringStudent(studentSocketId, nickname) {
       modalBoard.setShowGrid(true);
     }
 
-    const initialBoardData = latestBoardDataByStudent[studentSocketId];
-    if (initialBoardData && typeof modalBoard.importBoardData === "function") {
-      // ※ 初期は「whiteboardモード」でのみ使う。notebook/screenのときは
-      //   生徒のboardDataは使わず、画像の上にローカル描画扱いにする。
-      if (modalCurrentStudentMode === "whiteboard") {
-        importStudentBoardDataIntoModal(
-          initialBoardData,
-          studentSocketId,
-          latestViewportByStudent[studentSocketId]
-        );
-      }
-    }
-
     // Whiteboard のスケール反映
     modalBoard.applyScale?.();
     modalBoard.render?.();
@@ -3325,6 +3314,7 @@ function stopMonitoringStudent() {
   });
 
   clearPendingTeacherSync(stoppedStudentSocketId);
+  delete latestBoardDataByStudent[stoppedStudentSocketId];
   clearModalBoardLoadTimer();
   currentModalMonitorRequestId = null;
   currentMonitoringStudentSocketId = null;

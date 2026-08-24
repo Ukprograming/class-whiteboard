@@ -6,7 +6,8 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824";
+import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -105,6 +106,7 @@ const acceptAnnotationBtn = document.getElementById("acceptAnnotationBtn");
 const discardAnnotationBtn = document.getElementById("discardAnnotationBtn");
 
 let monitorIntervalId = null;
+let monitorLoopGeneration = 0;
 let pendingAnnotationData = null;
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const FREE_TIER_MODE = runtimeConfig.freeTierMode !== false;
@@ -140,6 +142,8 @@ let applyingSharedBoardRemote = false;
 
 let captureTimerId = null;
 let initialThumbnailTimerId = null;
+let captureLoopActive = false;
+let captureLoopGeneration = 0;
 const CAPTURE_INTERVAL_MS = Math.max(
   5000,
   Number(runtimeConfig.thumbnailIntervalMs) || 5000
@@ -1539,14 +1543,13 @@ function sendWhiteboardThumbnail() {
       quality: highQualityMode ? 0.72 : 0.52,
     });
     if (!dataUrl) return;
-    socket.emit("student-thumbnail", {
+    return socket.emit("student-thumbnail", {
       classCode: currentClassCode,
       nickname,
       dataUrl,
       mode: "notebook",
       viewport: { scale: 1, offsetX: 0, offsetY: 0 },
     });
-    return;
   }
 
   // 画面共有モード
@@ -1587,15 +1590,13 @@ function sendWhiteboardThumbnail() {
     const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
     if (!dataUrl) return;
 
-    socket.emit("student-thumbnail", {
+    return socket.emit("student-thumbnail", {
       classCode: currentClassCode,
       nickname,
       dataUrl,
       mode: viewMode,
       viewport: { scale: 1, offsetX: 0, offsetY: 0, width: vw, height: vh }
     });
-
-    return;
   }
 
   // ホワイトボードモード
@@ -1630,7 +1631,7 @@ function sendWhiteboardThumbnail() {
   const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
   if (!dataUrl) return;
 
-  socket.emit("student-thumbnail", {
+  return socket.emit("student-thumbnail", {
     classCode: currentClassCode,
     nickname,
     dataUrl,
@@ -2553,13 +2554,30 @@ window.addEventListener("load", async () => {
    ======================================== */
 
 function restartCaptureLoop() {
+  captureLoopActive = true;
+  const generation = ++captureLoopGeneration;
   if (captureTimerId) {
-    clearInterval(captureTimerId);
+    clearTimeout(captureTimerId);
     captureTimerId = null;
   }
-  captureTimerId = setInterval(() => {
-    sendWhiteboardThumbnail();
-  }, CAPTURE_INTERVAL_MS);
+  const runCapture = async () => {
+    captureTimerId = null;
+    if (!captureLoopActive || generation !== captureLoopGeneration) return;
+    try {
+      await Promise.resolve(sendWhiteboardThumbnail());
+    } catch (error) {
+      console.warn("Thumbnail send failed; the next scheduled capture will retry.", error);
+    }
+    if (!captureLoopActive || generation !== captureLoopGeneration) return;
+    captureTimerId = setTimeout(
+      runCapture,
+      jitteredInterval(CAPTURE_INTERVAL_MS, 750)
+    );
+  };
+  captureTimerId = setTimeout(
+    runCapture,
+    jitteredInterval(CAPTURE_INTERVAL_MS, 750)
+  );
 }
 
 function scheduleInitialThumbnail() {
@@ -2584,8 +2602,10 @@ socket.on("student-view-start", () => {
 
 // 教員が生徒画面から離れた
 socket.on("student-view-stop", () => {
+  captureLoopActive = false;
+  captureLoopGeneration += 1;
   if (captureTimerId) {
-    clearInterval(captureTimerId);
+    clearTimeout(captureTimerId);
     captureTimerId = null;
   }
   if (initialThumbnailTimerId) {
@@ -2596,8 +2616,10 @@ socket.on("student-view-stop", () => {
 
 
 window.addEventListener("beforeunload", () => {
+  captureLoopActive = false;
+  captureLoopGeneration += 1;
   if (captureTimerId) {
-    clearInterval(captureTimerId);
+    clearTimeout(captureTimerId);
   }
   if (initialThumbnailTimerId) {
     clearTimeout(initialThumbnailTimerId);
@@ -2785,25 +2807,41 @@ socket.on("start-monitoring", ({ teacherSocketId, monitorRequestId }) => {
 
   // ★ 共同編集開始時に、現在のボード状態を教員に送る
 
-  // 既存のサムネイル送信ループ
-  if (monitorIntervalId) clearInterval(monitorIntervalId);
-
-  // 初回即時送信
-  void sendScreenUpdate(teacherSocketId, currentMonitorRequestId);
-
-  monitorIntervalId = setInterval(() => {
-    void sendScreenUpdate(teacherSocketId, currentMonitorRequestId);
-  }, MONITORING_INTERVAL_MS); // 個別モーダル表示中は3秒ごとに更新
+  if (monitorIntervalId) clearTimeout(monitorIntervalId);
+  const generation = ++monitorLoopGeneration;
+  const expectedMonitorRequestId = monitorRequestId || null;
+  const runMonitorUpdate = async () => {
+    monitorIntervalId = null;
+    if (
+      generation !== monitorLoopGeneration ||
+      teacherSocketId !== currentTeacherSocketId ||
+      currentMonitorRequestId !== expectedMonitorRequestId
+    ) {
+      return;
+    }
+    try {
+      await sendScreenUpdate(teacherSocketId, currentMonitorRequestId);
+    } catch (error) {
+      console.warn("Monitor update failed; the next scheduled update will retry.", error);
+    }
+    if (generation !== monitorLoopGeneration) return;
+    monitorIntervalId = setTimeout(
+      runMonitorUpdate,
+      jitteredInterval(MONITORING_INTERVAL_MS, 500)
+    );
+  };
+  void runMonitorUpdate();
 });
 
 // ★ モニタリング終了通知
 socket.on("stop-monitoring", ({ monitorRequestId } = {}) => {
   if (monitorRequestId && monitorRequestId !== currentMonitorRequestId) return;
   console.log("Monitoring stopped");
+  monitorLoopGeneration += 1;
   currentTeacherSocketId = null;
   currentMonitorRequestId = null;
   if (monitorIntervalId) {
-    clearInterval(monitorIntervalId);
+    clearTimeout(monitorIntervalId);
     monitorIntervalId = null;
   }
 });

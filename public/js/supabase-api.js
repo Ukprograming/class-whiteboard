@@ -1,6 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
 import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819";
-import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818";
+import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824";
+import {
+  deterministicSpreadDelay,
+  waitForRealtimeSpread,
+} from "./realtime-load-control.js?v=realtime-scale-20260824";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
@@ -59,7 +63,26 @@ const ORDERED_RETRY_EVENTS = new Set([
   "student-whiteboard-action",
   "teacher-whiteboard-action",
 ]);
+const RELIABLE_CONTROL_EVENTS = new Set([
+  "teacher-start-class",
+  "student-view-start",
+  "student-view-stop",
+  "teacher-chat-to-student",
+  "request-highres",
+  "start-monitoring",
+  "stop-monitoring",
+  "teacher-annotation-update",
+  "teacherSetHighQuality",
+  "teacherShareToStudent",
+  "student-mode-change",
+  "student-chat-to-teacher",
+  "student-board-state",
+  "student-screen-share-started",
+  "student-screen-share-stopped",
+  "student-teacher-action-ack",
+]);
 const REALTIME_INITIAL_JOIN_TIMEOUT_MS = 30000;
+const STUDENT_JOIN_SPREAD_WINDOW_MS = 3000;
 const RETRYABLE_REALTIME_JOIN_ERRORS = [
   "MissingPartition",
   "InitializingProjectConnection",
@@ -170,12 +193,24 @@ function createSupabaseRealtimeBridge() {
   const socketId = createSocketId();
   const privateChannels = config.realtimePrivateChannels !== false;
   const notebookStudentsSeen = new Set();
+  const channelStatuses = new WeakMap();
   const coordinateRealtimeJoin = createRealtimeJoinCoordinator(performJoinRealtime);
   const whiteboardActionQueue = createOrderedRetryQueue(sendRealtimeEvent, {
     maxAttempts: 3,
-    retryDelayMs: 120,
-    onRetry: ({ eventName, attempt }) => {
-      console.warn(`[realtime] retrying ${eventName} after attempt ${attempt}.`);
+    retryDelayMs: 800,
+    retryBackoffFactor: 2,
+    retryJitterMs: 400,
+    onRetry: ({ eventName, attempt, delayMs }) => {
+      console.warn(`[realtime] retrying ${eventName} after attempt ${attempt} in ${delayMs}ms.`);
+    },
+  });
+  const reliableControlQueue = createOrderedRetryQueue(sendRealtimeEvent, {
+    maxAttempts: 3,
+    retryDelayMs: 800,
+    retryBackoffFactor: 2,
+    retryJitterMs: 400,
+    onRetry: ({ eventName, attempt, delayMs }) => {
+      console.warn(`[realtime] retrying ${eventName} after attempt ${attempt} in ${delayMs}ms.`);
     },
   });
 
@@ -191,6 +226,7 @@ function createSupabaseRealtimeBridge() {
     teacherInboxChannel: null,
     studentInboxChannel: null,
     studentOutboxChannels: new Map(),
+    studentOutboxReady: new Map(),
     studentIdByLoginId: new Map(),
     studentRecordIdBySocketId: new Map(),
     reconnectTimerId: null,
@@ -265,10 +301,13 @@ function createSupabaseRealtimeBridge() {
       case "student-mode-change":
         state.mode = payload.mode || state.mode;
         void trackPresence();
-        return sendRealtimeEvent(eventName, payload);
+        return reliableControlQueue.enqueue(eventName, payload);
       default:
         if (ORDERED_RETRY_EVENTS.has(eventName)) {
           return whiteboardActionQueue.enqueue(eventName, payload);
+        }
+        if (RELIABLE_CONTROL_EVENTS.has(eventName)) {
+          return reliableControlQueue.enqueue(eventName, payload);
         }
         return sendRealtimeEvent(eventName, payload);
     }
@@ -352,6 +391,7 @@ function createSupabaseRealtimeBridge() {
       };
 
       channel.subscribe((status, err) => {
+        channelStatuses.set(channel, status);
         if (status === "SUBSCRIBED") {
           if (!subscribedOnce) {
             subscribedOnce = true;
@@ -399,7 +439,7 @@ function createSupabaseRealtimeBridge() {
         console.warn("[realtime] failed to restore presence after reconnect.", error);
       }
       dispatch("realtime-reconnected", { classCode: state.classCode });
-    }, 500);
+    }, 500 + deterministicSpreadDelay(socketId, 1500));
   }
 
   function getJoinRequestKey(role, payload = {}) {
@@ -561,20 +601,34 @@ function createSupabaseRealtimeBridge() {
     // The first WebSocket channel after a paused project is restored creates
     // the rolling realtime.messages partitions. Join Presence first so the
     // remaining private-channel authorization checks do not race that setup.
-    state.ready = subscribeChannel(presenceChannel, "Presence channel")
-      .then(async () => {
-        const subscriptions = [
-          subscribeChannel(announcementChannel, "Announcement channel"),
-          subscribeChannel(sharedChannel, "Shared-board channel"),
-        ];
-        if (role === "teacher") {
-          subscriptions.push(subscribeChannel(teacherInboxChannel, "Teacher inbox"));
-        } else if (studentInboxChannel) {
-          subscriptions.push(subscribeChannel(studentInboxChannel, "Student inbox"));
-        }
-        await Promise.all(subscriptions);
+    const initialSpreadDelayMs = role === "student"
+      ? deterministicSpreadDelay(`${classCode}:${socketId}`, STUDENT_JOIN_SPREAD_WINDOW_MS)
+      : 0;
+    state.ready = waitForRealtimeSpread(initialSpreadDelayMs)
+      .then(() => {
+        if (state.presenceChannel !== presenceChannel) return false;
+        return subscribeChannel(presenceChannel, "Presence channel");
       })
-      .then(async () => {
+      .then(async (presenceReady) => {
+        if (presenceReady === false || state.presenceChannel !== presenceChannel) return false;
+        await subscribeChannel(announcementChannel, "Announcement channel");
+        if (state.announcementChannel !== announcementChannel) return false;
+        await subscribeChannel(sharedChannel, "Shared-board channel");
+        if (state.sharedChannel !== sharedChannel) return false;
+        if (role === "teacher") {
+          await subscribeChannel(teacherInboxChannel, "Teacher inbox");
+        } else if (studentInboxChannel) {
+          // A private Broadcast sender must also join its write-only channel.
+          // Once joined, channel.send() remains on the WebSocket and avoids a
+          // separate Realtime Authorization database query for every message.
+          await subscribeChannel(teacherInboxChannel, "Teacher outbox");
+          if (state.teacherInboxChannel !== teacherInboxChannel) return false;
+          await subscribeChannel(studentInboxChannel, "Student inbox");
+        }
+        return true;
+      })
+      .then(async (channelsReady) => {
+        if (channelsReady === false) return false;
         if (
           state.presenceChannel !== presenceChannel ||
           state.announcementChannel !== announcementChannel ||
@@ -636,6 +690,7 @@ function createSupabaseRealtimeBridge() {
     state.teacherInboxChannel = null;
     state.studentInboxChannel = null;
     state.studentOutboxChannels = new Map();
+    state.studentOutboxReady = new Map();
     state.studentIdByLoginId = new Map();
     state.studentRecordIdBySocketId = new Map();
     if (state.reconnectTimerId) clearTimeout(state.reconnectTimerId);
@@ -699,8 +754,9 @@ function createSupabaseRealtimeBridge() {
     return student.id;
   }
 
-  function getStudentOutboxChannel(studentRecordId) {
+  async function getStudentOutboxChannel(studentRecordId) {
     if (state.studentOutboxChannels.has(studentRecordId)) {
+      await state.studentOutboxReady.get(studentRecordId);
       return state.studentOutboxChannels.get(studentRecordId);
     }
     const channel = supabase.channel(
@@ -713,6 +769,16 @@ function createSupabaseRealtimeBridge() {
       }
     );
     state.studentOutboxChannels.set(studentRecordId, channel);
+    const ready = subscribeChannel(channel, `Student outbox ${studentRecordId}`);
+    state.studentOutboxReady.set(studentRecordId, ready);
+    try {
+      await ready;
+    } catch (error) {
+      state.studentOutboxChannels.delete(studentRecordId);
+      state.studentOutboxReady.delete(studentRecordId);
+      await supabase.removeChannel(channel);
+      throw error;
+    }
     return channel;
   }
 
@@ -732,28 +798,36 @@ function createSupabaseRealtimeBridge() {
     const isAnnouncementEvent = TEACHER_ANNOUNCEMENT_EVENTS.has(eventName);
     const isStudentInboxEvent = TEACHER_STUDENT_EVENTS.has(eventName);
     let targetChannel = null;
-    let useHttpSend = false;
 
-    if (isTeacherInboxEvent && state.role === "student") {
-      targetChannel = state.teacherInboxChannel;
-      useHttpSend = true;
-    } else if (isSharedEvent && (state.role === "teacher" || state.role === "student")) {
-      targetChannel = state.sharedChannel;
-    } else if (isAnnouncementEvent && state.role === "teacher") {
-      targetChannel = state.announcementChannel;
-    } else if (isStudentInboxEvent && state.role === "teacher") {
-      const studentRecordId = await resolveTargetStudentRecordId(payload);
-      if (!studentRecordId) {
-        console.warn(`[realtime] target student could not be resolved for ${eventName}.`);
-        dispatch("realtime-send-failed", { eventName, reason: "student-not-found" });
-        return false;
+    try {
+      if (isTeacherInboxEvent && state.role === "student") {
+        targetChannel = state.teacherInboxChannel;
+      } else if (isSharedEvent && (state.role === "teacher" || state.role === "student")) {
+        targetChannel = state.sharedChannel;
+      } else if (isAnnouncementEvent && state.role === "teacher") {
+        targetChannel = state.announcementChannel;
+      } else if (isStudentInboxEvent && state.role === "teacher") {
+        const studentRecordId = await resolveTargetStudentRecordId(payload);
+        if (!studentRecordId) {
+          console.warn(`[realtime] target student could not be resolved for ${eventName}.`);
+          dispatch("realtime-send-failed", { eventName, reason: "student-not-found" });
+          return false;
+        }
+        targetChannel = await getStudentOutboxChannel(studentRecordId);
       }
-      targetChannel = getStudentOutboxChannel(studentRecordId);
-      useHttpSend = true;
+    } catch (error) {
+      console.error(`[realtime] ${eventName} channel setup failed.`, error);
+      dispatch("realtime-send-failed", { eventName, error });
+      return false;
     }
 
     if (!targetChannel) {
       console.warn(`[realtime] rejected ${eventName} from role ${state.role || "unknown"}.`);
+      return false;
+    }
+    if (channelStatuses.get(targetChannel) !== "SUBSCRIBED") {
+      console.warn(`[realtime] ${eventName} skipped while its channel is reconnecting.`);
+      dispatch("realtime-send-failed", { eventName, reason: "channel-not-subscribed" });
       return false;
     }
 
@@ -781,16 +855,6 @@ function createSupabaseRealtimeBridge() {
     }
 
     try {
-      if (useHttpSend) {
-        const result = await targetChannel.httpSend("socket-event", outboundPayload);
-        if (!result?.success) {
-          console.warn(`[realtime] ${eventName} HTTP send was not acknowledged.`);
-          dispatch("realtime-send-failed", { eventName, result });
-          return false;
-        }
-        return true;
-      }
-
       const result = await targetChannel.send({
         type: "broadcast",
         event: "socket-event",
