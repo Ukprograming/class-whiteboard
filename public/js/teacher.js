@@ -1,6 +1,6 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819";
 import {
   canAcceptTeacherBoardSnapshot,

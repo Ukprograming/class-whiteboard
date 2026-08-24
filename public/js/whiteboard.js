@@ -72,7 +72,7 @@ export class Whiteboard {
     this.tool = "pen";
     this.penColor = "#000000";
     this.penWidth = 3;
-    this.highlighterColor = "rgba(250, 204, 21, 0.8)";
+    this.highlighterColor = "rgba(250, 204, 21, 0.55)";
     this.highlighterWidth = 30;
     this.eraserWidth = 24;
 
@@ -708,7 +708,7 @@ export class Whiteboard {
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);
-      this.highlighterColor = `rgba(${r}, ${g}, ${b}, 0.35)`;
+      this.highlighterColor = `rgba(${r}, ${g}, ${b}, 0.55)`;
     } else {
       this.highlighterColor = color;
     }
@@ -3818,7 +3818,9 @@ export class Whiteboard {
         ctx.globalCompositeOperation = "source-over";
         ctx.strokeStyle = stroke.color;
         ctx.lineWidth = stroke.width;
-        ctx.globalAlpha = 0.35;
+        // The color already carries the intended transparency. Applying
+        // globalAlpha here as well made new strokes only about 12% opaque.
+        ctx.globalAlpha = 1;
       } else {
         ctx.globalCompositeOperation = "source-over";
         ctx.strokeStyle = stroke.color;
@@ -3918,7 +3920,8 @@ export class Whiteboard {
 
         if (kind === "arrow" || kind === "double-arrow") {
           const angle = Math.atan2(y2 - y1, x2 - x1);
-          const headLen = 10 / this.scale;
+          // Keep thin arrows at the familiar size, then grow the head with the shaft.
+          const headLen = Math.max(10, strokeWidth * 3) / this.scale;
           ctx.beginPath();
           ctx.moveTo(x2, y2);
           ctx.lineTo(
@@ -3935,7 +3938,7 @@ export class Whiteboard {
         }
         if (kind === "double-arrow") {
           const angle = Math.atan2(y1 - y2, x1 - x2);
-          const headLen = 10 / this.scale;
+          const headLen = Math.max(10, strokeWidth * 3) / this.scale;
           ctx.beginPath();
           ctx.moveTo(x1, y1);
           ctx.lineTo(
