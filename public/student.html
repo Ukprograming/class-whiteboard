@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>生徒用ホワイトボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=chat-panel-responsive-20260824&amp;notebook-viewer=20260824a&amp;login-flow=20260824" rel="stylesheet" />
+  <link href="./style.css?v=chat-panel-responsive-20260824&amp;notebook-ui=20260824b&amp;login-flow=20260824" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -42,33 +42,62 @@
   <!-- ノート提出モード用レイアウト (全画面オーバーレイ) -->
   <div id="notebookLayout" class="student-notebook-layout hidden">
     <div class="student-notebook-inner">
-      <div class="student-notebook-toolbar">
+      <header class="student-notebook-toolbar">
         <div class="student-notebook-toolbar-left">
-          <span class="section-title">ノート提出（カメラ撮影）</span>
+          <span class="notebook-title-icon" aria-hidden="true">
+            <svg class="app-icon" viewBox="0 0 24 24"><path d="M6 5.5h3l1.2-2h3.6l1.2 2h3A2.5 2.5 0 0 1 20.5 8v9A2.5 2.5 0 0 1 18 19.5H6A2.5 2.5 0 0 1 3.5 17V8A2.5 2.5 0 0 1 6 5.5Z" /><circle cx="12" cy="12.5" r="3.25" /></svg>
+          </span>
+          <h1>ノート提出</h1>
+          <span class="notebook-help">
+            <button type="button" class="notebook-help-btn" aria-label="ノート提出の説明" aria-describedby="notebookModeHelp">
+              <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.35 2.35 0 1 1 3.2 2.2c-.7.32-1 .85-1 1.8" /><path d="M12 16.5h.01" /></svg>
+            </button>
+            <span id="notebookModeHelp" class="notebook-help-tooltip" role="tooltip">カメラでノートを撮影し、補正した画像を先生へ送ります。</span>
+          </span>
         </div>
         <div class="student-notebook-toolbar-right">
-          <label>
-            カメラ：
-            <select id="cameraSelect" class="small-input"></select>
+          <label class="notebook-toolbar-field" for="cameraSelect">
+            <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h11v9H4z" /><path d="m15 10 5-2.5v9L15 14" /></svg>
+            <span>カメラ</span>
+            <select id="cameraSelect" class="notebook-select" aria-label="使用するカメラ"></select>
           </label>
-          <label>
-            用紙サイズ：
-            <select id="paperSizeSelect" class="small-input">
-              <option value="A4">A4（210×297）</option>
-              <option value="B5">B5（182×257）</option>
-              <option value="B4">B4（257×364）</option>
+          <label class="notebook-toolbar-field" for="paperSizeSelect">
+            <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7l3 3V20H7z" /><path d="M14 3.5V7h3" /></svg>
+            <span>用紙</span>
+            <select id="paperSizeSelect" class="notebook-select" aria-label="用紙サイズと向き">
+              <option value="A4-portrait">A4タテ</option>
+              <option value="A4-landscape">A4ヨコ</option>
+              <option value="B5-portrait">B5タテ</option>
+              <option value="B5-landscape">B5ヨコ</option>
+              <option value="B4-portrait">B4タテ</option>
+              <option value="B4-landscape">B4ヨコ</option>
             </select>
           </label>
-          <button id="startCameraBtn" class="topbar-btn">カメラ開始</button>
-          <button id="notebookBackBtn" class="topbar-btn">戻る</button>
+          <button id="startCameraBtn" type="button" class="notebook-action-btn notebook-action-primary">
+            <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5h3l1.2-2h3.6l1.2 2h3A2.5 2.5 0 0 1 20.5 8v9A2.5 2.5 0 0 1 18 19.5H6A2.5 2.5 0 0 1 3.5 17V8A2.5 2.5 0 0 1 6 5.5Z" /><circle cx="12" cy="12.5" r="3.25" /></svg>
+            <span>撮影を開始</span>
+          </button>
+          <button id="notebookBackBtn" type="button" class="notebook-action-btn notebook-action-quiet">
+            <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
+            <span>戻る</span>
+          </button>
         </div>
-      </div>
+      </header>
 
       <main class="student-notebook-content">
         <section class="video-section">
           <div class="section-title notebook-section-title">
             <div class="notebook-section-heading">
-              <span>撮影中の映像（ノートの四隅を順に選択）</span>
+              <span class="notebook-section-label">
+                <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h11v9H4z" /><path d="m15 10 5-2.5v9L15 14" /></svg>
+                <span>撮影</span>
+              </span>
+              <span class="notebook-help">
+                <button type="button" class="notebook-help-btn" aria-label="四隅の選び方" aria-describedby="cameraPanelHelp">
+                  <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.35 2.35 0 1 1 3.2 2.2c-.7.32-1 .85-1 1.8" /><path d="M12 16.5h.01" /></svg>
+                </button>
+                <span id="cameraPanelHelp" class="notebook-help-tooltip" role="tooltip">ノートの四隅を、左上→右上→右下→左下の順に選びます。</span>
+              </span>
               <span id="cornerInstruction" class="corner-instruction">左上をクリック</span>
             </div>
             <div class="notebook-view-controls">
@@ -104,21 +133,41 @@
 
         <section class="preview-section">
           <div class="section-title notebook-section-title">
-            <span>台形補正後（教師への送信イメージ）</span>
-            <button id="resetPerspectiveBtn" type="button" class="topbar-btn small hidden">
-              台形補正をやり直す
+            <div class="notebook-section-heading">
+              <span class="notebook-section-label">
+                <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z" /><path d="m8 14 2.5-3 2 2 1.5-1.5 2 2.5" /></svg>
+                <span>送信プレビュー</span>
+              </span>
+              <span class="notebook-help">
+                <button type="button" class="notebook-help-btn" aria-label="送信プレビューの説明" aria-describedby="previewPanelHelp">
+                  <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.35 2.35 0 1 1 3.2 2.2c-.7.32-1 .85-1 1.8" /><path d="M12 16.5h.01" /></svg>
+                </button>
+                <span id="previewPanelHelp" class="notebook-help-tooltip" role="tooltip">台形補正後、先生へ送られる画像を表示します。</span>
+              </span>
+            </div>
+            <button id="resetPerspectiveBtn" type="button" class="notebook-control-btn hidden">
+              <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a7 7 0 1 0 1 7" /><path d="M19 3v5h-5" /></svg>
+              <span>補正をやり直す</span>
             </button>
           </div>
           <canvas id="previewCanvas"></canvas>
         </section>
 
         <section class="feedback-section">
-          <div class="section-title">教員からのフィードバック</div>
-
-          <div class="feedback-viewer">
-            <div class="feedback-toolbar">
-              <span>先生からのフィードバック</span>
-              <div class="feedback-toolbar-right">
+          <div class="section-title notebook-section-title">
+            <div class="notebook-section-heading">
+              <span class="notebook-section-label">
+                <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v13H9l-4 3z" /><path d="M8.5 9h7M8.5 12h5" /></svg>
+                <span>先生からのフィードバック</span>
+              </span>
+              <span class="notebook-help">
+                <button type="button" class="notebook-help-btn" aria-label="フィードバック欄の説明" aria-describedby="feedbackPanelHelp">
+                  <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.35 2.35 0 1 1 3.2 2.2c-.7.32-1 .85-1 1.8" /><path d="M12 16.5h.01" /></svg>
+                </button>
+                <span id="feedbackPanelHelp" class="notebook-help-tooltip" role="tooltip">先生から返された書き込み画像を確認できます。</span>
+              </span>
+            </div>
+            <div class="notebook-view-controls">
                 <button id="feedbackZoomOutBtn" type="button" class="notebook-control-btn notebook-icon-control" aria-label="フィードバック画像を縮小">
                   <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
                 </button>
@@ -127,7 +176,8 @@
                   <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
                 </button>
                 <button id="feedbackResetBtn" type="button" class="notebook-control-btn">
-                  全体表示
+                  <svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h5M5 5v5M19 5h-5M19 5v5M5 19h5M5 19v-5M19 19h-5M19 19v-5" /></svg>
+                  <span>全体表示</span>
                 </button>
                 <button id="feedbackExpandBtn" type="button" class="notebook-control-btn notebook-expand-btn notebook-expand-btn-compact" aria-pressed="false" aria-label="フィードバックを拡大表示" title="フィードバックを拡大表示">
                   <span class="notebook-expand-icon" aria-hidden="true">
@@ -136,9 +186,10 @@
                   </span>
                   <span class="notebook-expand-label visually-hidden">拡大表示</span>
                 </button>
-              </div>
             </div>
+          </div>
 
+          <div class="feedback-viewer">
             <div id="feedbackViewport" class="feedback-viewport">
               <img id="feedbackImage" alt="フィードバック画像" />
             </div>
@@ -513,7 +564,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-viewer-20260824a&amp;draw-style=20260824&amp;login-flow=20260824"></script>
+  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-ui-20260824b&amp;draw-style=20260824&amp;login-flow=20260824"></script>
 
 </body>
 

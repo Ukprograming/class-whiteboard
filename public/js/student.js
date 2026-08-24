@@ -1866,13 +1866,16 @@ function centerFeedbackImage() {
 // ★ 拡大表示中のみ高画質送信モード（教員側からの指示で切り替え）
 let highQualityMode = false;
 
-// 用紙サイズ定義（mm） → 縦横比だけ使う
+// 用紙サイズ定義（mm）。同じ用紙でも縦向き・横向きを別の選択肢として扱う。
 const PAPER_SIZES = {
-  A4: { widthMm: 210, heightMm: 297 },
-  B5: { widthMm: 182, heightMm: 257 },
-  B4: { widthMm: 257, heightMm: 364 }
+  "A4-portrait": { widthMm: 210, heightMm: 297 },
+  "A4-landscape": { widthMm: 297, heightMm: 210 },
+  "B5-portrait": { widthMm: 182, heightMm: 257 },
+  "B5-landscape": { widthMm: 257, heightMm: 182 },
+  "B4-portrait": { widthMm: 257, heightMm: 364 },
+  "B4-landscape": { widthMm: 364, heightMm: 257 }
 };
-let currentPaperSize = "A4";
+let currentPaperSize = paperSizeSelect?.value || "A4-portrait";
 
 const srcCanvas = document.createElement("canvas"); // 元映像を読む隠しキャンバス
 const srcCtx = srcCanvas.getContext("2d", { willReadFrequently: true });
@@ -2074,7 +2077,7 @@ socket.on("setHighQualityMode", ({ enabled }) => {
   if (viewMode === "notebook" && currentStream) sendWhiteboardThumbnail();
 });
 
-// 用紙サイズ変更（縦横比だけ反映）
+// 用紙サイズ・向きの変更を送信プレビューの縦横比へ反映する。
 if (paperSizeSelect) {
   paperSizeSelect.addEventListener("change", () => {
     currentPaperSize = paperSizeSelect.value;
@@ -2161,7 +2164,7 @@ if (startCameraBtn) {
 
 // レイアウト関連
 function getCurrentPaperAspect() {
-  const s = PAPER_SIZES[currentPaperSize] || PAPER_SIZES.A4;
+  const s = PAPER_SIZES[currentPaperSize] || PAPER_SIZES["A4-portrait"];
   return s.heightMm / s.widthMm;
 }
 
@@ -2440,6 +2443,7 @@ socket.on("teacherSharedImage", ({ imageData }) => {
     feedbackImage.style.height = `${fbImgHeight}px`;
 
     feedbackImage.src = imageData;
+    feedbackViewport?.classList.add("has-feedback");
 
     // 中央フィット
     centerFeedbackImage();
@@ -2511,7 +2515,14 @@ function stopNotebookCamera() {
 
 function updateNotebookCaptureLayout() {
   if (!notebookLayoutEl) return;
-  notebookLayoutEl.classList.toggle("camera-active", !!currentStream);
+  const cameraActive = !!currentStream;
+  notebookLayoutEl.classList.toggle("camera-active", cameraActive);
+  // updateModeUI はノート提出用の定数初期化より先に呼ばれるため、ここではDOMから取得する。
+  const captureButton = document.getElementById("startCameraBtn");
+  if (captureButton) {
+    const label = captureButton.querySelector("span");
+    if (label) label.textContent = cameraActive ? "カメラを再起動" : "撮影を開始";
+  }
 }
 
 // ページ読み込み時
