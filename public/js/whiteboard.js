@@ -3,7 +3,7 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
-import { STAMP_PRESETS, drawStamp } from "./stamps.js";
+import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小

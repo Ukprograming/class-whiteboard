@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824";
 import {
   authApi,
   boardApi,

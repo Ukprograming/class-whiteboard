@@ -5877,3 +5877,44 @@ body.notebook-panel-expanded .student-notebook-layout {
     grid-template-rows: repeat(3, minmax(360px, 68vh));
   }
 }
+
+/* Scrollable stamp library. PNG reaction stamps are intentionally shown first. */
+#stampPalette {
+  width: min(400px, calc(100vw - 32px));
+  max-height: min(78vh, 640px);
+}
+
+#stampPalette > .stamp-palette-grid {
+  display: none;
+}
+
+#stampPalette .stamp-items {
+  grid-template-columns: repeat(4, minmax(64px, 1fr));
+  gap: 10px;
+  max-height: min(60vh, 470px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 14px 16px 18px;
+}
+
+#stampPalette .stamp-item {
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+
+#stampPalette .stamp-item svg,
+#stampPalette .stamp-item img {
+  width: min(70px, 86%);
+  height: min(70px, 86%);
+  display: block;
+  object-fit: contain;
+}
+
+@media (max-height: 700px) {
+  #stampPalette .stamp-items {
+    max-height: 52vh;
+  }
+}

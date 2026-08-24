@@ -2,7 +2,7 @@
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824";
-import { createStampElement } from "./stamps.js";
+import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js";
 
 export function initBoardUI() {
@@ -782,7 +782,13 @@ export function initBoardUI() {
     stampPalette.querySelectorAll(".stamp-item").forEach(el => el.remove());
     itemsContainer.innerHTML = "";
 
-    Object.entries(wb.stampPresets).forEach(([key, preset]) => {
+    const stampEntries = Object.entries(wb.stampPresets);
+    const orderedStampEntries = [
+      ...stampEntries.filter(([, preset]) => !!preset.imageSrc),
+      ...stampEntries.filter(([, preset]) => !preset.imageSrc),
+    ];
+
+    orderedStampEntries.forEach(([key, preset]) => {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "stamp-item";

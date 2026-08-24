@@ -1,4 +1,18 @@
+const stampAssetUrl = filename => new URL(`../assets/stamps/${filename}`, import.meta.url).href;
+
 export const STAMP_PRESETS = Object.freeze({
+  "reaction-good": { label: "GOOD!", baseSize: 80, imageSrc: stampAssetUrl("reaction-good.png") },
+  "reaction-ok": { label: "OK!", baseSize: 80, imageSrc: stampAssetUrl("reaction-ok.png") },
+  "reaction-nice": { label: "NICE!", baseSize: 80, imageSrc: stampAssetUrl("reaction-nice.png") },
+  "reaction-impressive": { label: "さすが!", baseSize: 80, imageSrc: stampAssetUrl("reaction-impressive.png") },
+  "reaction-thinking": { label: "考え中", baseSize: 80, imageSrc: stampAssetUrl("reaction-thinking.png") },
+  "reaction-pause": { label: "保留", baseSize: 80, imageSrc: stampAssetUrl("reaction-pause.png") },
+  "reaction-understood": { label: "なるほど", baseSize: 80, imageSrc: stampAssetUrl("reaction-understood.png") },
+  "reaction-acknowledged": { label: "了解!", baseSize: 80, imageSrc: stampAssetUrl("reaction-acknowledged.png") },
+  "reaction-different": { label: "ちがう!", baseSize: 80, imageSrc: stampAssetUrl("reaction-different.png") },
+  "reaction-sigh": { label: "はぁ…", baseSize: 80, imageSrc: stampAssetUrl("reaction-sigh.png") },
+  "reaction-working": { label: "作業中…", baseSize: 80, imageSrc: stampAssetUrl("reaction-working.png") },
+  "reaction-thanks": { label: "ありがとう", baseSize: 80, imageSrc: stampAssetUrl("reaction-thanks.png") },
   "star-yellow": { label: "スター", baseSize: 80, accent: "#f59e0b" },
   "circle-ok": { label: "丸", baseSize: 80, accent: "#ef4444" },
   "cross-ng": { label: "バツ", baseSize: 80, accent: "#ef4444" },
@@ -163,22 +177,34 @@ export function stampSvgMarkup(key, size = 64) {
 }
 
 export function createStampElement(key) {
+  const preset = STAMP_PRESETS[key];
+  if (preset?.imageSrc) {
+    const image = document.createElement("img");
+    image.src = preset.imageSrc;
+    image.alt = "";
+    image.decoding = "async";
+    image.loading = "lazy";
+    return image;
+  }
+
   const template = document.createElement("template");
   template.innerHTML = stampSvgMarkup(key).trim();
   return template.content.firstElementChild;
 }
 
 function getStampImage(key, onReady) {
-  const safeKey = STAMP_SVG[key] ? key : "star-yellow";
+  const safeKey = STAMP_PRESETS[key] ? key : "star-yellow";
   let image = stampImageCache.get(safeKey);
   if (image) return image;
 
+  const preset = STAMP_PRESETS[safeKey];
   image = new Image();
   image.decoding = "async";
   image.onload = () => {
     if (typeof onReady === "function") onReady();
   };
-  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stampSvgMarkup(safeKey, 128))}`;
+  image.src = preset.imageSrc ||
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(stampSvgMarkup(safeKey, 128))}`;
   stampImageCache.set(safeKey, image);
   return image;
 }
