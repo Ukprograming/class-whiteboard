@@ -1409,7 +1409,8 @@ if (chatToggleBtn && chatPanel) {
     setChatPanelOpen(!chatPanelOpen);
     if (chatPanelOpen) {
       renderStudentChatMessages();
-      if (chatInput) chatInput.focus();
+      chatPanel.scrollLeft = 0;
+      if (chatInput) chatInput.focus({ preventScroll: true });
     }
   });
 }
