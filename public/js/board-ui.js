@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js";
 
@@ -70,7 +70,9 @@ export function initBoardUI() {
 
 
   // ========= ツールボタン =========
-  const toolButtons = document.querySelectorAll("[data-tool]");
+  // 生徒画面モーダルにも独立した data-tool ボタンがあるため、
+  // 通常ホワイトボードのサイドバーだけを共通 UI の対象にする。
+  const toolButtons = document.querySelectorAll("#wbSidebar [data-tool]");
   const pdfInput = document.getElementById("pdfInput");
   const undoBtn = document.getElementById("undoBtn");
   const clearBtn = document.getElementById("clearBtn");

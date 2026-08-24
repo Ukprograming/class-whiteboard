@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824" rel="stylesheet" />
+  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -476,28 +476,64 @@
       <div id="studentModalSidebar" class="modal-sidebar">
         <div class="sidebar-content">
           <div class="modal-tool-strip" aria-label="注釈ツール">
-            <button id="modalToolPen" class="wb-btn" data-tool="pen" title="ペン" aria-label="ペン">
+            <button id="modalToolPen" class="wb-btn" data-tool="pen" title="ペン" aria-label="ペン" aria-expanded="false">
               <span class="material-symbols-rounded">edit</span>
             </button>
-            <button id="modalToolHighlighter" class="wb-btn" data-tool="highlighter" title="蛍光ペン" aria-label="蛍光ペン">
+            <button id="modalToolHighlighter" class="wb-btn" data-tool="highlighter" title="蛍光ペン" aria-label="蛍光ペン" aria-expanded="false">
               <span class="material-symbols-rounded">ink_highlighter</span>
             </button>
             <button id="modalToolEraser" class="wb-btn" data-tool="eraser" title="消しゴム" aria-label="消しゴム">
               <span class="material-symbols-rounded">ink_eraser</span>
             </button>
+            <button id="modalToolStamp" class="wb-btn" data-tool="stamp" title="スタンプ" aria-label="スタンプ" aria-expanded="false">
+              <span class="material-symbols-rounded">add_reaction</span>
+            </button>
+            <button id="modalToolSticky" class="wb-btn" data-tool="sticky" title="付箋" aria-label="付箋" aria-expanded="false">
+              <span class="material-symbols-rounded">sticky_note_2</span>
+            </button>
           </div>
 
-          <div class="setting-row modal-color-row" aria-label="ペンの色">
-            <input id="modalPenColor" type="color" value="#111827" aria-label="ペンの色" />
-            <div class="color-palette">
-              <button class="color-dot active" data-modal-pen-color="#111827" style="--c:#111827" title="黒"></button>
-              <button class="color-dot" data-modal-pen-color="#ef4444" style="--c:#ef4444" title="赤"></button>
-              <button class="color-dot" data-modal-pen-color="#f97316" style="--c:#f97316" title="オレンジ"></button>
-              <button class="color-dot" data-modal-pen-color="#facc15" style="--c:#facc15" title="黄"></button>
-              <button class="color-dot" data-modal-pen-color="#22c55e" style="--c:#22c55e" title="緑"></button>
-              <button class="color-dot" data-modal-pen-color="#0ea5e9" style="--c:#0ea5e9" title="青"></button>
-              <button class="color-dot" data-modal-pen-color="#6366f1" style="--c:#6366f1" title="藍"></button>
-              <button class="color-dot" data-modal-pen-color="#a855f7" style="--c:#a855f7" title="紫"></button>
+          <div id="modalToolMenu" class="context-menu modal-tool-menu hidden" role="dialog" aria-label="ツール設定">
+            <div id="modalDrawSettings" class="context-section hidden">
+              <div class="tool-settings-heading">
+                <strong id="modalDrawSettingsTitle">ペン</strong><span>色と太さ</span>
+              </div>
+              <div class="color-palette" aria-label="描画色">
+                <button class="color-dot active" data-modal-draw-color="#111827" style="--c:#111827" title="黒" aria-label="黒"></button>
+                <button class="color-dot" data-modal-draw-color="#ef4444" style="--c:#ef4444" title="赤" aria-label="赤"></button>
+                <button class="color-dot" data-modal-draw-color="#f97316" style="--c:#f97316" title="オレンジ" aria-label="オレンジ"></button>
+                <button class="color-dot" data-modal-draw-color="#facc15" style="--c:#facc15" title="黄" aria-label="黄"></button>
+                <button class="color-dot" data-modal-draw-color="#22c55e" style="--c:#22c55e" title="緑" aria-label="緑"></button>
+                <button class="color-dot" data-modal-draw-color="#0ea5e9" style="--c:#0ea5e9" title="青" aria-label="青"></button>
+                <button class="color-dot" data-modal-draw-color="#6366f1" style="--c:#6366f1" title="藍" aria-label="藍"></button>
+                <button class="color-dot" data-modal-draw-color="#a855f7" style="--c:#a855f7" title="紫" aria-label="紫"></button>
+              </div>
+              <select id="modalDrawWidthSelect" class="simple-select" aria-label="線の太さ">
+                <option value="thin">細</option>
+                <option value="normal" selected>普通</option>
+                <option value="thick">太</option>
+                <option value="extra-thick">極太</option>
+              </select>
+            </div>
+
+            <div id="modalStickySettings" class="context-section hidden">
+              <div class="tool-settings-heading">
+                <strong>付箋</strong><span>色</span>
+              </div>
+              <div class="color-palette" aria-label="付箋の色">
+                <button class="color-dot active" data-modal-sticky-color="#FEF3C7" style="--c:#FEF3C7" title="黄" aria-label="黄"></button>
+                <button class="color-dot" data-modal-sticky-color="#E0F2FE" style="--c:#E0F2FE" title="青" aria-label="青"></button>
+                <button class="color-dot" data-modal-sticky-color="#DCFCE7" style="--c:#DCFCE7" title="緑" aria-label="緑"></button>
+                <button class="color-dot" data-modal-sticky-color="#FCE7F3" style="--c:#FCE7F3" title="ピンク" aria-label="ピンク"></button>
+                <button class="color-dot" data-modal-sticky-color="#FDE68A" style="--c:#FDE68A" title="濃い黄" aria-label="濃い黄"></button>
+              </div>
+            </div>
+
+            <div id="modalStampSettings" class="context-section modal-stamp-settings hidden">
+              <div class="tool-settings-heading">
+                <strong>スタンプ</strong><span>種類</span>
+              </div>
+              <div id="modalStampItems" class="stamp-items" aria-label="スタンプの種類"></div>
             </div>
           </div>
 
@@ -555,7 +591,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824&amp;png-stamps=20260824"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;png-stamps=20260824"></script>
 </body>
 
 </html>

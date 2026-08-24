@@ -714,6 +714,12 @@ export class Whiteboard {
     }
   }
 
+  setHighlighterWidth(width) {
+    const nextWidth = Number(width);
+    if (!Number.isFinite(nextWidth) || nextWidth <= 0) return;
+    this.highlighterWidth = nextWidth;
+  }
+
   // ★ board-ui.js から呼ばれる（スタンプ）
   setStampType(stampKey) {
     this.currentStampType = stampKey;

@@ -1,6 +1,7 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&png-stamps=20260824&modal-tool-scope=20260824";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824";
+import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819";
 import {
   canAcceptTeacherBoardSnapshot,
@@ -143,21 +144,23 @@ let modalCtx = null;
 // 左側ツールサイドバー
 const modalWbSidebar = document.getElementById("studentModalSidebar");
 
-// 旧UI用の要素は今回使わないので null にしておく
-const modalContextMenu = null;
-const modalPenSettings = null;
-const modalStickySettings = null;
-const modalShapeSettings = null;
-const modalPenWidthSelect = null;
-
 // ツールボタン（teacher.html の ID に合わせる）
 // ※ modalToolPanBtn（「移動」）は UI 上から削除しており、ツールボタンとしては使用しない
 const modalToolPanBtn = document.getElementById("modalToolPan");
 const modalToolPenBtn = document.getElementById("modalToolPen");
 const modalToolHighlighterBtn = document.getElementById("modalToolHighlighter");
 const modalToolEraserBtn = document.getElementById("modalToolEraser");
-const modalPenColorInput = document.getElementById("modalPenColor");
-const modalPenColorButtons = document.querySelectorAll("[data-modal-pen-color]");
+const modalToolStampBtn = document.getElementById("modalToolStamp");
+const modalToolStickyBtn = document.getElementById("modalToolSticky");
+const modalToolMenu = document.getElementById("modalToolMenu");
+const modalDrawSettings = document.getElementById("modalDrawSettings");
+const modalDrawSettingsTitle = document.getElementById("modalDrawSettingsTitle");
+const modalDrawWidthSelect = document.getElementById("modalDrawWidthSelect");
+const modalDrawColorButtons = Array.from(document.querySelectorAll("[data-modal-draw-color]"));
+const modalStickySettings = document.getElementById("modalStickySettings");
+const modalStickyColorButtons = Array.from(document.querySelectorAll("[data-modal-sticky-color]"));
+const modalStampSettings = document.getElementById("modalStampSettings");
+const modalStampItems = document.getElementById("modalStampItems");
 const modalChatStudentName = document.getElementById("modalChatStudentName");
 const modalChatMessagesEl = document.getElementById("modalChatMessages");
 const modalChatInput = document.getElementById("modalChatInput");
@@ -166,14 +169,19 @@ const modalChatSendBtn = document.getElementById("modalChatSendBtn");
 // 互換用エイリアス（古い処理がこれらを参照していても落ちないように）
 // 「移動」ボタンを廃止したため、選択ツール用ボタンは存在しない
 const modalToolSelectBtn = null;
-const modalToolStampBtn = null;
 
 // モーダル内ホワイトボード用の状態
 let modalBoard = null;
 let modalResizeObserver = null;
 // デフォルトツールはペン
 let modalCurrentTool = "pen";
-let modalSelectedStamp = null;
+let modalSettingsOpenTool = null;
+let modalPenColor = "#111827";
+let modalPenWidth = 3;
+let modalHighlighterColor = "#facc15";
+let modalHighlighterWidth = 30;
+let modalStickyColor = "#FEF3C7";
+let modalSelectedStamp = "star-yellow";
 
 // ★ 生徒ごとの最新ボードデータを保持（初期同期 & 再描画用）
 const latestBoardDataByStudent = {};
@@ -2029,39 +2037,141 @@ socket.on("teacher-class-started", payload => {
 
 // ======== 生徒画面モーダル用ツール切り替え ========
 
-function applyModalPenColor(color) {
-  if (!color) return;
-  if (modalPenColorInput) {
-    modalPenColorInput.value = color;
-  }
-  modalPenColorButtons.forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.modalPenColor === color);
+const MODAL_PEN_WIDTH_PRESETS = Object.freeze({
+  thin: 2,
+  normal: 3,
+  thick: 5,
+  "extra-thick": 8
+});
+const MODAL_HIGHLIGHTER_WIDTH_PRESETS = Object.freeze({
+  thin: 14,
+  normal: 30,
+  thick: 42,
+  "extra-thick": 56
+});
+
+function getModalToolButton(tool) {
+  return {
+    select: modalToolSelectBtn,
+    pen: modalToolPenBtn,
+    highlighter: modalToolHighlighterBtn,
+    eraser: modalToolEraserBtn,
+    stamp: modalToolStampBtn,
+    sticky: modalToolStickyBtn
+  }[tool] || null;
+}
+
+function updateModalToolButtons() {
+  [
+    modalToolSelectBtn,
+    modalToolPenBtn,
+    modalToolHighlighterBtn,
+    modalToolEraserBtn,
+    modalToolStampBtn,
+    modalToolStickyBtn
+  ].forEach(btn => {
+    if (!btn) return;
+    const tool = btn.dataset.tool;
+    const isActive = tool === modalCurrentTool;
+    const hasMenu = ["pen", "highlighter", "stamp", "sticky"].includes(tool);
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-pressed", String(isActive));
+    if (hasMenu) {
+      btn.setAttribute("aria-expanded", String(isActive && modalSettingsOpenTool === tool));
+    }
   });
-  if (!modalBoard) return;
-  if (modalCurrentTool === "highlighter") {
-    modalBoard.setHighlighterColor(color);
+}
+
+function positionModalToolMenu(trigger) {
+  if (!modalToolMenu || !modalWbSidebar || !trigger) return;
+  const sidebarRect = modalWbSidebar.getBoundingClientRect();
+  const triggerRect = trigger.getBoundingClientRect();
+  const menuRect = modalToolMenu.getBoundingClientRect();
+  const margin = 12;
+  const maxTop = Math.max(margin, sidebarRect.height - menuRect.height - margin);
+  const triggerCenter = triggerRect.top - sidebarRect.top + triggerRect.height / 2;
+  const top = Math.min(Math.max(margin, triggerCenter - menuRect.height / 2), maxTop);
+  const arrowTop = Math.min(
+    Math.max(18, triggerCenter - top - 8),
+    Math.max(18, menuRect.height - 26)
+  );
+  modalToolMenu.style.top = `${top}px`;
+  modalToolMenu.style.setProperty("--modal-tool-arrow-top", `${arrowTop}px`);
+}
+
+function closeModalToolMenu() {
+  modalSettingsOpenTool = null;
+  modalToolMenu?.classList.add("hidden");
+  modalToolMenu?.classList.remove("stamp-open");
+  modalDrawSettings?.classList.add("hidden");
+  modalStickySettings?.classList.add("hidden");
+  modalStampSettings?.classList.add("hidden");
+  updateModalToolButtons();
+}
+
+function widthPresetForValue(tool, width) {
+  const presets = tool === "highlighter"
+    ? MODAL_HIGHLIGHTER_WIDTH_PRESETS
+    : MODAL_PEN_WIDTH_PRESETS;
+  return Object.entries(presets).find(([, value]) => value === width)?.[0] || "normal";
+}
+
+function updateModalDrawSettings() {
+  if (!modalDrawWidthSelect) return;
+  const isHighlighter = modalSettingsOpenTool === "highlighter";
+  const color = isHighlighter ? modalHighlighterColor : modalPenColor;
+  const width = isHighlighter ? modalHighlighterWidth : modalPenWidth;
+  if (modalDrawSettingsTitle) {
+    modalDrawSettingsTitle.textContent = isHighlighter ? "蛍光ペン" : "ペン";
+  }
+  modalDrawColorButtons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.modalDrawColor === color);
+  });
+  modalDrawWidthSelect.value = widthPresetForValue(
+    isHighlighter ? "highlighter" : "pen",
+    width
+  );
+}
+
+function showModalToolMenu(tool) {
+  if (!modalToolMenu) return;
+  modalSettingsOpenTool = tool;
+  modalDrawSettings?.classList.toggle("hidden", !["pen", "highlighter"].includes(tool));
+  modalStickySettings?.classList.toggle("hidden", tool !== "sticky");
+  modalStampSettings?.classList.toggle("hidden", tool !== "stamp");
+  modalToolMenu.classList.toggle("stamp-open", tool === "stamp");
+  modalToolMenu.classList.remove("hidden");
+  if (tool === "pen" || tool === "highlighter") updateModalDrawSettings();
+  updateModalToolButtons();
+  requestAnimationFrame(() => positionModalToolMenu(getModalToolButton(tool)));
+}
+
+function applyModalDrawColor(color) {
+  if (!color || !["pen", "highlighter"].includes(modalSettingsOpenTool)) return;
+  if (modalSettingsOpenTool === "highlighter") {
+    modalHighlighterColor = color;
+    modalBoard?.setHighlighterColor(color);
   } else {
-    modalBoard.setPen(color, 3);
+    modalPenColor = color;
+    modalBoard?.setPen(modalPenColor, modalPenWidth);
+  }
+  updateModalDrawSettings();
+}
+
+function applyModalDrawWidthPreset(preset) {
+  if (!["pen", "highlighter"].includes(modalSettingsOpenTool)) return;
+  if (modalSettingsOpenTool === "highlighter") {
+    modalHighlighterWidth = MODAL_HIGHLIGHTER_WIDTH_PRESETS[preset] || 30;
+    modalBoard?.setHighlighterWidth?.(modalHighlighterWidth);
+  } else {
+    modalPenWidth = MODAL_PEN_WIDTH_PRESETS[preset] || 3;
+    modalBoard?.setPen(modalPenColor, modalPenWidth);
   }
 }
 
 function setModalTool(tool) {
   modalCurrentTool = tool;
-
-  const buttons = [
-    modalToolSelectBtn,
-    modalToolPenBtn,
-    modalToolHighlighterBtn,
-    modalToolEraserBtn,
-    modalToolStampBtn
-  ];
-  buttons.forEach(btn => btn && btn.classList.remove("active"));
-
-  if (tool === "select" && modalToolSelectBtn) modalToolSelectBtn.classList.add("active");
-  if (tool === "pen" && modalToolPenBtn) modalToolPenBtn.classList.add("active");
-  if (tool === "highlighter" && modalToolHighlighterBtn) modalToolHighlighterBtn.classList.add("active");
-  if (tool === "eraser" && modalToolEraserBtn) modalToolEraserBtn.classList.add("active");
-  if (tool === "stamp" && modalToolStampBtn) modalToolStampBtn.classList.add("active");
+  updateModalToolButtons();
 
   // modalBoard にツール設定を反映
   if (modalBoard) {
@@ -2069,43 +2179,98 @@ function setModalTool(tool) {
       modalBoard.setTool("select");
     } else if (tool === "pen") {
       modalBoard.setTool("pen");
-      modalBoard.setPen(modalPenColorInput ? modalPenColorInput.value : "#ff0000", 3);
+      modalBoard.setPen(modalPenColor, modalPenWidth);
     } else if (tool === "highlighter") {
       modalBoard.setTool("highlighter");
-      // 蛍光ペンは太め・黄色（または選択色）
-      modalBoard.setHighlighterColor(modalPenColorInput ? modalPenColorInput.value : "#ffff00");
+      modalBoard.setHighlighterColor(modalHighlighterColor);
+      modalBoard.setHighlighterWidth?.(modalHighlighterWidth);
     } else if (tool === "eraser") {
       modalBoard.setTool("eraser");
     } else if (tool === "stamp") {
       modalBoard.setTool("stamp");
-      // スタンプの種類設定は別途行うが、ここでは簡易的に
-      if (modalBoard.setStampType) modalBoard.setStampType("circle-ok"); // デフォルト
+      modalBoard.setStampType?.(modalSelectedStamp);
+    } else if (tool === "sticky") {
+      modalBoard.setSelectedStickyColor?.(modalStickyColor);
+      modalBoard.setTool("sticky");
     }
   }
 }
 
-// 「移動」（選択）ボタンは廃止しているため、リスナーは不要
-if (modalToolPenBtn) {
-  modalToolPenBtn.addEventListener("click", () => setModalTool("pen"));
+function handleModalToolWithSettings(tool) {
+  const shouldOpen = modalCurrentTool === tool && modalSettingsOpenTool !== tool;
+  setModalTool(tool);
+  if (shouldOpen) showModalToolMenu(tool);
+  else closeModalToolMenu();
 }
-if (modalToolHighlighterBtn) {
-  modalToolHighlighterBtn.addEventListener("click", () => setModalTool("highlighter"));
-}
-if (modalToolEraserBtn) {
-  modalToolEraserBtn.addEventListener("click", () => setModalTool("eraser"));
-}
-if (modalToolStampBtn) {
-  modalToolStampBtn.addEventListener("click", () => {
-    setModalTool("stamp");
-    const ch = window.prompt(
-      "スタンプとして描画する文字を入力（例: ◎, ○, ★, 👍 ）",
-      modalSelectedStamp || "◎"
-    );
-    if (ch && ch.trim()) {
-      modalSelectedStamp = ch.trim()[0];
-    }
+
+modalToolPenBtn?.addEventListener("click", () => handleModalToolWithSettings("pen"));
+modalToolHighlighterBtn?.addEventListener("click", () => handleModalToolWithSettings("highlighter"));
+modalToolStickyBtn?.addEventListener("click", () => handleModalToolWithSettings("sticky"));
+modalToolEraserBtn?.addEventListener("click", () => {
+  closeModalToolMenu();
+  setModalTool("eraser");
+});
+modalToolStampBtn?.addEventListener("click", () => {
+  const shouldOpen = modalCurrentTool !== "stamp" || modalSettingsOpenTool !== "stamp";
+  setModalTool("stamp");
+  if (shouldOpen) showModalToolMenu("stamp");
+  else closeModalToolMenu();
+});
+
+modalDrawColorButtons.forEach(btn => {
+  btn.addEventListener("click", () => applyModalDrawColor(btn.dataset.modalDrawColor));
+});
+modalDrawWidthSelect?.addEventListener("change", () => {
+  applyModalDrawWidthPreset(modalDrawWidthSelect.value);
+});
+modalStickyColorButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    const color = btn.dataset.modalStickyColor;
+    if (!color) return;
+    modalStickyColor = color;
+    modalBoard?.setSelectedStickyColor?.(color);
+    modalStickyColorButtons.forEach(item => item.classList.toggle("active", item === btn));
+  });
+});
+
+if (modalStampItems) {
+  const stampEntries = Object.entries(STAMP_PRESETS);
+  const orderedStampEntries = [
+    ...stampEntries.filter(([, preset]) => !!preset.imageSrc),
+    ...stampEntries.filter(([, preset]) => !preset.imageSrc)
+  ];
+  orderedStampEntries.forEach(([key, preset]) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "stamp-item";
+    item.dataset.stampKey = key;
+    item.title = preset.label || key;
+    item.setAttribute("aria-label", preset.label || key);
+    item.classList.toggle("active", key === modalSelectedStamp);
+    item.appendChild(createStampElement(key));
+    item.addEventListener("click", () => {
+      modalSelectedStamp = key;
+      modalBoard?.setStampType?.(key);
+      modalStampItems.querySelectorAll(".stamp-item").forEach(stampItem => {
+        stampItem.classList.toggle("active", stampItem === item);
+      });
+      closeModalToolMenu();
+    });
+    modalStampItems.appendChild(item);
   });
 }
+
+document.addEventListener("pointerdown", event => {
+  if (!modalSettingsOpenTool || !modalToolMenu || modalToolMenu.classList.contains("hidden")) return;
+  const target = event.target;
+  if (modalToolMenu.contains(target) || target.closest?.(".modal-tool-strip")) return;
+  closeModalToolMenu();
+});
+
+window.addEventListener("resize", () => {
+  if (!modalSettingsOpenTool) return;
+  positionModalToolMenu(getModalToolButton(modalSettingsOpenTool));
+});
 
 // 初期ツールはペン
 setModalTool("pen");
@@ -2371,8 +2536,12 @@ function updateModalBoardInteractionLock() {
     modalToolPenBtn,
     modalToolHighlighterBtn,
     modalToolEraserBtn,
-    modalPenColorInput,
-    ...modalPenColorButtons,
+    modalToolStampBtn,
+    modalToolStickyBtn,
+    modalDrawWidthSelect,
+    ...modalDrawColorButtons,
+    ...modalStickyColorButtons,
+    ...(modalStampItems ? Array.from(modalStampItems.querySelectorAll(".stamp-item")) : []),
   ].filter(Boolean);
 
   editingControls.forEach(control => {
@@ -2887,19 +3056,6 @@ socket.on(
 // 以前の Canvas 手書き実装は削除し、Whiteboard クラスに任せる
 // modalBoard の初期化は startMonitoringStudent で行う
 
-// 色変更時のイベントリスナーを追加
-if (modalPenColorInput) {
-  modalPenColorInput.addEventListener("change", () => {
-    applyModalPenColor(modalPenColorInput.value);
-  });
-}
-
-modalPenColorButtons.forEach(btn => {
-  btn.addEventListener("click", () => {
-    applyModalPenColor(btn.dataset.modalPenColor);
-  });
-});
-
 /* ===== 共同編集開始 / 終了ヘルパー ===== */
 
 function getStudentModalNavigationEntries() {
@@ -2969,6 +3125,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
   // The overlay canvas is reused between modal sessions. Remove the previous
   // Whiteboard listeners before attaching a new instance; otherwise an old pen
   // tool and the current highlighter tool both react to the same pointer input.
+  closeModalToolMenu();
   destroyModalBoard();
 
   // すでに別の生徒を監視していた場合は一旦終了
@@ -3312,6 +3469,7 @@ if (modalBackdrop && modalCloseBtn) {
   const hideModal = () => {
     modalBackdrop.classList.remove("show");
     modalBackdrop.style.display = "none";
+    closeModalToolMenu();
 
     // 監視を終了してから対象の生徒IDをリセットする。
     stopMonitoringStudent();

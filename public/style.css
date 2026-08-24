@@ -5918,3 +5918,92 @@ body.notebook-panel-expanded .student-notebook-layout {
     max-height: 52vh;
   }
 }
+
+/* Teacher student-modal tools mirror the main whiteboard's compact overlays. */
+.modal-tool-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.modal-sidebar .modal-tool-menu {
+  position: absolute;
+  left: auto;
+  right: calc(100% + 12px);
+  top: 12px;
+  width: 272px;
+  min-width: 0;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--cw-surface-solid, #ffffff);
+  border: 1px solid rgba(183, 200, 211, 0.78);
+  box-shadow: var(--cw-shadow, 0 12px 32px rgba(31, 50, 64, 0.18));
+  z-index: 160;
+}
+
+.modal-sidebar .modal-tool-menu.stamp-open {
+  width: min(392px, calc(100vw - 320px));
+}
+
+.modal-sidebar .modal-tool-menu::before {
+  left: auto;
+  right: -8px;
+  top: var(--modal-tool-arrow-top, 28px);
+  border: 0;
+  border-top: 1px solid rgba(183, 200, 211, 0.78);
+  border-right: 1px solid rgba(183, 200, 211, 0.78);
+  background: var(--cw-surface-solid, #ffffff);
+}
+
+.modal-sidebar .modal-tool-menu .context-section {
+  gap: 14px;
+}
+
+.modal-sidebar .modal-tool-menu .color-palette {
+  display: grid;
+  grid-template-columns: repeat(4, 34px);
+  gap: 10px;
+  justify-content: start;
+}
+
+.modal-sidebar .modal-tool-menu .simple-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+}
+
+.modal-sidebar .modal-stamp-settings .stamp-items {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(60px, 1fr));
+  gap: 9px;
+  max-height: min(54vh, 430px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 2px 4px 4px 2px;
+}
+
+.modal-sidebar .modal-stamp-settings .stamp-item {
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+
+.modal-sidebar .modal-stamp-settings .stamp-item svg,
+.modal-sidebar .modal-stamp-settings .stamp-item img {
+  width: min(68px, 86%);
+  height: min(68px, 86%);
+  display: block;
+  object-fit: contain;
+}
+
+@media (max-width: 760px) {
+  .modal-sidebar .modal-tool-menu.stamp-open {
+    width: min(300px, calc(100vw - 300px));
+  }
+
+  .modal-sidebar .modal-stamp-settings .stamp-items {
+    grid-template-columns: repeat(3, minmax(56px, 1fr));
+  }
+}
