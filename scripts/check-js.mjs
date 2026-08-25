@@ -656,6 +656,10 @@ const copyBoardFunctionSource = readFileSync(
   "supabase/functions/copy-board-to-class/index.ts",
   "utf8"
 );
+const deleteStudentsFunctionSource = readFileSync(
+  "supabase/functions/delete-students/index.ts",
+  "utf8"
+);
 const distributionMigrationSource = readFileSync(
   "supabase/migrations/20260818031132_create_immutable_class_distributions.sql",
   "utf8"
@@ -724,6 +728,28 @@ if (missingDatabaseSecurityContracts.length > 0) {
 
 if (!copyBoardFunctionSource.includes('.rpc("copy_board_to_class_atomic"')) {
   console.error("Board distribution must use the atomic database function.");
+  ok = false;
+}
+const studentDeletionContracts = [
+  [teacherHtmlSource, 'id="classManagementDeleteStudentsBtn"'],
+  [teacherHtmlSource, 'id="deleteStudentsTeacherPassword" type="password"'],
+  [teacherSource, "selectedManagedStudentIds"],
+  [teacherSource, "managementApi.deleteStudents({ studentIds, teacherPassword })"],
+  [realtimeApiSource, 'callFunction("delete-students", payload)'],
+  [deleteStudentsFunctionSource, ".auth.signInWithPassword({ email, password })"],
+  [deleteStudentsFunctionSource, 'classes!inner(teacher_id)'],
+  [deleteStudentsFunctionSource, "classTeacherId(student) !== teacher.id"],
+  [deleteStudentsFunctionSource, 'const root = `students/${studentId}`'],
+  [deleteStudentsFunctionSource, ".storage.from(STORAGE_BUCKET).remove(paths)"],
+  [deleteStudentsFunctionSource, ".auth.admin.deleteUser("],
+];
+const missingStudentDeletionContracts = studentDeletionContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingStudentDeletionContracts.length > 0) {
+  console.error(
+    `Secure student deletion contracts missing: ${missingStudentDeletionContracts.join(", ")}`
+  );
   ok = false;
 }
 const distributionContracts = [

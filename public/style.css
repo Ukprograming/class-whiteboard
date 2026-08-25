@@ -1475,6 +1475,50 @@ body {
   gap: 12px;
 }
 
+.class-management-student-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.class-management-selected-count {
+  color: #667580;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.class-management-delete-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #b42318;
+  border-radius: 8px;
+  background: #b42318;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.class-management-delete-btn:hover:not(:disabled) {
+  background: #8f1c13;
+}
+
+.class-management-delete-btn:disabled {
+  border-color: #d6dce1;
+  background: #e8ecef;
+  color: #8a969f;
+  cursor: not-allowed;
+}
+
+.class-management-modal .icon-btn-text,
+.delete-students-modal .icon-btn-text {
+  width: auto;
+  min-height: 40px;
+  height: auto;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
 .class-management-student-list {
   display: grid;
   gap: 8px;
@@ -1484,6 +1528,32 @@ body {
 .class-management-student-row {
   padding: 10px 0;
   border-top: 1px solid #e3e8ec;
+}
+
+.class-management-student-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.class-management-student-identity input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: #b42318;
+}
+
+.class-management-student-identity > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.class-management-student-identity strong {
+  color: #17212b;
+  font-size: 15px;
 }
 
 .class-management-student-row div {
@@ -1501,6 +1571,81 @@ body {
   margin: 8px 0 0;
 }
 
+.delete-students-backdrop {
+  z-index: 2100;
+}
+
+.delete-students-modal {
+  width: min(520px, calc(100vw - 32px));
+  height: auto;
+  max-height: calc(100vh - 32px);
+}
+
+.delete-students-modal h2 {
+  margin: 0;
+}
+
+.delete-students-form {
+  display: grid;
+  min-height: 0;
+}
+
+.delete-students-warning {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid #f0b4ae;
+  border-radius: 8px;
+  background: #fff3f1;
+  color: #8f1c13;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.delete-students-summary {
+  max-height: 160px;
+  margin-bottom: 16px;
+  overflow: auto;
+  color: #42515c;
+  line-height: 1.6;
+}
+
+.delete-students-summary ul {
+  margin: 6px 0 0;
+  padding-left: 22px;
+}
+
+.delete-students-password-label {
+  display: block;
+  margin-bottom: 7px;
+  color: #42515c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#deleteStudentsTeacherPassword {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid #cbd5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #17212b;
+}
+
+.delete-students-error {
+  margin: 10px 0 0;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.delete-students-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid #e3e8ec;
+}
+
 @media (max-width: 640px) {
   .class-management-form {
     grid-template-columns: 1fr;
@@ -1509,6 +1654,17 @@ body {
   .class-management-student-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .class-management-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .class-management-student-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 

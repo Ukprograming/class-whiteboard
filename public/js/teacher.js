@@ -2,7 +2,7 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -464,7 +464,20 @@ const classManagementStudentName = document.getElementById("classManagementStude
 const classManagementStudentPassword = document.getElementById("classManagementStudentPassword");
 const classManagementStudentList = document.getElementById("classManagementStudentList");
 const classManagementRefreshBtn = document.getElementById("classManagementRefreshBtn");
+const classManagementSelectedCount = document.getElementById("classManagementSelectedCount");
+const classManagementDeleteStudentsBtn = document.getElementById("classManagementDeleteStudentsBtn");
+const deleteStudentsBackdrop = document.getElementById("deleteStudentsBackdrop");
+const deleteStudentsCloseBtn = document.getElementById("deleteStudentsCloseBtn");
+const deleteStudentsForm = document.getElementById("deleteStudentsForm");
+const deleteStudentsSummary = document.getElementById("deleteStudentsSummary");
+const deleteStudentsTeacherPassword = document.getElementById("deleteStudentsTeacherPassword");
+const deleteStudentsError = document.getElementById("deleteStudentsError");
+const deleteStudentsCancelBtn = document.getElementById("deleteStudentsCancelBtn");
+const deleteStudentsConfirmBtn = document.getElementById("deleteStudentsConfirmBtn");
 let managedClasses = [];
+let managedStudents = [];
+let classManagementBusy = false;
+const selectedManagedStudentIds = new Set();
 
 let boardDialogOverlay = null;
 let boardDialogMode = "save";           // "save" or "load"
@@ -1800,6 +1813,7 @@ function setClassManagementStatus(message, isError = false) {
 }
 
 function setClassManagementBusy(isBusy) {
+  classManagementBusy = isBusy;
   [classManagementCreateClassForm, classManagementCreateStudentForm]
     .filter(Boolean)
     .forEach((form) => {
@@ -1808,6 +1822,12 @@ function setClassManagementBusy(isBusy) {
       });
     });
   if (classManagementRefreshBtn) classManagementRefreshBtn.disabled = isBusy;
+  if (classManagementStudentList) {
+    classManagementStudentList.querySelectorAll("input, button").forEach((element) => {
+      element.disabled = isBusy;
+    });
+  }
+  updateManagedStudentSelectionControls();
 }
 
 function escapeHtml(value) {
@@ -1820,20 +1840,93 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function updateManagedStudentSelectionControls() {
+  const count = selectedManagedStudentIds.size;
+  if (classManagementSelectedCount) {
+    classManagementSelectedCount.textContent = `${count}人選択中`;
+  }
+  if (classManagementDeleteStudentsBtn) {
+    classManagementDeleteStudentsBtn.disabled = classManagementBusy || count === 0;
+  }
+}
+
+function setDeleteStudentsError(message = "") {
+  if (!deleteStudentsError) return;
+  deleteStudentsError.textContent = message;
+  deleteStudentsError.hidden = !message;
+}
+
+function setDeleteStudentsBusy(isBusy) {
+  [deleteStudentsCloseBtn, deleteStudentsCancelBtn, deleteStudentsTeacherPassword]
+    .filter(Boolean)
+    .forEach((element) => {
+      element.disabled = isBusy;
+    });
+  if (deleteStudentsConfirmBtn) {
+    deleteStudentsConfirmBtn.disabled = isBusy;
+    deleteStudentsConfirmBtn.textContent = isBusy ? "削除中…" : "完全に削除";
+  }
+}
+
+function closeDeleteStudentsConfirmation() {
+  if (!deleteStudentsBackdrop) return;
+  const wasOpen = deleteStudentsBackdrop.getAttribute("aria-hidden") === "false";
+  deleteStudentsBackdrop.classList.remove("show");
+  deleteStudentsBackdrop.style.display = "none";
+  deleteStudentsBackdrop.setAttribute("aria-hidden", "true");
+  if (deleteStudentsTeacherPassword) deleteStudentsTeacherPassword.value = "";
+  setDeleteStudentsError();
+  setDeleteStudentsBusy(false);
+  if (wasOpen && classManagementBackdrop?.getAttribute("aria-hidden") === "false") {
+    classManagementDeleteStudentsBtn?.focus();
+  }
+}
+
+function openDeleteStudentsConfirmation() {
+  if (!deleteStudentsBackdrop || selectedManagedStudentIds.size === 0) return;
+  const selectedStudents = managedStudents.filter((student) => selectedManagedStudentIds.has(student.id));
+  if (selectedStudents.length === 0) return;
+  if (deleteStudentsSummary) {
+    deleteStudentsSummary.innerHTML = `
+      <strong>${selectedStudents.length}人を削除します</strong>
+      <ul>${selectedStudents.map((student) => `<li>${escapeHtml(student.display_name)}（${escapeHtml(student.student_login_id)}）</li>`).join("")}</ul>
+    `;
+  }
+  if (deleteStudentsTeacherPassword) deleteStudentsTeacherPassword.value = "";
+  setDeleteStudentsError();
+  setDeleteStudentsBusy(false);
+  deleteStudentsBackdrop.style.display = "flex";
+  deleteStudentsBackdrop.classList.add("show");
+  deleteStudentsBackdrop.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => deleteStudentsTeacherPassword?.focus(), 0);
+}
+
 async function renderManagedStudents() {
   if (!classManagementStudentList || !classManagementClassSelect?.value) return;
   classManagementStudentList.innerHTML = '<p class="class-management-empty">読み込み中…</p>';
   const students = await managementApi.listStudents(classManagementClassSelect.value);
+  managedStudents = students;
+  const visibleIds = new Set(students.map((student) => student.id));
+  for (const studentId of selectedManagedStudentIds) {
+    if (!visibleIds.has(studentId)) selectedManagedStudentIds.delete(studentId);
+  }
+  updateManagedStudentSelectionControls();
   if (students.length === 0) {
+    selectedManagedStudentIds.clear();
+    updateManagedStudentSelectionControls();
     classManagementStudentList.innerHTML = '<p class="class-management-empty">このクラスには、まだ生徒がいません。</p>';
     return;
   }
   classManagementStudentList.innerHTML = students.map((student) => `
     <div class="class-management-student-row">
-      <div><strong>${escapeHtml(student.display_name)}</strong><span>${escapeHtml(student.student_login_id)}</span></div>
+      <label class="class-management-student-identity">
+        <input type="checkbox" data-managed-student-id="${student.id}" ${selectedManagedStudentIds.has(student.id) ? "checked" : ""} aria-label="${escapeHtml(student.display_name)}を選択" />
+        <span><strong>${escapeHtml(student.display_name)}</strong><span>${escapeHtml(student.student_login_id)}</span></span>
+      </label>
       <button type="button" class="icon-btn-text" data-reset-student-id="${student.id}" data-reset-student-name="${escapeHtml(student.display_name)}">パスワード再設定</button>
     </div>
   `).join("");
+  if (classManagementBusy) setClassManagementBusy(true);
 }
 
 async function refreshClassManagement() {
@@ -1878,7 +1971,10 @@ function openClassManagement() {
 
 function closeClassManagement() {
   if (!classManagementBackdrop) return;
+  closeDeleteStudentsConfirmation();
   classManagementStudentPassword.value = "";
+  selectedManagedStudentIds.clear();
+  updateManagedStudentSelectionControls();
   classManagementBackdrop.classList.remove("show");
   classManagementBackdrop.style.display = "none";
   classManagementBackdrop.setAttribute("aria-hidden", "true");
@@ -1892,7 +1988,21 @@ if (classManagementBackdrop) {
   });
 }
 if (classManagementRefreshBtn) classManagementRefreshBtn.addEventListener("click", () => void refreshClassManagement());
-if (classManagementClassSelect) classManagementClassSelect.addEventListener("change", () => void renderManagedStudents());
+if (classManagementClassSelect) classManagementClassSelect.addEventListener("change", () => {
+  selectedManagedStudentIds.clear();
+  updateManagedStudentSelectionControls();
+  void renderManagedStudents();
+});
+if (classManagementDeleteStudentsBtn) {
+  classManagementDeleteStudentsBtn.addEventListener("click", openDeleteStudentsConfirmation);
+}
+if (deleteStudentsCloseBtn) deleteStudentsCloseBtn.addEventListener("click", closeDeleteStudentsConfirmation);
+if (deleteStudentsCancelBtn) deleteStudentsCancelBtn.addEventListener("click", closeDeleteStudentsConfirmation);
+if (deleteStudentsBackdrop) {
+  deleteStudentsBackdrop.addEventListener("click", (event) => {
+    if (event.target === deleteStudentsBackdrop) closeDeleteStudentsConfirmation();
+  });
+}
 
 if (classManagementCreateClassForm) {
   classManagementCreateClassForm.addEventListener("submit", async (event) => {
@@ -1951,6 +2061,17 @@ if (classManagementCreateStudentForm) {
 }
 
 if (classManagementStudentList) {
+  classManagementStudentList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-managed-student-id]");
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      selectedManagedStudentIds.add(checkbox.dataset.managedStudentId);
+    } else {
+      selectedManagedStudentIds.delete(checkbox.dataset.managedStudentId);
+    }
+    updateManagedStudentSelectionControls();
+  });
+
   classManagementStudentList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-reset-student-id]");
     if (!button) return;
@@ -1967,6 +2088,48 @@ if (classManagementStudentList) {
     } catch (error) {
       setClassManagementStatus(error.message || "パスワードを再設定できませんでした。", true);
     } finally {
+      setClassManagementBusy(false);
+    }
+  });
+}
+
+if (deleteStudentsForm) {
+  deleteStudentsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const studentIds = Array.from(selectedManagedStudentIds);
+    const teacherPassword = deleteStudentsTeacherPassword?.value || "";
+    if (studentIds.length === 0) {
+      closeDeleteStudentsConfirmation();
+      return;
+    }
+    if (!teacherPassword) {
+      setDeleteStudentsError("先生自身のパスワードを入力してください。");
+      deleteStudentsTeacherPassword?.focus();
+      return;
+    }
+
+    setDeleteStudentsError();
+    setDeleteStudentsBusy(true);
+    setClassManagementBusy(true);
+    try {
+      const result = await managementApi.deleteStudents({ studentIds, teacherPassword });
+      const deletedCount = Number(result.deletedCount) || 0;
+      const failedCount = Array.isArray(result.failed) ? result.failed.length : 0;
+      selectedManagedStudentIds.clear();
+      closeDeleteStudentsConfirmation();
+      await renderManagedStudents();
+      if (failedCount > 0) {
+        setClassManagementStatus(
+          `${deletedCount}人を削除しました。${failedCount}人は削除できなかったため、一覧を確認してもう一度お試しください。`,
+          true
+        );
+      } else {
+        setClassManagementStatus(`${deletedCount}人の生徒と、その生徒フォルダ内のデータを削除しました。`);
+      }
+    } catch (error) {
+      setDeleteStudentsError(error.message || "生徒を削除できませんでした。");
+    } finally {
+      setDeleteStudentsBusy(false);
       setClassManagementBusy(false);
     }
   });

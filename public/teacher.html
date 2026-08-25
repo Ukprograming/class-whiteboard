@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824" rel="stylesheet" />
+  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824&amp;student-delete=20260826" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -439,11 +439,41 @@
         <section class="class-management-section">
           <div class="class-management-section-heading">
             <h3>登録済みの生徒</h3>
-            <button id="classManagementRefreshBtn" type="button" class="icon-btn-text">更新</button>
+            <div class="class-management-student-actions">
+              <span id="classManagementSelectedCount" class="class-management-selected-count">0人選択中</span>
+              <button id="classManagementDeleteStudentsBtn" type="button" class="class-management-delete-btn" disabled>削除</button>
+              <button id="classManagementRefreshBtn" type="button" class="icon-btn-text">更新</button>
+            </div>
           </div>
           <div id="classManagementStudentList" class="class-management-student-list" aria-live="polite"></div>
         </section>
       </div>
+    </section>
+  </div>
+
+  <div id="deleteStudentsBackdrop" class="modal-backdrop delete-students-backdrop" style="display: none;" aria-hidden="true">
+    <section class="modal delete-students-modal" role="dialog" aria-modal="true" aria-labelledby="deleteStudentsTitle" aria-describedby="deleteStudentsWarning">
+      <header class="modal-header">
+        <h2 id="deleteStudentsTitle">選択した生徒を削除</h2>
+        <button id="deleteStudentsCloseBtn" class="close-btn" type="button">閉じる</button>
+      </header>
+      <form id="deleteStudentsForm" class="delete-students-form">
+        <div class="modal-body">
+          <p id="deleteStudentsWarning" class="delete-students-warning">
+            この操作は取り消せません。生徒のアカウント、保存済みボード、画像など、生徒フォルダ内のデータを完全に削除します。
+          </p>
+          <div id="deleteStudentsSummary" class="delete-students-summary"></div>
+          <label class="delete-students-password-label" for="deleteStudentsTeacherPassword">
+            最終確認のため、先生自身のパスワードを入力してください
+          </label>
+          <input id="deleteStudentsTeacherPassword" type="password" required autocomplete="current-password" placeholder="先生のパスワード" />
+          <p id="deleteStudentsError" class="delete-students-error" role="alert" hidden></p>
+        </div>
+        <footer class="delete-students-footer">
+          <button id="deleteStudentsCancelBtn" type="button" class="icon-btn-text">キャンセル</button>
+          <button id="deleteStudentsConfirmBtn" type="submit" class="class-management-delete-btn">完全に削除</button>
+        </footer>
+      </form>
     </section>
   </div>
 
@@ -591,7 +621,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826"></script>
 </body>
 
 </html>

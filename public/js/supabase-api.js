@@ -1343,6 +1343,9 @@ export const managementApi = {
   resetStudentPassword(payload) {
     return callFunction("reset-student-password", payload);
   },
+  deleteStudents(payload) {
+    return callFunction("delete-students", payload);
+  },
   copyBoardToClass(payload) {
     return callFunction("copy-board-to-class", payload);
   },

@@ -37,6 +37,23 @@ export function getUserClient(req: Request) {
   });
 }
 
+export function getPasswordVerificationClient() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  if (!url || !anonKey) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
+  }
+
+  return createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 export function normalizeCode(value: unknown) {
   return String(value || "").trim().toUpperCase();
 }

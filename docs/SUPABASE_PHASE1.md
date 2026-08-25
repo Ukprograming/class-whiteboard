@@ -60,6 +60,7 @@ set it explicitly if your local or deployment environment needs it.
    - `create-class`
    - `create-student`
    - `reset-student-password`
+   - `delete-students`
    - `copy-board-to-class`
 4. Set Edge Function secrets.
 5. Fill `public/js/app-config.js`.
