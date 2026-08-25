@@ -9,6 +9,7 @@ const commonJsFiles = [
   "public/js/app-config.js",
   "public/js/legacy-socket-loader.js",
   "public/js/local-config-loader.js",
+  "public/js/password-visibility.js",
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
@@ -360,8 +361,28 @@ const studentSource = readFileSync("public/js/student.js", "utf8");
 const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
+const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
+const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
 const serverSource = readFileSync("server.js", "utf8");
+const passwordVisibilityContracts = [
+  [teacherLoginHtmlSource, 'data-password-visibility aria-controls="teacherPassword"'],
+  [studentHtmlSource, 'data-password-visibility aria-controls="loginStudentPassword"'],
+  [teacherLoginHtmlSource, "password-visibility.js?v=20260825"],
+  [studentHtmlSource, "password-visibility.js?v=20260825"],
+  [passwordVisibilitySource, 'button.addEventListener("mouseenter"'],
+  [passwordVisibilitySource, 'button.addEventListener("mouseleave"'],
+  [passwordVisibilitySource, 'input.type = visible ? "text" : "password"'],
+];
+const missingPasswordVisibilityContracts = passwordVisibilityContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingPasswordVisibilityContracts.length > 0) {
+  console.error(
+    `Password visibility controls are incomplete: ${missingPasswordVisibilityContracts.join(", ")}`
+  );
+  ok = false;
+}
 const monitorSyncContracts = [
   [teacherSource, "requestStudentModalBoardState(studentSocketId)"],
   [teacherSource, 'setModalBoardLoadState("loading", "生徒の画面を読み込み中…")'],

@@ -4,6 +4,7 @@
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
+import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825";
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
@@ -102,6 +103,7 @@ export class Whiteboard {
 
     this.isErasingTeacher = false;  // 既にどこかで使っているならここで初期化
     this.isErasingStroke = false;   // 一般用（手書きストローク用）消しゴム
+    this.lastEraserPoint = null;
 
     // 選択状態（オブジェクト＋ストローク、複数選択対応）
     this.selectedObj = null;          // テキスト設定用の代表オブジェクト
@@ -2084,23 +2086,25 @@ export class Whiteboard {
   }
 
   _hitTestStroke(wx, wy) {
+    const point = { x: wx, y: wy };
     const threshold = 6 / this.scale;
-    const th2 = threshold * threshold;
 
     for (let i = this.strokes.length - 1; i >= 0; i--) {
       const stroke = this.strokes[i];
-      const pts = stroke.points;
-      if (!pts || pts.length === 0) continue;
-
-      for (let j = 0; j < pts.length; j++) {
-        const dx = pts[j].x - wx;
-        const dy = pts[j].y - wy;
-        if (dx * dx + dy * dy <= th2) {
-          return stroke;
-        }
-      }
+      if (strokeIntersectsPath(stroke, point, point, threshold)) return stroke;
     }
     return null;
+  }
+
+  _eraseStrokesAlongPath(pathStart, pathEnd, teacherOnly = false) {
+    const eraserRadius = this.eraserWidth / (2 * this.scale);
+    const hits = this.strokes.filter(stroke => {
+      if (teacherOnly && !stroke.isTeacherAnnotation) return false;
+      return strokeIntersectsPath(stroke, pathStart, pathEnd, eraserRadius);
+    });
+
+    hits.forEach(stroke => this._deleteStroke(stroke));
+    return hits.length > 0;
   }
 
   _getStrokeBounds(stroke) {
@@ -2705,12 +2709,20 @@ export class Whiteboard {
         // ★ 教員モードの消しゴム：既存通り「教員注釈だけ削除」
         if (this.tool === "eraser" && this.isTeacherMode) {
           this.isErasingTeacher = true;
+          this.lastEraserPoint = { x: wx, y: wy };
+          if (this._eraseStrokesAlongPath(this.lastEraserPoint, this.lastEraserPoint, true)) {
+            this.render();
+          }
           return;
         }
 
         // ★ 一般用の消しゴム：ストロークを「まるごと削除」するモードにする
         if (this.tool === "eraser") {
           this.isErasingStroke = true;
+          this.lastEraserPoint = { x: wx, y: wy };
+          if (this._eraseStrokesAlongPath(this.lastEraserPoint, this.lastEraserPoint)) {
+            this.render();
+          }
           return;
         }
 
@@ -3041,13 +3053,13 @@ export class Whiteboard {
       if (this.isErasingTeacher || this.isErasingStroke) {
         e.preventDefault();
         const { wx, wy } = getPos(e);
-
-        const hitStroke = this._hitTestStroke(wx, wy);
+        const currentEraserPoint = { x: wx, y: wy };
+        const previousEraserPoint = this.lastEraserPoint || currentEraserPoint;
+        this.lastEraserPoint = currentEraserPoint;
 
         // ★ 教員モードの消しゴム：教員注釈だけ削除
         if (this.isErasingTeacher) {
-          if (hitStroke && hitStroke.isTeacherAnnotation) {
-            this._deleteStroke(hitStroke);
+          if (this._eraseStrokesAlongPath(previousEraserPoint, currentEraserPoint, true)) {
             this.render();
           }
 
@@ -3062,8 +3074,7 @@ export class Whiteboard {
 
         // ★ 一般用：手書きストロークなら誰のでも削除
         if (this.isErasingStroke) {
-          if (hitStroke) {
-            this._deleteStroke(hitStroke);
+          if (this._eraseStrokesAlongPath(previousEraserPoint, currentEraserPoint)) {
             this.render();
           }
           return;
@@ -3609,6 +3620,7 @@ export class Whiteboard {
       if (this.isErasingStroke) {
         this.isErasingStroke = false;
       }
+      this.lastEraserPoint = null;
 
 
       if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
