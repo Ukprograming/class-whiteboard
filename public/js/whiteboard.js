@@ -96,7 +96,7 @@ export class Whiteboard {
 
     // タイマーは終了予定時刻だけを共有し、表示は各端末で再計算する。
     this._timerTickTimeout = null;
-    this._timerAlarmUntil = new Map();
+    this._timerAlarmNextAt = new Map();
     this._timerAlarmPlayed = new Set();
     this._timerAudioContext = null;
 
@@ -230,7 +230,7 @@ export class Whiteboard {
       this._timerAudioContext.close().catch(() => {});
     }
     this._timerAudioContext = null;
-    this._timerAlarmUntil.clear();
+    this._timerAlarmNextAt.clear();
     this._timerAlarmPlayed.clear();
 
     if (this.textEditor?.parentElement) {
@@ -633,6 +633,7 @@ export class Whiteboard {
         } else {
           this.objects.push(obj);
         }
+        if (obj.kind === "timer" && obj.timerAlarmActive) this._showTimerAlarm(obj);
         if (obj.kind === "timer") this._ensureTimerTicker();
         this.render();
       }
@@ -646,8 +647,12 @@ export class Whiteboard {
         if (idx >= 0) {
           const previousState = this.objects[idx]?.timerState;
           this.objects[idx] = obj;
-          if (obj.kind === "timer" && obj.timerState === "finished" && previousState !== "finished") {
-            this._showTimerAlarm(obj);
+          if (obj.kind === "timer") {
+            if (obj.timerAlarmActive || (obj.timerState === "finished" && previousState !== "finished")) {
+              this._showTimerAlarm(obj);
+            } else {
+              this._stopTimerAlarm(obj);
+            }
           }
           if (obj.kind === "timer") this._ensureTimerTicker();
           this.render();
@@ -815,13 +820,21 @@ export class Whiteboard {
 
   _showTimerAlarm(obj, now = Date.now()) {
     if (!obj?.id) return;
-    this._timerAlarmUntil.set(obj.id, now + 5000);
+    obj.timerAlarmActive = true;
     if (!this._timerAlarmPlayed.has(obj.id)) {
       this._timerAlarmPlayed.add(obj.id);
       this._playTimerAlarm();
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     }
+    this._timerAlarmNextAt.set(obj.id, now + 1500);
     this._ensureTimerTicker();
+  }
+
+  _stopTimerAlarm(obj) {
+    if (!obj?.id) return;
+    obj.timerAlarmActive = false;
+    this._timerAlarmPlayed.delete(obj.id);
+    this._timerAlarmNextAt.delete(obj.id);
   }
 
   _finishTimer(obj, now = Date.now(), { notify = true, alarm = true } = {}) {
@@ -829,6 +842,7 @@ export class Whiteboard {
     obj.timerState = "finished";
     obj.timerRemainingSeconds = 0;
     obj.timerEndAt = null;
+    obj.timerAlarmActive = true;
     this._markDirty();
     if (alarm) this._showTimerAlarm(obj, now);
     if (notify && this.onAction) this.onAction({ type: "modify", object: obj });
@@ -839,16 +853,29 @@ export class Whiteboard {
       if (obj?.kind !== "timer" || obj.timerState !== "running") continue;
       if (getTimerRemainingSeconds(obj, now) <= 0) this._finishTimer(obj, now);
     }
-    for (const [id, until] of this._timerAlarmUntil) {
-      if (until <= now) this._timerAlarmUntil.delete(id);
+    const activeAlarmIds = new Set();
+    for (const obj of this.objects) {
+      if (obj?.kind !== "timer" || !obj.timerAlarmActive || !obj.id) continue;
+      activeAlarmIds.add(obj.id);
+      const nextAt = this._timerAlarmNextAt.get(obj.id) || 0;
+      if (!this._timerAlarmPlayed.has(obj.id) || nextAt <= now) {
+        this._timerAlarmPlayed.add(obj.id);
+        this._playTimerAlarm();
+        this._timerAlarmNextAt.set(obj.id, now + 1500);
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      }
+    }
+    for (const id of this._timerAlarmPlayed) {
+      if (activeAlarmIds.has(id)) continue;
+      this._timerAlarmPlayed.delete(id);
+      this._timerAlarmNextAt.delete(id);
     }
   }
 
   _ensureTimerTicker() {
     if (this._destroyed || this._timerTickTimeout != null) return;
-    const now = Date.now();
     const needsTick = this.objects.some(obj => obj?.kind === "timer" && obj.timerState === "running") ||
-      Array.from(this._timerAlarmUntil.values()).some(until => until > now);
+      this.objects.some(obj => obj?.kind === "timer" && obj.timerAlarmActive);
     if (!needsTick) return;
     this._timerTickTimeout = setTimeout(() => {
       this._timerTickTimeout = null;
@@ -858,8 +885,6 @@ export class Whiteboard {
   }
 
   _commitTimerChange(obj) {
-    this._timerAlarmUntil.delete(obj.id);
-    this._timerAlarmPlayed.delete(obj.id);
     this._markDirty();
     if (this.onAction) this.onAction({ type: "modify", object: obj });
     this.render();
@@ -872,6 +897,7 @@ export class Whiteboard {
 
     if (control === "startPause") {
       this._primeTimerAudio();
+      this._stopTimerAlarm(obj);
       if (obj.timerState === "running") {
         obj.timerRemainingSeconds = current;
         obj.timerState = current > 0 ? "paused" : "finished";
@@ -890,6 +916,7 @@ export class Whiteboard {
     }
 
     if (control === "reset") {
+      this._stopTimerAlarm(obj);
       obj.timerRemainingSeconds = clampTimerSeconds(obj.timerDurationSeconds ?? 300);
       obj.timerState = "idle";
       obj.timerEndAt = null;
@@ -917,7 +944,8 @@ export class Whiteboard {
     const fields = normalizeTimerFields({
       timerDurationSeconds: 300,
       timerRemainingSeconds: 300,
-      timerState: "idle"
+      timerState: "idle",
+      timerAlarmActive: false
     });
     const obj = {
       id: this._newEntityId("object"),
@@ -1920,6 +1948,7 @@ export class Whiteboard {
         base.timerRemainingSeconds = getTimerRemainingSeconds(o);
         base.timerState = timer.timerState;
         base.timerEndAt = timer.timerEndAt;
+        base.timerAlarmActive = timer.timerAlarmActive;
       }
 
       if (o.kind === "triangle" && o.points) {
@@ -4735,8 +4764,7 @@ export class Whiteboard {
         const now = Date.now();
         const remaining = getTimerRemainingSeconds(obj, now);
         const layout = this._timerControlLayout(obj);
-        const alarmUntil = this._timerAlarmUntil.get(obj.id) || 0;
-        const isAlarming = alarmUntil > now;
+        const isAlarming = !!obj.timerAlarmActive;
         const pulse = isAlarming ? (Math.sin(now / 105) + 1) / 2 : 0;
         const radius = Math.max(12, Math.min(width, height) * 0.055);
 

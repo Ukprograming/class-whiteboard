@@ -32,6 +32,7 @@ export function normalizeTimerFields(timer) {
     timerState: state,
     timerEndAt: state === "running" && Number.isFinite(Number(timer?.timerEndAt))
       ? Number(timer.timerEndAt)
-      : null
+      : null,
+    timerAlarmActive: !!timer?.timerAlarmActive
   };
 }

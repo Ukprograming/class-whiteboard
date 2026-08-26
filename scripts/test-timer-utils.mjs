@@ -32,5 +32,14 @@ assert.equal(invalid.timerDurationSeconds, 0);
 assert.equal(invalid.timerRemainingSeconds, MAX_TIMER_SECONDS);
 assert.equal(invalid.timerState, "idle");
 assert.equal(invalid.timerEndAt, null);
+assert.equal(invalid.timerAlarmActive, false);
+
+const alarming = normalizeTimerFields({
+  timerDurationSeconds: 10,
+  timerRemainingSeconds: 0,
+  timerState: "finished",
+  timerAlarmActive: true
+});
+assert.equal(alarming.timerAlarmActive, true);
 
 console.log("Timer utility checks passed.");
