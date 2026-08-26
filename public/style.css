@@ -4352,15 +4352,36 @@ body {
   top: 164px;
   bottom: auto;
   width: 58px;
+  height: min(472px, calc(100vh - 260px));
   max-height: calc(100vh - 260px);
   border-radius: 12px;
   overflow: visible;
+  box-sizing: border-box;
 }
 
 .sidebar-content {
   overflow-y: auto;
+  min-height: 0;
   padding: 10px 7px;
   gap: 8px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: #9fb4c2 transparent;
+}
+
+.sidebar-content::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb {
+  background: #9fb4c2;
+  border-radius: 999px;
+}
+
+.sidebar-content::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .tool-btn {

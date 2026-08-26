@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
 import {
   authApi,
   boardApi,
@@ -3237,5 +3237,4 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
 // すべての Realtime ハンドラと下書き保存フックを登録してから、保存済みの
 // Supabase セッションを使った自動再参加・下書き復元を開始する。
 void restoreStudentSessionOnLoad();
-
 

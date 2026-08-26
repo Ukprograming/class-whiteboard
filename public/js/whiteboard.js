@@ -5,6 +5,12 @@
 
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825";
+import {
+  clampTimerSeconds,
+  formatTimerSeconds,
+  getTimerRemainingSeconds,
+  normalizeTimerFields
+} from "./timer-utils.mjs?v=timer-tool-20260826";
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
@@ -87,6 +93,12 @@ export class Whiteboard {
       depthRatio: 0.24
     };
     this.stickyColor = "#FEF3C7";
+
+    // タイマーは終了予定時刻だけを共有し、表示は各端末で再計算する。
+    this._timerTickTimeout = null;
+    this._timerAlarmUntil = new Map();
+    this._timerAlarmPlayed = new Set();
+    this._timerAudioContext = null;
 
     // 状態フラグ
     this.isDrawingStroke = false;
@@ -210,6 +222,16 @@ export class Whiteboard {
     this.onToolChange = null;
     this.onDirtyChange = null;
     this.onPagesChange = null;
+    if (this._timerTickTimeout != null) {
+      clearTimeout(this._timerTickTimeout);
+      this._timerTickTimeout = null;
+    }
+    if (this._timerAudioContext?.close) {
+      this._timerAudioContext.close().catch(() => {});
+    }
+    this._timerAudioContext = null;
+    this._timerAlarmUntil.clear();
+    this._timerAlarmPlayed.clear();
 
     if (this.textEditor?.parentElement) {
       this.textEditor.remove();
@@ -604,12 +626,14 @@ export class Whiteboard {
       // オブジェクト追加
       if (action.object) {
         const obj = { ...action.object };
+        if (obj.kind === "timer") Object.assign(obj, normalizeTimerFields(obj));
         const existingIndex = this.objects.findIndex(o => o.id === obj.id);
         if (existingIndex >= 0) {
           this.objects[existingIndex] = obj;
         } else {
           this.objects.push(obj);
         }
+        if (obj.kind === "timer") this._ensureTimerTicker();
         this.render();
       }
 
@@ -617,9 +641,15 @@ export class Whiteboard {
       // オブジェクト変更
       if (action.object) {
         const obj = { ...action.object };
+        if (obj.kind === "timer") Object.assign(obj, normalizeTimerFields(obj));
         const idx = this.objects.findIndex(o => o.id === obj.id);
         if (idx >= 0) {
+          const previousState = this.objects[idx]?.timerState;
           this.objects[idx] = obj;
+          if (obj.kind === "timer" && obj.timerState === "finished" && previousState !== "finished") {
+            this._showTimerAlarm(obj);
+          }
+          if (obj.kind === "timer") this._ensureTimerTicker();
           this.render();
         }
       }
@@ -698,6 +728,210 @@ export class Whiteboard {
     });
 
     this.pendingData = null;
+    this.render();
+  }
+
+  _timerControlLayout(obj) {
+    const { x, y, width, height } = this._normalizeRect(obj);
+    const pad = Math.max(10, Math.min(width, height) * 0.045);
+    const gap = Math.max(8, width * 0.025);
+    const columnWidth = (width - pad * 2 - gap) / 2;
+    const top = y + Math.max(34, height * 0.14);
+    const adjustHeight = Math.max(44, height * 0.16);
+    const displayTop = top + adjustHeight + gap;
+    const displayHeight = Math.max(48, height * 0.21);
+    const downTop = displayTop + displayHeight + gap;
+    const actionTop = downTop + adjustHeight + gap;
+    const actionHeight = Math.max(44, y + height - pad - actionTop);
+    return {
+      minuteUp: { x: x + pad, y: top, width: columnWidth, height: adjustHeight },
+      secondUp: { x: x + pad + columnWidth + gap, y: top, width: columnWidth, height: adjustHeight },
+      display: { x: x + pad, y: displayTop, width: width - pad * 2, height: displayHeight },
+      minuteDown: { x: x + pad, y: downTop, width: columnWidth, height: adjustHeight },
+      secondDown: { x: x + pad + columnWidth + gap, y: downTop, width: columnWidth, height: adjustHeight },
+      startPause: { x: x + pad, y: actionTop, width: columnWidth, height: actionHeight },
+      reset: { x: x + pad + columnWidth + gap, y: actionTop, width: columnWidth, height: actionHeight }
+    };
+  }
+
+  _hitTestTimerControl(obj, wx, wy) {
+    if (!obj || obj.kind !== "timer") return null;
+    const layout = this._timerControlLayout(obj);
+    for (const [name, rect] of Object.entries(layout)) {
+      if (name === "display") continue;
+      if (
+        wx >= rect.x && wx <= rect.x + rect.width &&
+        wy >= rect.y && wy <= rect.y + rect.height
+      ) return name;
+    }
+    return null;
+  }
+
+  _findTimerControlAt(wx, wy) {
+    for (let index = this.objects.length - 1; index >= 0; index -= 1) {
+      const obj = this.objects[index];
+      const control = this._hitTestTimerControl(obj, wx, wy);
+      if (control) return { obj, control };
+    }
+    return null;
+  }
+
+  _primeTimerAudio() {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!this._timerAudioContext) this._timerAudioContext = new AudioContextClass();
+      if (this._timerAudioContext.state === "suspended") {
+        this._timerAudioContext.resume().catch(() => {});
+      }
+    } catch (error) {
+      console.warn("Timer audio could not be prepared.", error);
+    }
+  }
+
+  _playTimerAlarm() {
+    this._primeTimerAudio();
+    const audioContext = this._timerAudioContext;
+    if (!audioContext || audioContext.state === "closed") return;
+    try {
+      const startAt = audioContext.currentTime + 0.02;
+      [0, 0.42, 0.84].forEach((delay, index) => {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(index === 2 ? 1046.5 : 880, startAt + delay);
+        gain.gain.setValueAtTime(0.0001, startAt + delay);
+        gain.gain.exponentialRampToValueAtTime(0.18, startAt + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + delay + 0.28);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start(startAt + delay);
+        oscillator.stop(startAt + delay + 0.3);
+      });
+    } catch (error) {
+      console.warn("Timer alarm could not be played.", error);
+    }
+  }
+
+  _showTimerAlarm(obj, now = Date.now()) {
+    if (!obj?.id) return;
+    this._timerAlarmUntil.set(obj.id, now + 5000);
+    if (!this._timerAlarmPlayed.has(obj.id)) {
+      this._timerAlarmPlayed.add(obj.id);
+      this._playTimerAlarm();
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    }
+    this._ensureTimerTicker();
+  }
+
+  _finishTimer(obj, now = Date.now(), { notify = true, alarm = true } = {}) {
+    if (!obj || obj.timerState === "finished") return;
+    obj.timerState = "finished";
+    obj.timerRemainingSeconds = 0;
+    obj.timerEndAt = null;
+    this._markDirty();
+    if (alarm) this._showTimerAlarm(obj, now);
+    if (notify && this.onAction) this.onAction({ type: "modify", object: obj });
+  }
+
+  _refreshRunningTimers(now = Date.now()) {
+    for (const obj of this.objects) {
+      if (obj?.kind !== "timer" || obj.timerState !== "running") continue;
+      if (getTimerRemainingSeconds(obj, now) <= 0) this._finishTimer(obj, now);
+    }
+    for (const [id, until] of this._timerAlarmUntil) {
+      if (until <= now) this._timerAlarmUntil.delete(id);
+    }
+  }
+
+  _ensureTimerTicker() {
+    if (this._destroyed || this._timerTickTimeout != null) return;
+    const now = Date.now();
+    const needsTick = this.objects.some(obj => obj?.kind === "timer" && obj.timerState === "running") ||
+      Array.from(this._timerAlarmUntil.values()).some(until => until > now);
+    if (!needsTick) return;
+    this._timerTickTimeout = setTimeout(() => {
+      this._timerTickTimeout = null;
+      if (this._destroyed) return;
+      this.render();
+    }, 100);
+  }
+
+  _commitTimerChange(obj) {
+    this._timerAlarmUntil.delete(obj.id);
+    this._timerAlarmPlayed.delete(obj.id);
+    this._markDirty();
+    if (this.onAction) this.onAction({ type: "modify", object: obj });
+    this.render();
+  }
+
+  _handleTimerControl(obj, control) {
+    if (!obj || obj.kind !== "timer") return false;
+    const now = Date.now();
+    const current = getTimerRemainingSeconds(obj, now);
+
+    if (control === "startPause") {
+      this._primeTimerAudio();
+      if (obj.timerState === "running") {
+        obj.timerRemainingSeconds = current;
+        obj.timerState = current > 0 ? "paused" : "finished";
+        obj.timerEndAt = null;
+      } else {
+        const next = current > 0
+          ? current
+          : clampTimerSeconds(obj.timerDurationSeconds ?? 300);
+        obj.timerRemainingSeconds = next;
+        obj.timerState = "running";
+        obj.timerEndAt = now + next * 1000;
+      }
+      this._commitTimerChange(obj);
+      this._ensureTimerTicker();
+      return true;
+    }
+
+    if (control === "reset") {
+      obj.timerRemainingSeconds = clampTimerSeconds(obj.timerDurationSeconds ?? 300);
+      obj.timerState = "idle";
+      obj.timerEndAt = null;
+      this._commitTimerChange(obj);
+      return true;
+    }
+
+    const deltas = {
+      minuteUp: 60,
+      minuteDown: -60,
+      secondUp: 1,
+      secondDown: -1
+    };
+    if (!(control in deltas)) return false;
+    const next = clampTimerSeconds(current + deltas[control]);
+    obj.timerDurationSeconds = next;
+    obj.timerRemainingSeconds = next;
+    obj.timerState = "idle";
+    obj.timerEndAt = null;
+    this._commitTimerChange(obj);
+    return true;
+  }
+
+  _placeTimerAt(wx, wy) {
+    const fields = normalizeTimerFields({
+      timerDurationSeconds: 300,
+      timerRemainingSeconds: 300,
+      timerState: "idle"
+    });
+    const obj = {
+      id: this._newEntityId("object"),
+      kind: "timer",
+      x: wx - 170,
+      y: wy - 125,
+      width: 340,
+      height: 250,
+      locked: false,
+      ...fields
+    };
+    this._addObject(obj);
+    if (this.onAction) this.onAction({ type: "object", object: obj });
+    this.setTool("select");
     this.render();
   }
 
@@ -1680,6 +1914,14 @@ export class Whiteboard {
         base.stampKey = o.stampKey || this.currentStampType || "star-yellow";
       }
 
+      if (o.kind === "timer") {
+        const timer = normalizeTimerFields(o);
+        base.timerDurationSeconds = timer.timerDurationSeconds;
+        base.timerRemainingSeconds = getTimerRemainingSeconds(o);
+        base.timerState = timer.timerState;
+        base.timerEndAt = timer.timerEndAt;
+      }
+
       if (o.kind === "triangle" && o.points) {
         base.points = (o.points || []).map(p => ({ x: p.x, y: p.y }));
       }
@@ -1949,6 +2191,10 @@ export class Whiteboard {
 
       if (o.kind === "stamp") {
         obj.stampKey = o.stampKey || "star-yellow";
+      }
+
+      if (o.kind === "timer") {
+        Object.assign(obj, normalizeTimerFields(o));
       }
 
       if (o.kind === "triangle" && o.points) {
@@ -2277,6 +2523,10 @@ export class Whiteboard {
       if (obj.stampKey) this.setStampType(obj.stampKey);
       this.setTool("stamp");
       return "stamp";
+    }
+    if (obj.kind === "timer") {
+      this.setTool("select");
+      return "timer";
     }
     return null;
   }
@@ -2698,6 +2948,14 @@ export class Whiteboard {
       const { sx, sy, wx, wy } = getPos(e);
       const button = e.button != null ? e.button : 0;
 
+      if (button === 0) {
+        const timerControl = this._findTimerControlAt(wx, wy);
+        if (timerControl && this._handleTimerControl(timerControl.obj, timerControl.control)) {
+          this._setSelected(timerControl.obj);
+          return;
+        }
+      }
+
       if (button === 1 || button === 2 || e.altKey) {
         this.isPanning = true;
         this.lastPanScreenX = sx;
@@ -2761,6 +3019,11 @@ export class Whiteboard {
 
       if (this.tool === "stamp") {
         this._placeStampAt(wx, wy);
+        return;
+      }
+
+      if (this.tool === "timer") {
+        this._placeTimerAt(wx, wy);
         return;
       }
 
@@ -3759,6 +4022,8 @@ export class Whiteboard {
   }
 
   render() {
+    this._refreshRunningTimers();
+    this._ensureTimerTicker();
     const w = this.canvas.width;
     const h = this.canvas.height;
     const dpr = this.dpr || 1;
@@ -4466,6 +4731,119 @@ export class Whiteboard {
         ctx.restore();
       }
 
+      else if (kind === "timer") {
+        const now = Date.now();
+        const remaining = getTimerRemainingSeconds(obj, now);
+        const layout = this._timerControlLayout(obj);
+        const alarmUntil = this._timerAlarmUntil.get(obj.id) || 0;
+        const isAlarming = alarmUntil > now;
+        const pulse = isAlarming ? (Math.sin(now / 105) + 1) / 2 : 0;
+        const radius = Math.max(12, Math.min(width, height) * 0.055);
+
+        ctx.save();
+        if (isAlarming) {
+          ctx.shadowColor = `rgba(239, 68, 68, ${0.45 + pulse * 0.4})`;
+          ctx.shadowBlur = 18 + pulse * 18;
+        } else {
+          ctx.shadowColor = "rgba(15, 23, 42, 0.2)";
+          ctx.shadowBlur = 12;
+          ctx.shadowOffsetY = 5;
+        }
+        ctx.fillStyle = isAlarming
+          ? `rgba(254, 226, 226, ${0.88 + pulse * 0.12})`
+          : "#f8fafc";
+        ctx.strokeStyle = isAlarming ? "#ef4444" : "#94a3b8";
+        ctx.lineWidth = (isAlarming ? 4 : 2) / this.scale;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, width, height, radius);
+        else ctx.rect(x, y, width, height);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowColor = "transparent";
+
+        const headerSize = Math.max(11, Math.min(16, height * 0.06));
+        ctx.font = `700 ${headerSize}px system-ui, -apple-system, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = isAlarming ? "#b91c1c" : "#475569";
+        ctx.fillText(isAlarming ? "🔔 TIME UP!" : "TIMER", x + width / 2, y + Math.max(17, height * 0.075));
+
+        const drawButton = (rect, label, options = {}) => {
+          const buttonRadius = Math.max(8, Math.min(rect.width, rect.height) * 0.18);
+          ctx.fillStyle = options.fill || "#ffffff";
+          ctx.strokeStyle = options.stroke || "#cbd5e1";
+          ctx.lineWidth = 1.5 / this.scale;
+          ctx.beginPath();
+          if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(rect.x, rect.y, rect.width, rect.height, buttonRadius);
+          } else {
+            ctx.rect(rect.x, rect.y, rect.width, rect.height);
+          }
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = options.color || "#334155";
+          ctx.font = `${options.weight || 700} ${Math.max(12, Math.min(18, rect.height * 0.38))}px system-ui, -apple-system, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, rect.x + rect.width / 2, rect.y + rect.height / 2);
+        };
+
+        drawButton(layout.minuteUp, "▲ 1分");
+        drawButton(layout.secondUp, "▲ 1秒");
+        drawButton(layout.minuteDown, "▼ 1分");
+        drawButton(layout.secondDown, "▼ 1秒");
+
+        const display = layout.display;
+        ctx.fillStyle = isAlarming ? "#450a0a" : "#0f172a";
+        ctx.strokeStyle = isAlarming ? "#ef4444" : "#334155";
+        ctx.lineWidth = 2 / this.scale;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(display.x, display.y, display.width, display.height, Math.max(8, display.height * 0.16));
+        } else {
+          ctx.rect(display.x, display.y, display.width, display.height);
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = isAlarming ? "#fecaca" : "#f8fafc";
+        ctx.font = `700 ${Math.max(30, Math.min(54, display.height * 0.72))}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(formatTimerSeconds(remaining), display.x + display.width / 2, display.y + display.height / 2);
+
+        const isRunning = obj.timerState === "running";
+        drawButton(layout.startPause, isRunning ? "Ⅱ 一時停止" : "▶ スタート", {
+          fill: isRunning ? "#fff7ed" : "#e6fffb",
+          stroke: isRunning ? "#fb923c" : "#14b8a6",
+          color: isRunning ? "#c2410c" : "#0f766e"
+        });
+        drawButton(layout.reset, "↺ リセット", {
+          fill: "#f1f5f9",
+          stroke: "#94a3b8",
+          color: "#334155"
+        });
+
+        if (isAlarming) {
+          ctx.strokeStyle = `rgba(239, 68, 68, ${0.35 + pulse * 0.55})`;
+          ctx.lineWidth = (3 + pulse * 3) / this.scale;
+          ctx.beginPath();
+          const ringInset = -8 - pulse * 8;
+          if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(
+              x + ringInset,
+              y + ringInset,
+              width - ringInset * 2,
+              height - ringInset * 2,
+              radius + 6
+            );
+          } else {
+            ctx.rect(x + ringInset, y + ringInset, width - ringInset * 2, height - ringInset * 2);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       else if (kind === "stamp") {
         const key = obj.stampKey || "star-yellow";
 
@@ -4791,6 +5169,9 @@ export class Whiteboard {
 
     // ==== 2) それ以外の図形 → 四隅のリサイズハンドル ====
     const { x, y, width, height } = this._normalizeRect(obj);
+
+    // 内部ボタンをiPadでも44px前後に保つため、タイマーは固定サイズで配置する。
+    if (kind === "timer") return;
 
     const corners = [
       { name: "nw", wx: x, wy: y },

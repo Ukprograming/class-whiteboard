@@ -20,6 +20,7 @@ const moduleFiles = [
   "public/js/stamps.js",
   "public/js/student.js",
   "public/js/supabase-api.js",
+  "public/js/timer-utils.mjs",
   "public/js/teacher.js",
   "public/js/teacher-class-storage.js",
   "public/js/teacher-login.js",
