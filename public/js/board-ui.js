@@ -4,6 +4,7 @@
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826";
+import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260827";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -14,7 +15,7 @@ export function initBoardUI() {
     return null;
   }
 
-  const wb = new Whiteboard({ canvas });
+  const wb = new TableWhiteboard({ canvas });
 
   const zoomLevelEl = document.getElementById("zoomLevel");
 
@@ -177,6 +178,19 @@ export function initBoardUI() {
   let textAlignCenterBtn = null;
   let textAlignRightBtn = null;
   let panelStickyColorRow = null;
+
+  // 表ツール設定パネル
+  let tableStylePanel = null;
+  let tableCellLabel = null;
+  let tableFillInput = null;
+  let tableFontSizeSelect = null;
+  let tableTextColorInput = null;
+  let tableBoldToggle = null;
+  let tableFontFamilySelect = null;
+  let tableBorderSideSelect = null;
+  let tableBorderColorInput = null;
+  let tableBorderWidthSelect = null;
+  let tableBorderStyleSelect = null;
 
   // 現在のペン設定
   let currentPenColor = "#111827";
@@ -383,6 +397,44 @@ export function initBoardUI() {
     }
   }
 
+  function updateTableStylePanelFromSelection() {
+    if (!tableStylePanel || typeof wb.getSelectedTableCellStyle !== "function") return;
+    const obj = wb.selectedObj;
+    const cell = wb.getSelectedTableCellStyle();
+    const selection = wb.selectedTableCell || { row: 0, col: 0 };
+    if (tableCellLabel) {
+      tableCellLabel.textContent = obj?.kind === "table"
+        ? `${selection.row + 1}行 ${selection.col + 1}列`
+        : "新しい表の設定";
+    }
+    if (tableFillInput) tableFillInput.value = cell.fill || "#ffffff";
+    if (tableFontSizeSelect) tableFontSizeSelect.value = String(cell.fontSize || 16);
+    if (tableTextColorInput) tableTextColorInput.value = cell.textColor || "#111827";
+    if (tableBoldToggle) {
+      tableBoldToggle.dataset.active = cell.bold ? "1" : "0";
+      tableBoldToggle.classList.toggle("active", !!cell.bold);
+    }
+    if (tableFontFamilySelect) {
+      const family = (cell.fontFamily || "").toLowerCase();
+      tableFontFamilySelect.value = family.includes("mincho") || family.includes("明朝")
+        ? "mincho"
+        : family.includes("meiryo") || family.includes("メイリオ")
+          ? "meiryo"
+          : family.includes("gothic") || family.includes("游ゴシック")
+            ? "gothic"
+            : "system";
+    }
+    const borderSide = tableBorderSideSelect?.value || "all";
+    const firstSide = borderSide === "all" ? "top" : borderSide;
+    const border = cell.borders?.[firstSide] || {};
+    if (tableBorderColorInput) tableBorderColorInput.value = border.color || "#111827";
+    if (tableBorderWidthSelect) tableBorderWidthSelect.value = String(border.width ?? 2);
+    if (tableBorderStyleSelect) tableBorderStyleSelect.value = border.style || "solid";
+    tableStylePanel.querySelectorAll("[data-table-align]").forEach(button => {
+      button.classList.toggle("active", button.dataset.tableAlign === (cell.textAlign || "left"));
+    });
+  }
+
 
   // ========= ツールボタンの UI 更新 =========
   function updateToolButtons(activeTool, options = {}) {
@@ -394,7 +446,7 @@ export function initBoardUI() {
       if (!btn.dataset.baseTitle) btn.dataset.baseTitle = btn.title || "ツール";
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
-      const hasSettings = ["pen", "highlighter", "sticky", "text", "shape"].includes(t);
+      const hasSettings = ["pen", "highlighter", "sticky", "text", "shape", "table"].includes(t);
       const isActive = t === activeTool;
       btn.title = hasSettings && isActive
         ? `${btn.dataset.baseTitle}（もう一度押すと設定）`
@@ -491,6 +543,15 @@ export function initBoardUI() {
         showMenu = true;
       } else {
         shapeSettings.classList.add("hidden");
+      }
+    }
+
+    if (tableStylePanel) {
+      const showTableSettings = activeTool === "table" && settingsOpenTool === "table";
+      tableStylePanel.classList.toggle("hidden", !showTableSettings);
+      if (showTableSettings) {
+        updateTableStylePanelFromSelection();
+        showMenu = true;
       }
     }
 
@@ -739,6 +800,92 @@ export function initBoardUI() {
     }
   }
 
+  function setupTableStylePanel() {
+    if (typeof wb.setSelectedTableCellStyle !== "function") return;
+    const container = document.getElementById("contextMenu");
+    if (!container) return;
+    tableStylePanel = document.createElement("div");
+    tableStylePanel.id = "tableStylePanel";
+    tableStylePanel.className = "context-section table-style-panel hidden";
+    tableStylePanel.innerHTML = `
+      <div class="tool-settings-heading table-settings-heading">
+        <strong>表</strong><span data-table-cell-label>新しい表の設定</span>
+      </div>
+      <div class="table-settings-grid">
+        <label><span>セル背景</span><input type="color" data-table-fill value="#ffffff" title="セルの背景色" /></label>
+        <label><span>文字サイズ</span><select data-table-font-size>
+          <option value="12">12pt</option><option value="14">14pt</option>
+          <option value="16" selected>16pt</option><option value="20">20pt</option>
+          <option value="24">24pt</option><option value="32">32pt</option>
+        </select></label>
+        <label><span>文字色</span><input type="color" data-table-text-color value="#111827" title="文字色" /></label>
+        <label><span>書体</span><select data-table-font-family>
+          <option value="system">標準</option><option value="meiryo">メイリオ</option>
+          <option value="gothic">ゴシック</option><option value="mincho">明朝</option>
+        </select></label>
+        <div class="table-inline-controls" aria-label="文字の装飾と配置">
+          <button type="button" class="table-icon-btn" data-table-bold title="太字"><span class="material-symbols-rounded">format_bold</span></button>
+          <button type="button" class="table-icon-btn active" data-table-align="left" title="左揃え"><span class="material-symbols-rounded">format_align_left</span></button>
+          <button type="button" class="table-icon-btn" data-table-align="center" title="中央揃え"><span class="material-symbols-rounded">format_align_center</span></button>
+          <button type="button" class="table-icon-btn" data-table-align="right" title="右揃え"><span class="material-symbols-rounded">format_align_right</span></button>
+        </div>
+        <div class="table-settings-divider" role="separator"></div>
+        <label><span>罫線</span><select data-table-border-side>
+          <option value="all">4辺すべて</option><option value="top">上</option>
+          <option value="right">右</option><option value="bottom">下</option><option value="left">左</option>
+        </select></label>
+        <label><span>線色</span><input type="color" data-table-border-color value="#111827" title="罫線の色" /></label>
+        <label><span>太さ</span><select data-table-border-width>
+          <option value="0">なし</option><option value="1">細</option>
+          <option value="2" selected>標準</option><option value="3">太</option><option value="5">極太</option>
+        </select></label>
+        <label><span>線種</span><select data-table-border-style>
+          <option value="solid">実線</option><option value="dashed">破線</option>
+          <option value="dotted">点線</option><option value="double">二重線</option><option value="none">なし</option>
+        </select></label>
+      </div>`;
+    container.appendChild(tableStylePanel);
+    replaceMaterialIcons(tableStylePanel);
+
+    tableCellLabel = tableStylePanel.querySelector("[data-table-cell-label]");
+    tableFillInput = tableStylePanel.querySelector("[data-table-fill]");
+    tableFontSizeSelect = tableStylePanel.querySelector("[data-table-font-size]");
+    tableTextColorInput = tableStylePanel.querySelector("[data-table-text-color]");
+    tableBoldToggle = tableStylePanel.querySelector("[data-table-bold]");
+    tableFontFamilySelect = tableStylePanel.querySelector("[data-table-font-family]");
+    tableBorderSideSelect = tableStylePanel.querySelector("[data-table-border-side]");
+    tableBorderColorInput = tableStylePanel.querySelector("[data-table-border-color]");
+    tableBorderWidthSelect = tableStylePanel.querySelector("[data-table-border-width]");
+    tableBorderStyleSelect = tableStylePanel.querySelector("[data-table-border-style]");
+
+    const fontFamilyValue = value => {
+      if (value === "meiryo") return 'Meiryo, "メイリオ", sans-serif';
+      if (value === "gothic") return '"Yu Gothic Medium", "游ゴシック体", sans-serif';
+      if (value === "mincho") return '"MS Mincho", "ＭＳ 明朝", serif';
+      return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    };
+    const applyBorder = patch => wb.setSelectedTableCellStyle({
+      borderSide: tableBorderSideSelect?.value || "all",
+      ...patch
+    });
+    tableFillInput?.addEventListener("input", () => wb.setSelectedTableCellStyle({ fill: tableFillInput.value }));
+    tableFontSizeSelect?.addEventListener("change", () => wb.setSelectedTableCellStyle({ fontSize: Number(tableFontSizeSelect.value) || 16 }));
+    tableTextColorInput?.addEventListener("input", () => wb.setSelectedTableCellStyle({ color: tableTextColorInput.value }));
+    tableFontFamilySelect?.addEventListener("change", () => wb.setSelectedTableCellStyle({ fontFamily: fontFamilyValue(tableFontFamilySelect.value) }));
+    tableBoldToggle?.addEventListener("click", () => {
+      const next = tableBoldToggle.dataset.active !== "1";
+      wb.setSelectedTableCellStyle({ bold: next });
+    });
+    tableStylePanel.querySelectorAll("[data-table-align]").forEach(button => {
+      button.addEventListener("click", () => wb.setSelectedTableCellStyle({ align: button.dataset.tableAlign || "left" }));
+    });
+    tableBorderSideSelect?.addEventListener("change", updateTableStylePanelFromSelection);
+    tableBorderColorInput?.addEventListener("input", () => applyBorder({ borderColor: tableBorderColorInput.value }));
+    tableBorderWidthSelect?.addEventListener("change", () => applyBorder({ borderWidth: Number(tableBorderWidthSelect.value) || 0 }));
+    tableBorderStyleSelect?.addEventListener("change", () => applyBorder({ borderStyle: tableBorderStyleSelect.value }));
+    updateTableStylePanelFromSelection();
+  }
+
 
   // ========= Whiteboard 側からの選択変更通知 =========
   wb.onSelectionChange = info => {
@@ -746,6 +893,7 @@ export function initBoardUI() {
     updateShapeStyleUI(info);
     // ★ テキスト選択に応じてパネル状態を更新
     updateTextStylePanelFromSelection();
+    updateTableStylePanelFromSelection();
   };
 
 
@@ -767,7 +915,7 @@ export function initBoardUI() {
 
       // 設定を持つツールは、1回目で選択、同じボタンの2回目で設定を開く。
       if (tool !== "stamp") {
-        const hasSettings = ["pen", "highlighter", "sticky", "text", "shape"].includes(tool);
+        const hasSettings = ["pen", "highlighter", "sticky", "text", "shape", "table"].includes(tool);
         const showSettings =
           hasSettings && currentTool === tool && settingsOpenTool !== tool;
 
@@ -950,6 +1098,7 @@ export function initBoardUI() {
   wb.setPen(currentPenColor, currentPenWidth);
   // ★ テキストスタイルパネルを初期化
   setupTextStylePanel();
+  setupTableStylePanel();
 
   wb.setHighlighterColor?.(currentHighlighterColor);
   wb.setHighlighterWidth?.(currentHighlighterWidth);
