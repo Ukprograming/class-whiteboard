@@ -142,6 +142,8 @@ export class Whiteboard {
     this.selectedTableRange = null; // { objectId, anchorRow, anchorCol, focusRow, focusCol }
     this.isSelectingTableCells = false;
     this.tableCellSelectionObject = null;
+    this.isResizingTableCells = false;
+    this.tableCellResizeStart = null;
     this.lastTableTap = null;
 
     // ボックス選択（ドラッグで四角を描いて複数選択）
@@ -236,6 +238,8 @@ export class Whiteboard {
     this.isPinchZoom = false;
     this.isSelectingTableCells = false;
     this.tableCellSelectionObject = null;
+    this.isResizingTableCells = false;
+    this.tableCellResizeStart = null;
     this._onAction = null;
     this.onSelectionChange = null;
     this.onToolChange = null;
@@ -1080,6 +1084,18 @@ export class Whiteboard {
     if (!obj || obj.kind !== "table") return obj;
     obj.rows = Math.max(1, Math.min(50, Math.floor(Number(obj.rows) || 2)));
     obj.cols = Math.max(1, Math.min(50, Math.floor(Number(obj.cols) || 2)));
+    const totalWidth = Math.max(1, Math.abs(Number(obj.width) || obj.cols * 160));
+    const fallbackColWidth = totalWidth / obj.cols;
+    const sourceColWidths = Array.isArray(obj.colWidths) ? obj.colWidths : [];
+    obj.colWidths = Array.from({ length: obj.cols }, (_, col) => {
+      const value = Number(sourceColWidths[col]);
+      return Number.isFinite(value) && value > 0 ? value : fallbackColWidth;
+    });
+    const colWidthTotal = obj.colWidths.reduce((sum, value) => sum + value, 0);
+    if (colWidthTotal > 0 && Math.abs(colWidthTotal - totalWidth) > 0.01) {
+      const ratio = totalWidth / colWidthTotal;
+      obj.colWidths = obj.colWidths.map(value => value * ratio);
+    }
     const totalHeight = Math.max(1, Math.abs(Number(obj.height) || obj.rows * 40));
     const fallbackRowHeight = totalHeight / obj.rows;
     const sourceRowHeights = Array.isArray(obj.rowHeights) ? obj.rowHeights : [];
@@ -1112,12 +1128,29 @@ export class Whiteboard {
     this._normalizeTableObject(obj);
     const { x, y, width, height } = this._normalizeRect(obj);
     if (wx < x || wx > x + width || wy < y || wy > y + height) return null;
-    const col = Math.min(obj.cols - 1, Math.max(0, Math.floor(((wx - x) / width) * obj.cols)));
+    const colMetrics = this._getTableColumnMetrics(obj, width);
+    const localX = wx - x;
+    const matchedCol = colMetrics.findIndex(metric => localX <= metric.offset + metric.width);
+    const col = matchedCol >= 0 ? matchedCol : obj.cols - 1;
     const rowMetrics = this._getTableRowMetrics(obj, height);
     const localY = wy - y;
     const matchedRow = rowMetrics.findIndex(metric => localY <= metric.offset + metric.height);
     const row = matchedRow >= 0 ? matchedRow : obj.rows - 1;
     return { row, col };
+  }
+
+  _getTableColumnMetrics(obj, renderedWidth = null) {
+    this._normalizeTableObject(obj);
+    const targetWidth = Math.max(1, Number(renderedWidth) || Math.abs(obj.width));
+    const sourceTotal = obj.colWidths.reduce((sum, value) => sum + value, 0) || targetWidth;
+    const scale = targetWidth / sourceTotal;
+    let offset = 0;
+    return obj.colWidths.map(value => {
+      const width = value * scale;
+      const metric = { offset, width };
+      offset += width;
+      return metric;
+    });
   }
 
   _getTableRowMetrics(obj, renderedHeight = null) {
@@ -1165,14 +1198,14 @@ export class Whiteboard {
   _autoResizeTableRow(obj, row, override = null) {
     if (!obj || obj.kind !== "table" || row < 0 || row >= obj.rows) return false;
     this._normalizeTableObject(obj);
-    const cellWidth = Math.max(1, Math.abs(obj.width) / obj.cols);
+    const colMetrics = this._getTableColumnMetrics(obj, Math.abs(obj.width));
     let requiredHeight = 40;
     for (let col = 0; col < obj.cols; col += 1) {
       const cell = this._getTableCell(obj, row, col);
       const text = override?.col === col ? override.text : cell?.text;
       requiredHeight = Math.max(
         requiredHeight,
-        this._measureTableCellContentHeight(cell, text, cellWidth)
+        this._measureTableCellContentHeight(cell, text, colMetrics[col]?.width || 1)
       );
     }
     const currentHeight = obj.rowHeights[row] || 40;
@@ -1274,6 +1307,147 @@ export class Whiteboard {
     if (wx < x || wx > x + width || wy < y || wy > y + height) return false;
     const tolerance = tolerancePx / Math.max(0.2, this.scale || 1);
     return Math.min(wx - x, x + width - wx, wy - y, y + height - wy) <= tolerance;
+  }
+
+  _hitTestTableCellResize(obj, wx, wy, tolerancePx = 7) {
+    if (!obj || obj.kind !== "table" || obj.locked) return null;
+    this._normalizeTableObject(obj);
+    const { x, y, width, height } = this._normalizeRect(obj);
+    const tolerance = tolerancePx / Math.max(0.2, this.scale || 1);
+    if (
+      wx < x - tolerance || wx > x + width + tolerance ||
+      wy < y - tolerance || wy > y + height + tolerance
+    ) return null;
+
+    const colMetrics = this._getTableColumnMetrics(obj, width);
+    const rowMetrics = this._getTableRowMetrics(obj, height);
+    const localX = Math.min(width, Math.max(0, wx - x));
+    const localY = Math.min(height, Math.max(0, wy - y));
+    const matchedCol = colMetrics.findIndex(metric => localX <= metric.offset + metric.width);
+    const matchedRow = rowMetrics.findIndex(metric => localY <= metric.offset + metric.height);
+    const pointerCol = matchedCol >= 0 ? matchedCol : obj.cols - 1;
+    const pointerRow = matchedRow >= 0 ? matchedRow : obj.rows - 1;
+
+    let columnHit = null;
+    colMetrics.forEach((metric, index) => {
+      const distance = Math.abs(wx - (x + metric.offset + metric.width));
+      if (distance <= tolerance && (!columnHit || distance < columnHit.distance)) {
+        columnHit = {
+          axis: "column",
+          index,
+          row: Math.min(obj.rows - 1, pointerRow),
+          col: index,
+          distance
+        };
+      }
+    });
+
+    let rowHit = null;
+    rowMetrics.forEach((metric, index) => {
+      const distance = Math.abs(wy - (y + metric.offset + metric.height));
+      if (distance <= tolerance && (!rowHit || distance < rowHit.distance)) {
+        rowHit = {
+          axis: "row",
+          index,
+          row: index,
+          col: Math.min(obj.cols - 1, pointerCol),
+          distance
+        };
+      }
+    });
+
+    if (columnHit && rowHit) {
+      return columnHit.distance <= rowHit.distance ? columnHit : rowHit;
+    }
+    return columnHit || rowHit;
+  }
+
+  _startTableCellResize(obj, hit, wx, wy) {
+    if (!obj || obj.kind !== "table" || !hit || obj.locked) return false;
+    this._normalizeTableObject(obj);
+    const range = this.selectedObj === obj ? this.getSelectedTableCellRange() : null;
+    const hitIsSelected = hit.axis === "column"
+      ? !!range && hit.index >= range.minCol && hit.index <= range.maxCol
+      : !!range && hit.index >= range.minRow && hit.index <= range.maxRow;
+
+    if (!hitIsSelected) {
+      this._setTableCellSelection(obj, { row: hit.row, col: hit.col });
+    }
+    const activeRange = this.getSelectedTableCellRange();
+    const indices = hit.axis === "column"
+      ? Array.from(
+          { length: activeRange.maxCol - activeRange.minCol + 1 },
+          (_, offset) => activeRange.minCol + offset
+        )
+      : Array.from(
+          { length: activeRange.maxRow - activeRange.minRow + 1 },
+          (_, offset) => activeRange.minRow + offset
+        );
+    const sourceSizes = hit.axis === "column" ? obj.colWidths : obj.rowHeights;
+    this.isResizingTableCells = true;
+    this.tableCellResizeStart = {
+      obj,
+      axis: hit.axis,
+      startCoordinate: hit.axis === "column" ? wx : wy,
+      indices,
+      initialSizes: indices.map(index => sourceSizes[index]),
+      beforeSnapshot: this._snapshotTable(obj)
+    };
+    return true;
+  }
+
+  _updateTableCellResize(wx, wy) {
+    const start = this.tableCellResizeStart;
+    if (!this.isResizingTableCells || !start?.obj) return false;
+    const obj = start.obj;
+    const sizes = start.axis === "column" ? obj.colWidths : obj.rowHeights;
+    const minSize = start.axis === "column" ? 48 : 32;
+    const coordinate = start.axis === "column" ? wx : wy;
+    const requestedDelta = coordinate - start.startCoordinate;
+    const minimumDelta = Math.max(
+      ...start.initialSizes.map(size => minSize - size)
+    );
+    const delta = Math.max(minimumDelta, requestedDelta);
+    start.indices.forEach((index, position) => {
+      sizes[index] = start.initialSizes[position] + delta;
+    });
+    if (start.axis === "column") {
+      const sign = Number(obj.width) < 0 ? -1 : 1;
+      obj.width = sign * obj.colWidths.reduce((sum, value) => sum + value, 0);
+    } else {
+      const sign = Number(obj.height) < 0 ? -1 : 1;
+      obj.height = sign * obj.rowHeights.reduce((sum, value) => sum + value, 0);
+    }
+    this.render();
+    return true;
+  }
+
+  _finishTableCellResize() {
+    const start = this.tableCellResizeStart;
+    this.isResizingTableCells = false;
+    this.tableCellResizeStart = null;
+    if (!start?.obj) return false;
+    const obj = start.obj;
+    if (start.axis === "column") {
+      for (let row = 0; row < obj.rows; row += 1) {
+        this._autoResizeTableRow(obj, row);
+      }
+    }
+    const after = this._snapshotTable(obj);
+    if (JSON.stringify(start.beforeSnapshot) === JSON.stringify(after)) {
+      this.render();
+      return false;
+    }
+    this.history.push({
+      kind: "edit-table",
+      object: obj,
+      before: start.beforeSnapshot,
+      after
+    });
+    this._markDirty();
+    if (this.onAction) this.onAction({ type: "modify", object: obj });
+    this.render();
+    return true;
   }
 
   getSelectedTableCellStyle() {
@@ -2319,6 +2493,7 @@ export class Whiteboard {
         this._normalizeTableObject(o);
         base.rows = o.rows;
         base.cols = o.cols;
+        base.colWidths = [...o.colWidths];
         base.rowHeights = [...o.rowHeights];
         base.cells = JSON.parse(JSON.stringify(o.cells));
       }
@@ -2606,6 +2781,7 @@ export class Whiteboard {
       if (o.kind === "table") {
         obj.rows = o.rows;
         obj.cols = o.cols;
+        obj.colWidths = Array.isArray(o.colWidths) ? [...o.colWidths] : [];
         obj.rowHeights = Array.isArray(o.rowHeights) ? [...o.rowHeights] : [];
         obj.cells = Array.isArray(o.cells) ? JSON.parse(JSON.stringify(o.cells)) : [];
         this._normalizeTableObject(obj);
@@ -3062,12 +3238,12 @@ export class Whiteboard {
 
   _positionTableCellEditor(obj, row, col) {
     const { x, y, width, height } = this._normalizeRect(obj);
-    const cellWidth = width / obj.cols;
+    const colMetric = this._getTableColumnMetrics(obj, width)[col];
     const rowMetric = this._getTableRowMetrics(obj, height)[row];
-    if (!rowMetric) return;
-    const p1 = this._worldToScreen(x + col * cellWidth, y + rowMetric.offset);
+    if (!colMetric || !rowMetric) return;
+    const p1 = this._worldToScreen(x + colMetric.offset, y + rowMetric.offset);
     const p2 = this._worldToScreen(
-      x + (col + 1) * cellWidth,
+      x + colMetric.offset + colMetric.width,
       y + rowMetric.offset + rowMetric.height
     );
     this.textEditor.style.left = `${p1.x}px`;
@@ -3445,6 +3621,7 @@ export class Whiteboard {
       }
 
       if (e.touches && e.touches.length >= 2) {
+        if (this.isResizingTableCells) this._finishTableCellResize();
         const rect = canvas.getBoundingClientRect();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
@@ -3574,6 +3751,19 @@ export class Whiteboard {
       }
 
       if (this.tool === "select") {
+        const selectedTable =
+          this.multiSelectedObjects.length === 1 && this.selectedObj?.kind === "table"
+            ? this.selectedObj
+            : null;
+        const selectedTableHandle = selectedTable ? this._hitTestResizeHandle(sx, sy) : null;
+        const tableResizeHit = selectedTable && !selectedTableHandle
+          ? this._hitTestTableCellResize(selectedTable, wx, wy)
+          : null;
+        if (tableResizeHit && this._startTableCellResize(selectedTable, tableResizeHit, wx, wy)) {
+          canvas.style.cursor = tableResizeHit.axis === "column" ? "col-resize" : "row-resize";
+          return;
+        }
+
         const selectedStroke = this._getSingleSelectedStroke();
         if (selectedStroke && !selectedStroke.locked) {
           const handle = this._hitTestResizeHandle(sx, sy);
@@ -3838,13 +4028,32 @@ export class Whiteboard {
 
     const move = e => {
       if (!e.touches) {
-        const { sx, sy } = getPos(e);
+        const { sx, sy, wx, wy } = getPos(e);
+        const selectedTable =
+          this.tool === "select" &&
+          this.multiSelectedObjects.length === 1 &&
+          this.selectedObj?.kind === "table"
+            ? this.selectedObj
+            : null;
+        const tableControlHovered = this.tool === "select"
+          ? this._hitTestTableControl(sx, sy)
+          : null;
+        const resizeHandleHovered = this.tool === "select"
+          ? this._hitTestResizeHandle(sx, sy)
+          : null;
+        const tableResizeHit = selectedTable && !tableControlHovered && !resizeHandleHovered
+          ? this._hitTestTableCellResize(selectedTable, wx, wy)
+          : null;
         const isHandleHovered =
           this.tool === "select" && (
-            !!this._hitTestResizeHandle(sx, sy) ||
-            !!this._hitTestTableControl(sx, sy)
+            !!resizeHandleHovered ||
+            !!tableControlHovered
           );
-        canvas.style.cursor = isHandleHovered ? "pointer" : "";
+        if (tableResizeHit) {
+          canvas.style.cursor = tableResizeHit.axis === "column" ? "col-resize" : "row-resize";
+        } else {
+          canvas.style.cursor = isHandleHovered ? "pointer" : "";
+        }
       }
 
       // ---- ピンチズーム ----
@@ -3896,6 +4105,14 @@ export class Whiteboard {
         this.lastPanScreenX = sx;
         this.lastPanScreenY = sy;
         this.render();
+        return;
+      }
+
+      // ---- 表の行高・列幅を罫線ドラッグで変更 ----
+      if (this.isResizingTableCells) {
+        e.preventDefault?.();
+        const { wx, wy } = getPos(e);
+        this._updateTableCellResize(wx, wy);
         return;
       }
 
@@ -4315,6 +4532,10 @@ export class Whiteboard {
         this.isPinchZoom = false;
       }
 
+      if (this.isResizingTableCells) {
+        this._finishTableCellResize();
+      }
+
       this.isSelectingTableCells = false;
       this.tableCellSelectionObject = null;
 
@@ -4621,6 +4842,7 @@ export class Whiteboard {
       height: 80,
       rows: 2,
       cols: 2,
+      colWidths: [160, 160],
       rowHeights: [40, 40],
       cells: [],
       locked: false
@@ -4640,6 +4862,7 @@ export class Whiteboard {
       cols: obj.cols,
       width: obj.width,
       height: obj.height,
+      colWidths: [...(obj.colWidths || [])],
       rowHeights: [...(obj.rowHeights || [])],
       cells: JSON.parse(JSON.stringify(obj.cells || []))
     };
@@ -4651,6 +4874,7 @@ export class Whiteboard {
     obj.cols = snapshot.cols;
     obj.width = snapshot.width;
     obj.height = snapshot.height;
+    obj.colWidths = [...(snapshot.colWidths || [])];
     obj.rowHeights = [...(snapshot.rowHeights || [])];
     obj.cells = JSON.parse(JSON.stringify(snapshot.cells || []));
     this._normalizeTableObject(obj);
@@ -4681,7 +4905,7 @@ export class Whiteboard {
     if (obj.cols >= 50) return;
     const before = this._snapshotTable(obj);
     const oldCols = obj.cols;
-    const colWidth = Math.abs(obj.width) / oldCols;
+    const colWidth = obj.colWidths[oldCols - 1] || Math.abs(obj.width) / oldCols;
     const nextCells = [];
     for (let row = 0; row < obj.rows; row += 1) {
       for (let col = 0; col < oldCols; col += 1) {
@@ -4690,6 +4914,7 @@ export class Whiteboard {
       nextCells.push(this._createDefaultTableCell());
     }
     obj.cols += 1;
+    obj.colWidths.push(colWidth);
     obj.cells = nextCells;
     obj.width = Math.sign(obj.width || 1) * (Math.abs(obj.width) + colWidth);
     const after = this._snapshotTable(obj);
@@ -4970,14 +5195,16 @@ export class Whiteboard {
 
   _renderTable(ctx, obj, x, y, width, height, isSelected) {
     this._normalizeTableObject(obj);
-    const cellWidth = width / obj.cols;
+    const colMetrics = this._getTableColumnMetrics(obj, width);
     const rowMetrics = this._getTableRowMetrics(obj, height);
     for (let row = 0; row < obj.rows; row += 1) {
       const rowMetric = rowMetrics[row];
       const cellHeight = rowMetric.height;
       for (let col = 0; col < obj.cols; col += 1) {
         const cell = this._getTableCell(obj, row, col);
-        const cellX = x + col * cellWidth;
+        const colMetric = colMetrics[col];
+        const cellWidth = colMetric.width;
+        const cellX = x + colMetric.offset;
         const cellY = y + rowMetric.offset;
         ctx.save();
         ctx.fillStyle = cell.fill || "#ffffff";
@@ -5013,11 +5240,13 @@ export class Whiteboard {
     if (isSelected && this.selectedObj === obj && this.selectedTableCell) {
       const range = this.getSelectedTableCellRange();
       if (!range) return;
+      const startColMetric = colMetrics[range.minCol];
+      const endColMetric = colMetrics[range.maxCol];
       const startRowMetric = rowMetrics[range.minRow];
       const endRowMetric = rowMetrics[range.maxRow];
-      const selectionX = x + range.minCol * cellWidth;
+      const selectionX = x + startColMetric.offset;
       const selectionY = y + startRowMetric.offset;
-      const selectionWidth = (range.maxCol - range.minCol + 1) * cellWidth;
+      const selectionWidth = endColMetric.offset + endColMetric.width - startColMetric.offset;
       const selectionHeight = endRowMetric.offset + endRowMetric.height - startRowMetric.offset;
       ctx.save();
       ctx.fillStyle = "rgba(47, 143, 190, 0.10)";
@@ -5028,14 +5257,15 @@ export class Whiteboard {
       ctx.strokeRect(selectionX, selectionY, selectionWidth, selectionHeight);
 
       if (range.count > 1) {
+        const focusColMetric = colMetrics[range.focusCol];
         const focusMetric = rowMetrics[range.focusRow];
         ctx.strokeStyle = "rgba(36, 120, 184, 0.95)";
         ctx.lineWidth = 1.5 / this.scale;
         ctx.setLineDash([]);
         ctx.strokeRect(
-          x + range.focusCol * cellWidth,
+          x + focusColMetric.offset,
           y + focusMetric.offset,
-          cellWidth,
+          focusColMetric.width,
           focusMetric.height
         );
       }
