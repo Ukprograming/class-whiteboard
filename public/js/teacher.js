@@ -2,8 +2,8 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260827b";
-import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260827b";
+import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260827d";
+import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260827d";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826";
 import {
   canAcceptTeacherBoardSnapshot,

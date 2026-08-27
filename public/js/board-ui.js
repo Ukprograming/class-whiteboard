@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260827b";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260827d";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826";
 
@@ -460,10 +460,21 @@ export function initBoardUI() {
     const obj = wb.selectedObj;
     const cell = wb.getSelectedTableCellStyle();
     const selection = wb.selectedTableCell || { row: 0, col: 0 };
+    const range = wb.getSelectedTableCellRange?.();
     if (tableCellLabel) {
-      tableCellLabel.textContent = obj?.kind === "table"
-        ? `${selection.row + 1}行 ${selection.col + 1}列`
-        : "新しい表の設定";
+      if (obj?.kind !== "table") {
+        tableCellLabel.textContent = "新しい表の設定";
+      } else if (range?.count > 1) {
+        const rowLabel = range.minRow === range.maxRow
+          ? `${range.minRow + 1}行`
+          : `${range.minRow + 1}〜${range.maxRow + 1}行`;
+        const colLabel = range.minCol === range.maxCol
+          ? `${range.minCol + 1}列`
+          : `${range.minCol + 1}〜${range.maxCol + 1}列`;
+        tableCellLabel.textContent = `${rowLabel}・${colLabel}（${range.count}セル）`;
+      } else {
+        tableCellLabel.textContent = `${selection.row + 1}行 ${selection.col + 1}列`;
+      }
     }
     const fillParts = tableColorParts(cell.fill, "#ffffff");
     currentTableFillHex = fillParts.hex;
@@ -1058,6 +1069,13 @@ export function initBoardUI() {
       const tool = btn.dataset.tool;
       if (!tool) return;
 
+      // 表のセル選択中は、1回で一括書式メニューを開く。
+      if (tool === "table" && wb.selectedObj?.kind === "table" && currentTool !== "table") {
+        wb.setTool("select");
+        updateToolButtons("table", { showSettings: true });
+        return;
+      }
+
       // 設定を持つツールは、1回目で選択、同じボタンの2回目で設定を開く。
       if (tool !== "stamp") {
         const hasSettings = ["pen", "highlighter", "sticky", "text", "shape", "table"].includes(tool);
@@ -1550,6 +1568,19 @@ export function initBoardUI() {
       target.isContentEditable
     ) {
       return; // 入力中は何もしない
+    }
+
+    if (e.shiftKey && typeof wb.extendSelectedTableCellSelection === "function") {
+      const direction = {
+        ArrowUp: "up",
+        ArrowDown: "down",
+        ArrowLeft: "left",
+        ArrowRight: "right"
+      }[e.key];
+      if (direction && wb.extendSelectedTableCellSelection(direction)) {
+        e.preventDefault();
+        return;
+      }
     }
 
     const key = e.key.toLowerCase();

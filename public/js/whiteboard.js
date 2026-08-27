@@ -139,6 +139,9 @@ export class Whiteboard {
     this.handleRects = [];    // 画面上のハンドルの当たり判定用
     this.tableControlRects = [];
     this.selectedTableCell = null; // { row, col }
+    this.selectedTableRange = null; // { objectId, anchorRow, anchorCol, focusRow, focusCol }
+    this.isSelectingTableCells = false;
+    this.tableCellSelectionObject = null;
     this.lastTableTap = null;
 
     // ボックス選択（ドラッグで四角を描いて複数選択）
@@ -231,6 +234,8 @@ export class Whiteboard {
     this.isDrawingShape = false;
     this.isPanning = false;
     this.isPinchZoom = false;
+    this.isSelectingTableCells = false;
+    this.tableCellSelectionObject = null;
     this._onAction = null;
     this.onSelectionChange = null;
     this.onToolChange = null;
@@ -1178,6 +1183,99 @@ export class Whiteboard {
     return true;
   }
 
+  _normalizeTableCellPoint(obj, point = {}) {
+    this._normalizeTableObject(obj);
+    return {
+      row: Math.min(obj.rows - 1, Math.max(0, Math.floor(Number(point.row) || 0))),
+      col: Math.min(obj.cols - 1, Math.max(0, Math.floor(Number(point.col) || 0)))
+    };
+  }
+
+  _setTableCellSelection(obj, anchor, focus = anchor, options = {}) {
+    if (!obj || obj.kind !== "table") return false;
+    const nextAnchor = this._normalizeTableCellPoint(obj, anchor);
+    const nextFocus = this._normalizeTableCellPoint(obj, focus);
+    this.selectedTableCell = { ...nextFocus };
+    this.selectedTableRange = {
+      objectId: obj.id,
+      anchorRow: nextAnchor.row,
+      anchorCol: nextAnchor.col,
+      focusRow: nextFocus.row,
+      focusCol: nextFocus.col
+    };
+    this.selectedObj = obj;
+    this.multiSelectedObjects = [obj];
+    this.multiSelectedStrokes = [];
+    this.selectedStroke = null;
+    if (options.notify !== false) this._fireSelectionChange();
+    return true;
+  }
+
+  getSelectedTableCellRange() {
+    const obj = this.selectedObj?.kind === "table" ? this.selectedObj : null;
+    if (!obj) return null;
+    const fallback = this._normalizeTableCellPoint(obj, this.selectedTableCell || { row: 0, col: 0 });
+    const source = this.selectedTableRange?.objectId === obj.id
+      ? this.selectedTableRange
+      : {
+          anchorRow: fallback.row,
+          anchorCol: fallback.col,
+          focusRow: fallback.row,
+          focusCol: fallback.col
+        };
+    const anchor = this._normalizeTableCellPoint(obj, {
+      row: source.anchorRow,
+      col: source.anchorCol
+    });
+    const focus = this._normalizeTableCellPoint(obj, {
+      row: source.focusRow,
+      col: source.focusCol
+    });
+    return {
+      anchorRow: anchor.row,
+      anchorCol: anchor.col,
+      focusRow: focus.row,
+      focusCol: focus.col,
+      minRow: Math.min(anchor.row, focus.row),
+      maxRow: Math.max(anchor.row, focus.row),
+      minCol: Math.min(anchor.col, focus.col),
+      maxCol: Math.max(anchor.col, focus.col),
+      count: (Math.abs(anchor.row - focus.row) + 1) * (Math.abs(anchor.col - focus.col) + 1)
+    };
+  }
+
+  extendSelectedTableCellSelection(direction) {
+    const obj = this.selectedObj?.kind === "table" ? this.selectedObj : null;
+    if (!obj || this.editingTableCell) return false;
+    const range = this.getSelectedTableCellRange();
+    if (!range) return false;
+    const delta = {
+      up: [-1, 0],
+      down: [1, 0],
+      left: [0, -1],
+      right: [0, 1]
+    }[direction];
+    if (!delta) return false;
+    const focus = this._normalizeTableCellPoint(obj, {
+      row: range.focusRow + delta[0],
+      col: range.focusCol + delta[1]
+    });
+    this._setTableCellSelection(
+      obj,
+      { row: range.anchorRow, col: range.anchorCol },
+      focus
+    );
+    return true;
+  }
+
+  _isNearTableOuterEdge(obj, wx, wy, tolerancePx = 8) {
+    if (!obj || obj.kind !== "table") return false;
+    const { x, y, width, height } = this._normalizeRect(obj);
+    if (wx < x || wx > x + width || wy < y || wy > y + height) return false;
+    const tolerance = tolerancePx / Math.max(0.2, this.scale || 1);
+    return Math.min(wx - x, x + width - wx, wy - y, y + height - wy) <= tolerance;
+  }
+
   getSelectedTableCellStyle() {
     const obj = this.selectedObj?.kind === "table" ? this.selectedObj : null;
     const selection = this.selectedTableCell || { row: 0, col: 0 };
@@ -1222,30 +1320,30 @@ export class Whiteboard {
     }
 
     const obj = this.selectedObj?.kind === "table" ? this.selectedObj : null;
-    const selection = this.selectedTableCell;
-    if (!obj || !selection) return;
-    const cell = this._getTableCell(obj, selection.row, selection.col);
-    if (!cell) return;
-    if (fill) cell.fill = fill;
-    if (fontSize != null) cell.fontSize = Math.max(8, Number(fontSize) || 16);
-    if (fontFamily) cell.fontFamily = fontFamily;
-    if (typeof bold === "boolean") cell.bold = bold;
-    if (color) cell.textColor = color;
-    if (align) cell.textAlign = align;
-    if (Object.keys(borderPatch).length) {
-      const sides = borderSide === "all"
-        ? ["top", "right", "bottom", "left"]
-        : [borderSide];
-      sides.forEach(side => this._setTableCellBorder(
-        obj,
-        selection.row,
-        selection.col,
-        side,
-        borderPatch
-      ));
+    const range = this.getSelectedTableCellRange();
+    if (!obj || !range) return;
+    const affectedRows = new Set();
+    const sides = borderSide === "all"
+      ? ["top", "right", "bottom", "left"]
+      : [borderSide];
+    for (let row = range.minRow; row <= range.maxRow; row += 1) {
+      for (let col = range.minCol; col <= range.maxCol; col += 1) {
+        const cell = this._getTableCell(obj, row, col);
+        if (!cell) continue;
+        if (fill) cell.fill = fill;
+        if (fontSize != null) cell.fontSize = Math.max(8, Number(fontSize) || 16);
+        if (fontFamily) cell.fontFamily = fontFamily;
+        if (typeof bold === "boolean") cell.bold = bold;
+        if (color) cell.textColor = color;
+        if (align) cell.textAlign = align;
+        if (Object.keys(borderPatch).length) {
+          sides.forEach(side => this._setTableCellBorder(obj, row, col, side, borderPatch));
+        }
+        affectedRows.add(row);
+      }
     }
     if (fontSize != null || fontFamily || typeof bold === "boolean") {
-      this._autoResizeTableRow(obj, selection.row);
+      affectedRows.forEach(row => this._autoResizeTableRow(obj, row));
     }
     this.render();
     this._notifyObjectStyleChanges([obj]);
@@ -1340,8 +1438,27 @@ export class Whiteboard {
       const row = Math.min(obj.rows - 1, Math.max(0, this.selectedTableCell?.row || 0));
       const col = Math.min(obj.cols - 1, Math.max(0, this.selectedTableCell?.col || 0));
       this.selectedTableCell = { row, col };
+      if (this.selectedTableRange?.objectId === obj.id) {
+        const range = this.getSelectedTableCellRange();
+        this.selectedTableRange = {
+          objectId: obj.id,
+          anchorRow: range.anchorRow,
+          anchorCol: range.anchorCol,
+          focusRow: range.focusRow,
+          focusCol: range.focusCol
+        };
+      } else {
+        this.selectedTableRange = {
+          objectId: obj.id,
+          anchorRow: row,
+          anchorCol: col,
+          focusRow: row,
+          focusCol: col
+        };
+      }
     } else {
       this.selectedTableCell = null;
+      this.selectedTableRange = null;
     }
     this.multiSelectedObjects = obj ? [obj] : [];
     this.multiSelectedStrokes = [];
@@ -1358,6 +1475,8 @@ export class Whiteboard {
       if (!additive) {
         this.selectedObj = null;
         this.multiSelectedObjects = [];
+        this.selectedTableCell = null;
+        this.selectedTableRange = null;
       }
       this._fireSelectionChange();
       return;
@@ -1377,6 +1496,8 @@ export class Whiteboard {
       // ストロークだけ選択するので、オブジェクト選択はクリア
       this.selectedObj = null;
       this.multiSelectedObjects = [];
+      this.selectedTableCell = null;
+      this.selectedTableRange = null;
     }
 
     this._fireSelectionChange();
@@ -1789,6 +1910,8 @@ export class Whiteboard {
 
     this.selectedObj = null;
     this.selectedStroke = null;
+    this.selectedTableCell = null;
+    this.selectedTableRange = null;
     this.multiSelectedObjects = [];
     this.multiSelectedStrokes = [];
     this._fireSelectionChange();
@@ -2960,8 +3083,7 @@ export class Whiteboard {
     if (!cell) return;
     this.editingObj = null;
     this.editingTableCell = { obj, row, col, beforeSnapshot: this._snapshotTable(obj) };
-    this.selectedTableCell = { row, col };
-    this._setSelected(obj);
+    this._setTableCellSelection(obj, { row, col });
 
     this._positionTableCellEditor(obj, row, col);
     this.textEditor.style.boxSizing = "border-box";
@@ -3351,6 +3473,8 @@ export class Whiteboard {
         this.isDraggingObj = false;
         this.isResizingObj = false;
         this.isBoxSelecting = false;
+        this.isSelectingTableCells = false;
+        this.tableCellSelectionObject = null;
 
         return;
       }
@@ -3614,18 +3738,34 @@ export class Whiteboard {
               this.lastTableTap?.row === cell.row &&
               this.lastTableTap?.col === cell.col &&
               now - this.lastTableTap.time < 500;
-            this.selectedTableCell = cell;
             this.lastTableTap = { objectId: hitObj.id, ...cell, time: now };
             if (isTouchDoubleTap) {
-              this._setSelected(hitObj);
+              this._setTableCellSelection(hitObj, cell);
               this._openTableCellEditor(hitObj, cell.row, cell.col);
               this.onRequestToolSettings?.("table");
               this.lastTableTap = null;
               return;
             }
-          } else {
-            this.lastTableTap = null;
+            const currentRange = this.selectedObj === hitObj
+              ? this.getSelectedTableCellRange()
+              : null;
+            const anchor = e.shiftKey && currentRange
+              ? { row: currentRange.anchorRow, col: currentRange.anchorCol }
+              : cell;
+            this._setTableCellSelection(hitObj, anchor, cell);
+
+            // 外周付近は表全体の移動、セル内部は範囲選択に使う。
+            if (this._isNearTableOuterEdge(hitObj, wx, wy)) {
+              this._startSelectionDrag(wx, wy);
+            } else {
+              this.isSelectingTableCells = true;
+              this.tableCellSelectionObject = hitObj;
+              e.preventDefault?.();
+            }
+            this.render();
+            return;
           }
+          this.lastTableTap = null;
           if (e.shiftKey) {
             if (!this.multiSelectedObjects.includes(hitObj)) {
               this.multiSelectedObjects.push(hitObj);
@@ -3688,6 +3828,8 @@ export class Whiteboard {
         this.multiSelectedObjects = [];
         this.selectedStroke = null;
         this.multiSelectedStrokes = [];
+        this.selectedTableCell = null;
+        this.selectedTableRange = null;
         this._fireSelectionChange();
         this.render();
         return;
@@ -3754,6 +3896,26 @@ export class Whiteboard {
         this.lastPanScreenX = sx;
         this.lastPanScreenY = sy;
         this.render();
+        return;
+      }
+
+      // ---- 表セルのドラッグ範囲選択 ----
+      if (this.isSelectingTableCells && this.tableCellSelectionObject) {
+        e.preventDefault?.();
+        const { wx, wy } = getPos(e);
+        const obj = this.tableCellSelectionObject;
+        const cell = this._getTableCellAt(obj, wx, wy);
+        const range = this.getSelectedTableCellRange();
+        if (
+          cell && range &&
+          (cell.row !== range.focusRow || cell.col !== range.focusCol)
+        ) {
+          this._setTableCellSelection(
+            obj,
+            { row: range.anchorRow, col: range.anchorCol },
+            cell
+          );
+        }
         return;
       }
 
@@ -4153,6 +4315,9 @@ export class Whiteboard {
         this.isPinchZoom = false;
       }
 
+      this.isSelectingTableCells = false;
+      this.tableCellSelectionObject = null;
+
       this.isPanning = false;
       this.isDrawingStroke = false;
       if (this.currentStroke && this.onAction) {
@@ -4377,6 +4542,8 @@ export class Whiteboard {
         const textObj =
           selectedObjects.find(o => o.kind === "text" || o.kind === "link") || null;
         this.selectedObj = textObj || (selectedObjects[0] || null);
+        this.selectedTableCell = null;
+        this.selectedTableRange = null;
 
         this._fireSelectionChange();
 
@@ -4844,16 +5011,34 @@ export class Whiteboard {
     }
 
     if (isSelected && this.selectedObj === obj && this.selectedTableCell) {
-      const row = Math.min(obj.rows - 1, this.selectedTableCell.row);
-      const col = Math.min(obj.cols - 1, this.selectedTableCell.col);
-      const rowMetric = rowMetrics[row];
+      const range = this.getSelectedTableCellRange();
+      if (!range) return;
+      const startRowMetric = rowMetrics[range.minRow];
+      const endRowMetric = rowMetrics[range.maxRow];
+      const selectionX = x + range.minCol * cellWidth;
+      const selectionY = y + startRowMetric.offset;
+      const selectionWidth = (range.maxCol - range.minCol + 1) * cellWidth;
+      const selectionHeight = endRowMetric.offset + endRowMetric.height - startRowMetric.offset;
       ctx.save();
       ctx.fillStyle = "rgba(47, 143, 190, 0.10)";
       ctx.strokeStyle = "#2f8fbe";
       ctx.lineWidth = 2 / this.scale;
       ctx.setLineDash([5 / this.scale, 3 / this.scale]);
-      ctx.fillRect(x + col * cellWidth, y + rowMetric.offset, cellWidth, rowMetric.height);
-      ctx.strokeRect(x + col * cellWidth, y + rowMetric.offset, cellWidth, rowMetric.height);
+      ctx.fillRect(selectionX, selectionY, selectionWidth, selectionHeight);
+      ctx.strokeRect(selectionX, selectionY, selectionWidth, selectionHeight);
+
+      if (range.count > 1) {
+        const focusMetric = rowMetrics[range.focusRow];
+        ctx.strokeStyle = "rgba(36, 120, 184, 0.95)";
+        ctx.lineWidth = 1.5 / this.scale;
+        ctx.setLineDash([]);
+        ctx.strokeRect(
+          x + range.focusCol * cellWidth,
+          y + focusMetric.offset,
+          cellWidth,
+          focusMetric.height
+        );
+      }
       ctx.restore();
     }
   }
