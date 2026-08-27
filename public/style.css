@@ -6154,60 +6154,176 @@ body.notebook-panel-expanded .student-notebook-layout {
   object-fit: contain;
 }
 
-/* Table tool: compact, internally scrollable cell and border settings. */
+/* Table tool: compact cards and the same round palette language as other tools. */
 #tableStylePanel.table-style-panel {
-  width: min(286px, calc(100vw - 116px));
-  max-height: min(70vh, 520px);
+  width: 100%;
+  max-width: 100%;
+  max-height: min(76vh, 620px);
   overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  padding: 2px;
 }
 
 #tableStylePanel .table-settings-heading {
-  margin-bottom: 12px;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 10px;
+  padding: 2px 0 10px;
+}
+
+#tableStylePanel .table-settings-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--cw-accent-strong);
+  background: var(--cw-accent-soft);
+}
+
+#tableStylePanel .table-settings-icon .app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+#tableStylePanel .table-settings-title {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+#tableStylePanel .table-settings-title strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+#tableStylePanel .table-settings-title [data-table-cell-label] {
+  color: var(--cw-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 #tableStylePanel .table-settings-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-#tableStylePanel .table-settings-grid > label {
+#tableStylePanel .table-settings-card {
   display: grid;
-  gap: 5px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(185, 202, 213, 0.72);
+  border-radius: 13px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfc 100%);
+  box-shadow: 0 3px 10px rgba(31, 50, 64, 0.05);
+}
+
+#tableStylePanel .table-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#tableStylePanel .table-section-heading > span {
+  color: #263844;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+#tableStylePanel .table-section-heading small {
+  color: #82909a;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+#tableStylePanel .table-setting-block,
+#tableStylePanel .table-full-row,
+#tableStylePanel .table-two-column > label {
   min-width: 0;
+  display: grid;
+  gap: 6px;
   color: var(--cw-muted);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 750;
 }
 
-#tableStylePanel select,
-#tableStylePanel input[type="color"] {
+#tableStylePanel .table-setting-label {
+  display: block;
+}
+
+#tableStylePanel .table-color-palette {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+}
+
+#tableStylePanel .table-color-dot {
+  width: 30px;
+  height: 30px;
+  justify-self: center;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--cw-line-strong), 0 2px 5px rgba(31, 50, 64, 0.08);
+}
+
+#tableStylePanel .table-color-dot:hover {
+  transform: translateY(-1px) scale(1.06);
+}
+
+#tableStylePanel .table-color-dot.active {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px var(--cw-accent-strong), 0 3px 8px rgba(47, 143, 190, 0.24);
+}
+
+#tableStylePanel .table-opacity-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 8px;
+  color: var(--cw-muted);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+#tableStylePanel .table-opacity-row input[type="range"] {
   width: 100%;
   min-width: 0;
-  height: 36px;
-  box-sizing: border-box;
-  border: 1px solid var(--cw-line);
-  border-radius: 9px;
-  background: #ffffff;
-  color: #24323c;
-  font: inherit;
+  accent-color: var(--cw-accent-strong);
+}
+
+#tableStylePanel .table-opacity-row output {
+  color: #435461;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#tableStylePanel .table-two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 #tableStylePanel select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  box-sizing: border-box;
   padding: 0 24px 0 9px;
-}
-
-#tableStylePanel input[type="color"] {
-  padding: 4px;
-  cursor: pointer;
+  border: 1px solid var(--cw-line);
+  border-radius: 9px;
+  background: #ffffff;
+  color: #2f414e;
+  font: inherit;
+  font-size: 11px;
 }
 
 #tableStylePanel .table-inline-controls {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(4, 36px);
   justify-content: center;
@@ -6230,21 +6346,15 @@ body.notebook-panel-expanded .student-notebook-layout {
 
 #tableStylePanel .table-icon-btn:hover,
 #tableStylePanel .table-icon-btn.active {
-  color: #176f76;
+  color: var(--cw-accent-strong);
   border-color: rgba(47, 143, 190, 0.45);
   background: #edf8fb;
+  box-shadow: 0 2px 6px rgba(47, 143, 190, 0.12);
 }
 
 #tableStylePanel .table-icon-btn .app-icon {
   width: 18px;
   height: 18px;
-}
-
-#tableStylePanel .table-settings-divider {
-  grid-column: 1 / -1;
-  height: 1px;
-  margin: 1px 0;
-  background: var(--cw-line);
 }
 
 @media (max-height: 700px) {

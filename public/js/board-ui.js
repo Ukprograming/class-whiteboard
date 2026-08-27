@@ -1,10 +1,9 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260827b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826";
-import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260827";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -15,7 +14,7 @@ export function initBoardUI() {
     return null;
   }
 
-  const wb = new TableWhiteboard({ canvas });
+  const wb = new Whiteboard({ canvas });
 
   const zoomLevelEl = document.getElementById("zoomLevel");
 
@@ -182,15 +181,74 @@ export function initBoardUI() {
   // 表ツール設定パネル
   let tableStylePanel = null;
   let tableCellLabel = null;
-  let tableFillInput = null;
+  let tableFillPalette = null;
+  let tableFillOpacityRange = null;
+  let tableFillOpacityValue = null;
   let tableFontSizeSelect = null;
-  let tableTextColorInput = null;
+  let tableTextColorPalette = null;
   let tableBoldToggle = null;
   let tableFontFamilySelect = null;
   let tableBorderSideSelect = null;
-  let tableBorderColorInput = null;
+  let tableBorderColorPalette = null;
+  let tableBorderOpacityRange = null;
+  let tableBorderOpacityValue = null;
   let tableBorderWidthSelect = null;
   let tableBorderStyleSelect = null;
+  let currentTableFillHex = "#ffffff";
+  let currentTableFillOpacity = 100;
+  let currentTableTextHex = "#111827";
+  let currentTableBorderHex = "#111827";
+  let currentTableBorderOpacity = 100;
+
+  const TABLE_FILL_COLORS = Object.freeze([
+    "#ffffff", "#f1f5f9", "#fee2e2", "#ffedd5", "#fef3c7",
+    "#dcfce7", "#cffafe", "#dbeafe", "#ede9fe", "#fce7f3"
+  ]);
+  const TABLE_INK_COLORS = Object.freeze([
+    "#111827", "#64748b", "#dc2626", "#ea580c", "#ca8a04",
+    "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#db2777"
+  ]);
+
+  function tableColorParts(value, fallback = "#ffffff") {
+    const raw = String(value || fallback).trim().toLowerCase();
+    if (raw === "transparent") return { hex: fallback, opacity: 0 };
+    const rgba = raw.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/);
+    if (rgba) {
+      const hex = `#${[rgba[1], rgba[2], rgba[3]]
+        .map(value => Math.max(0, Math.min(255, Number(value))).toString(16).padStart(2, "0"))
+        .join("")}`;
+      const opacity = rgba[4] == null ? 100 : Math.round(Math.max(0, Math.min(1, Number(rgba[4]))) * 100);
+      return { hex, opacity };
+    }
+    if (/^#[0-9a-f]{3}$/.test(raw)) {
+      return { hex: `#${raw.slice(1).split("").map(ch => ch + ch).join("")}`, opacity: 100 };
+    }
+    if (/^#[0-9a-f]{6}$/.test(raw)) return { hex: raw, opacity: 100 };
+    return { hex: fallback, opacity: 100 };
+  }
+
+  function tableColorWithOpacity(hex, opacity) {
+    const parts = tableColorParts(hex, "#ffffff");
+    const alpha = Math.max(0, Math.min(100, Number(opacity))) / 100;
+    if (alpha >= 1) return parts.hex;
+    const r = parseInt(parts.hex.slice(1, 3), 16);
+    const g = parseInt(parts.hex.slice(3, 5), 16);
+    const b = parseInt(parts.hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
+  }
+
+  function tablePaletteMarkup(attribute, colors) {
+    return colors.map(color => `
+      <button type="button" class="color-dot table-color-dot" ${attribute}="${color}"
+        style="--c:${color}" aria-label="${color}" title="${color}"></button>`).join("");
+  }
+
+  function updateTablePaletteSelection(container, attribute, color) {
+    if (!container) return;
+    container.querySelectorAll(`[${attribute}]`).forEach(button => {
+      button.classList.toggle("active", button.getAttribute(attribute) === color);
+    });
+  }
 
   // 現在のペン設定
   let currentPenColor = "#111827";
@@ -407,9 +465,15 @@ export function initBoardUI() {
         ? `${selection.row + 1}行 ${selection.col + 1}列`
         : "新しい表の設定";
     }
-    if (tableFillInput) tableFillInput.value = cell.fill || "#ffffff";
+    const fillParts = tableColorParts(cell.fill, "#ffffff");
+    currentTableFillHex = fillParts.hex;
+    currentTableFillOpacity = fillParts.opacity;
+    updateTablePaletteSelection(tableFillPalette, "data-table-fill-color", currentTableFillHex);
+    if (tableFillOpacityRange) tableFillOpacityRange.value = String(currentTableFillOpacity);
+    if (tableFillOpacityValue) tableFillOpacityValue.textContent = `${currentTableFillOpacity}%`;
     if (tableFontSizeSelect) tableFontSizeSelect.value = String(cell.fontSize || 16);
-    if (tableTextColorInput) tableTextColorInput.value = cell.textColor || "#111827";
+    currentTableTextHex = tableColorParts(cell.textColor, "#111827").hex;
+    updateTablePaletteSelection(tableTextColorPalette, "data-table-text-color", currentTableTextHex);
     if (tableBoldToggle) {
       tableBoldToggle.dataset.active = cell.bold ? "1" : "0";
       tableBoldToggle.classList.toggle("active", !!cell.bold);
@@ -427,7 +491,12 @@ export function initBoardUI() {
     const borderSide = tableBorderSideSelect?.value || "all";
     const firstSide = borderSide === "all" ? "top" : borderSide;
     const border = cell.borders?.[firstSide] || {};
-    if (tableBorderColorInput) tableBorderColorInput.value = border.color || "#111827";
+    const borderParts = tableColorParts(border.color, "#111827");
+    currentTableBorderHex = borderParts.hex;
+    currentTableBorderOpacity = borderParts.opacity;
+    updateTablePaletteSelection(tableBorderColorPalette, "data-table-border-color", currentTableBorderHex);
+    if (tableBorderOpacityRange) tableBorderOpacityRange.value = String(currentTableBorderOpacity);
+    if (tableBorderOpacityValue) tableBorderOpacityValue.textContent = `${currentTableBorderOpacity}%`;
     if (tableBorderWidthSelect) tableBorderWidthSelect.value = String(border.width ?? 2);
     if (tableBorderStyleSelect) tableBorderStyleSelect.value = border.style || "solid";
     tableStylePanel.querySelectorAll("[data-table-align]").forEach(button => {
@@ -580,6 +649,12 @@ export function initBoardUI() {
   // must stay in sync with the toolbar and its settings panels.
   wb.onToolChange = tool => {
     updateToolButtons(tool);
+  };
+
+  wb.onRequestToolSettings = tool => {
+    if (tool !== "table") return;
+    wb.setTool("select");
+    updateToolButtons("table", { showSettings: true });
   };
 
   // ★ テキストスタイルパネルのセットアップ
@@ -809,52 +884,89 @@ export function initBoardUI() {
     tableStylePanel.className = "context-section table-style-panel hidden";
     tableStylePanel.innerHTML = `
       <div class="tool-settings-heading table-settings-heading">
-        <strong>表</strong><span data-table-cell-label>新しい表の設定</span>
+        <span class="table-settings-icon"><span class="material-symbols-rounded">table_chart</span></span>
+        <span class="table-settings-title"><strong>表のスタイル</strong><span data-table-cell-label>新しい表の設定</span></span>
       </div>
       <div class="table-settings-grid">
-        <label><span>セル背景</span><input type="color" data-table-fill value="#ffffff" title="セルの背景色" /></label>
-        <label><span>文字サイズ</span><select data-table-font-size>
-          <option value="12">12pt</option><option value="14">14pt</option>
-          <option value="16" selected>16pt</option><option value="20">20pt</option>
-          <option value="24">24pt</option><option value="32">32pt</option>
-        </select></label>
-        <label><span>文字色</span><input type="color" data-table-text-color value="#111827" title="文字色" /></label>
-        <label><span>書体</span><select data-table-font-family>
-          <option value="system">標準</option><option value="meiryo">メイリオ</option>
-          <option value="gothic">ゴシック</option><option value="mincho">明朝</option>
-        </select></label>
-        <div class="table-inline-controls" aria-label="文字の装飾と配置">
-          <button type="button" class="table-icon-btn" data-table-bold title="太字"><span class="material-symbols-rounded">format_bold</span></button>
-          <button type="button" class="table-icon-btn active" data-table-align="left" title="左揃え"><span class="material-symbols-rounded">format_align_left</span></button>
-          <button type="button" class="table-icon-btn" data-table-align="center" title="中央揃え"><span class="material-symbols-rounded">format_align_center</span></button>
-          <button type="button" class="table-icon-btn" data-table-align="right" title="右揃え"><span class="material-symbols-rounded">format_align_right</span></button>
-        </div>
-        <div class="table-settings-divider" role="separator"></div>
-        <label><span>罫線</span><select data-table-border-side>
-          <option value="all">4辺すべて</option><option value="top">上</option>
-          <option value="right">右</option><option value="bottom">下</option><option value="left">左</option>
-        </select></label>
-        <label><span>線色</span><input type="color" data-table-border-color value="#111827" title="罫線の色" /></label>
-        <label><span>太さ</span><select data-table-border-width>
-          <option value="0">なし</option><option value="1">細</option>
-          <option value="2" selected>標準</option><option value="3">太</option><option value="5">極太</option>
-        </select></label>
-        <label><span>線種</span><select data-table-border-style>
-          <option value="solid">実線</option><option value="dashed">破線</option>
-          <option value="dotted">点線</option><option value="double">二重線</option><option value="none">なし</option>
-        </select></label>
+        <section class="table-settings-card">
+          <div class="table-section-heading"><span>セル</span><small>背景と文字</small></div>
+          <div class="table-setting-block">
+            <span class="table-setting-label">背景色</span>
+            <div class="color-palette table-color-palette" data-table-fill-palette>
+              ${tablePaletteMarkup("data-table-fill-color", TABLE_FILL_COLORS)}
+            </div>
+          </div>
+          <label class="table-opacity-row">
+            <span>透明度</span><input type="range" min="0" max="100" value="100" data-table-fill-opacity />
+            <output data-table-fill-opacity-value>100%</output>
+          </label>
+          <div class="table-two-column">
+            <label><span>文字サイズ</span><select data-table-font-size>
+              <option value="12">12pt</option><option value="14">14pt</option>
+              <option value="16" selected>16pt</option><option value="20">20pt</option>
+              <option value="24">24pt</option><option value="32">32pt</option>
+            </select></label>
+            <label><span>書体</span><select data-table-font-family>
+              <option value="system">標準</option><option value="meiryo">メイリオ</option>
+              <option value="gothic">ゴシック</option><option value="mincho">明朝</option>
+            </select></label>
+          </div>
+          <div class="table-setting-block">
+            <span class="table-setting-label">文字色</span>
+            <div class="color-palette table-color-palette" data-table-text-palette>
+              ${tablePaletteMarkup("data-table-text-color", TABLE_INK_COLORS)}
+            </div>
+          </div>
+          <div class="table-inline-controls" aria-label="文字の装飾と配置">
+            <button type="button" class="table-icon-btn" data-table-bold title="太字"><span class="material-symbols-rounded">format_bold</span></button>
+            <button type="button" class="table-icon-btn active" data-table-align="left" title="左揃え"><span class="material-symbols-rounded">format_align_left</span></button>
+            <button type="button" class="table-icon-btn" data-table-align="center" title="中央揃え"><span class="material-symbols-rounded">format_align_center</span></button>
+            <button type="button" class="table-icon-btn" data-table-align="right" title="右揃え"><span class="material-symbols-rounded">format_align_right</span></button>
+          </div>
+        </section>
+        <section class="table-settings-card">
+          <div class="table-section-heading"><span>罫線</span><small>色と線種</small></div>
+          <label class="table-full-row"><span>変更する罫線</span><select data-table-border-side>
+            <option value="all">4辺すべて</option><option value="top">上</option>
+            <option value="right">右</option><option value="bottom">下</option><option value="left">左</option>
+          </select></label>
+          <div class="table-setting-block">
+            <span class="table-setting-label">罫線の色</span>
+            <div class="color-palette table-color-palette" data-table-border-palette>
+              ${tablePaletteMarkup("data-table-border-color", TABLE_INK_COLORS)}
+            </div>
+          </div>
+          <label class="table-opacity-row">
+            <span>透明度</span><input type="range" min="0" max="100" value="100" data-table-border-opacity />
+            <output data-table-border-opacity-value>100%</output>
+          </label>
+          <div class="table-two-column">
+            <label><span>太さ</span><select data-table-border-width>
+              <option value="0">なし</option><option value="1">細</option>
+              <option value="2" selected>標準</option><option value="3">太</option><option value="5">極太</option>
+            </select></label>
+            <label><span>線種</span><select data-table-border-style>
+              <option value="solid">実線</option><option value="dashed">破線</option>
+              <option value="dotted">点線</option><option value="double">二重線</option><option value="none">なし</option>
+            </select></label>
+          </div>
+        </section>
       </div>`;
     container.appendChild(tableStylePanel);
     replaceMaterialIcons(tableStylePanel);
 
     tableCellLabel = tableStylePanel.querySelector("[data-table-cell-label]");
-    tableFillInput = tableStylePanel.querySelector("[data-table-fill]");
+    tableFillPalette = tableStylePanel.querySelector("[data-table-fill-palette]");
+    tableFillOpacityRange = tableStylePanel.querySelector("[data-table-fill-opacity]");
+    tableFillOpacityValue = tableStylePanel.querySelector("[data-table-fill-opacity-value]");
     tableFontSizeSelect = tableStylePanel.querySelector("[data-table-font-size]");
-    tableTextColorInput = tableStylePanel.querySelector("[data-table-text-color]");
+    tableTextColorPalette = tableStylePanel.querySelector("[data-table-text-palette]");
     tableBoldToggle = tableStylePanel.querySelector("[data-table-bold]");
     tableFontFamilySelect = tableStylePanel.querySelector("[data-table-font-family]");
     tableBorderSideSelect = tableStylePanel.querySelector("[data-table-border-side]");
-    tableBorderColorInput = tableStylePanel.querySelector("[data-table-border-color]");
+    tableBorderColorPalette = tableStylePanel.querySelector("[data-table-border-palette]");
+    tableBorderOpacityRange = tableStylePanel.querySelector("[data-table-border-opacity]");
+    tableBorderOpacityValue = tableStylePanel.querySelector("[data-table-border-opacity-value]");
     tableBorderWidthSelect = tableStylePanel.querySelector("[data-table-border-width]");
     tableBorderStyleSelect = tableStylePanel.querySelector("[data-table-border-style]");
 
@@ -868,9 +980,28 @@ export function initBoardUI() {
       borderSide: tableBorderSideSelect?.value || "all",
       ...patch
     });
-    tableFillInput?.addEventListener("input", () => wb.setSelectedTableCellStyle({ fill: tableFillInput.value }));
+    tableFillPalette?.querySelectorAll("[data-table-fill-color]").forEach(button => {
+      button.addEventListener("click", () => {
+        currentTableFillHex = button.dataset.tableFillColor || "#ffffff";
+        wb.setSelectedTableCellStyle({
+          fill: tableColorWithOpacity(currentTableFillHex, currentTableFillOpacity)
+        });
+      });
+    });
+    tableFillOpacityRange?.addEventListener("input", () => {
+      currentTableFillOpacity = Number(tableFillOpacityRange.value);
+      if (tableFillOpacityValue) tableFillOpacityValue.textContent = `${currentTableFillOpacity}%`;
+      wb.setSelectedTableCellStyle({
+        fill: tableColorWithOpacity(currentTableFillHex, currentTableFillOpacity)
+      });
+    });
     tableFontSizeSelect?.addEventListener("change", () => wb.setSelectedTableCellStyle({ fontSize: Number(tableFontSizeSelect.value) || 16 }));
-    tableTextColorInput?.addEventListener("input", () => wb.setSelectedTableCellStyle({ color: tableTextColorInput.value }));
+    tableTextColorPalette?.querySelectorAll("[data-table-text-color]").forEach(button => {
+      button.addEventListener("click", () => {
+        currentTableTextHex = button.dataset.tableTextColor || "#111827";
+        wb.setSelectedTableCellStyle({ color: currentTableTextHex });
+      });
+    });
     tableFontFamilySelect?.addEventListener("change", () => wb.setSelectedTableCellStyle({ fontFamily: fontFamilyValue(tableFontFamilySelect.value) }));
     tableBoldToggle?.addEventListener("click", () => {
       const next = tableBoldToggle.dataset.active !== "1";
@@ -880,7 +1011,21 @@ export function initBoardUI() {
       button.addEventListener("click", () => wb.setSelectedTableCellStyle({ align: button.dataset.tableAlign || "left" }));
     });
     tableBorderSideSelect?.addEventListener("change", updateTableStylePanelFromSelection);
-    tableBorderColorInput?.addEventListener("input", () => applyBorder({ borderColor: tableBorderColorInput.value }));
+    tableBorderColorPalette?.querySelectorAll("[data-table-border-color]").forEach(button => {
+      button.addEventListener("click", () => {
+        currentTableBorderHex = button.dataset.tableBorderColor || "#111827";
+        applyBorder({
+          borderColor: tableColorWithOpacity(currentTableBorderHex, currentTableBorderOpacity)
+        });
+      });
+    });
+    tableBorderOpacityRange?.addEventListener("input", () => {
+      currentTableBorderOpacity = Number(tableBorderOpacityRange.value);
+      if (tableBorderOpacityValue) tableBorderOpacityValue.textContent = `${currentTableBorderOpacity}%`;
+      applyBorder({
+        borderColor: tableColorWithOpacity(currentTableBorderHex, currentTableBorderOpacity)
+      });
+    });
     tableBorderWidthSelect?.addEventListener("change", () => applyBorder({ borderWidth: Number(tableBorderWidthSelect.value) || 0 }));
     tableBorderStyleSelect?.addEventListener("change", () => applyBorder({ borderStyle: tableBorderStyleSelect.value }));
     updateTableStylePanelFromSelection();
@@ -919,7 +1064,8 @@ export function initBoardUI() {
         const showSettings =
           hasSettings && currentTool === tool && settingsOpenTool !== tool;
 
-        wb.setTool(tool);
+        // 表設定中は、キャンバス操作を選択ツールとして扱う。
+        wb.setTool(tool === "table" && showSettings ? "select" : tool);
         if (tool === "pen") {
           wb.setPen(currentPenColor, currentPenWidth);
         } else if (tool === "highlighter") {
