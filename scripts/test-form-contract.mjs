@@ -12,6 +12,8 @@ const [
   studentForms,
   formApi,
   realtimeApi,
+  uiIcons,
+  styles,
 ] = await Promise.all([
   read("supabase/migrations/20260830062951_add_class_forms.sql"),
   read("public/teacher.html"),
@@ -20,6 +22,8 @@ const [
   read("public/js/student-forms.js"),
   read("public/js/form-api.js"),
   read("public/js/supabase-api.js"),
+  read("public/js/ui-icons.js"),
+  read("public/style.css"),
 ]);
 
 const tables = [
@@ -67,9 +71,24 @@ assert.match(teacherForms, /formApi\.startRun/);
 assert.match(teacherForms, /formApi\.subscribeToResponses/);
 assert.match(teacherForms, /className = "form-bar-fill"/);
 assert.match(teacherForms, /anonymous: true/);
+assert.match(teacherForms, /replaceMaterialIcons\(questionEditorList\)/);
 assert.match(studentForms, /socket\?\.on\("teacher-form-opened"/);
 assert.match(studentForms, /formApi\.submitResponse/);
 assert.match(formApi, /onConflict: "run_question_id,student_id"/);
+
+for (const iconName of [
+  "arrow_downward",
+  "arrow_upward",
+  "check_box_outline_blank",
+  "fact_check",
+  "radio_button_unchecked",
+  "short_text",
+]) {
+  assert.match(uiIcons, new RegExp(`\\b${iconName}:`), `${iconName} is missing from the shared icon map`);
+}
+
+assert.match(styles, /\.form-editor-dialog,[\s\S]*width: min\(760px, 100%\)/);
+assert.match(styles, /\.form-question-editor-actions \.app-icon/);
 
 for (const eventName of ["teacher-form-opened", "teacher-form-closed"]) {
   assert.ok(realtimeApi.split(`"${eventName}"`).length >= 4, `${eventName} is not wired through all realtime sets`);

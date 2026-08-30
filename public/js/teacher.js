@@ -2,7 +2,7 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a";
+import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a&forms=20260830b";
 import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260828a";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 import {
@@ -14,7 +14,7 @@ import {
   saveTeacherClassHints,
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
-import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return;

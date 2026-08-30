@@ -1,4 +1,5 @@
 import { formApi } from "./form-api.js?v=forms-20260830";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
 
 const QUESTION_LABELS = {
   text: "自由記述",
@@ -189,6 +190,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     templateList.innerHTML = "";
     if (!templates.length) {
       templateList.appendChild(createEmptyMessage("保存済みのフォームはありません。"));
+      replaceMaterialIcons(templateList);
       return;
     }
 
@@ -223,6 +225,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       card.append(title, meta, actions);
       templateList.appendChild(card);
     });
+    replaceMaterialIcons(templateList);
   }
 
   function renderHistory(message = "") {
@@ -234,6 +237,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     }
     if (message || !history.length) {
       historyList.appendChild(createEmptyMessage(message || "このクラスの実施履歴はありません。"));
+      replaceMaterialIcons(historyList);
       return;
     }
     history.forEach((run) => {
@@ -253,6 +257,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       card.append(title, meta, actions);
       historyList.appendChild(card);
     });
+    replaceMaterialIcons(historyList);
   }
 
   function getRespondentCount(responses) {
@@ -538,6 +543,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       }
       questionEditorList.appendChild(card);
     });
+    replaceMaterialIcons(questionEditorList);
   }
 
   function buildOptionsEditor(question) {
