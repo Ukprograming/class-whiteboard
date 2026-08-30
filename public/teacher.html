@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260827b" rel="stylesheet" />
+  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260827b&amp;forms=20260830" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -103,6 +103,10 @@
 
     <!-- 右側：チャットなど -->
     <div class="topbar-right">
+      <button id="formToggleBtn" class="icon-btn" title="フォーム" aria-label="フォーム" aria-expanded="false">
+        <span class="material-symbols-rounded">fact_check</span>
+        <span id="formLiveDot" class="form-live-dot hidden"></span>
+      </button>
       <button id="chatToggleBtn" class="icon-btn" title="チャット">
         <span class="material-symbols-rounded">chat</span>
         <span id="chatNotifyDot" class="chat-notify-dot"></span>
@@ -247,6 +251,107 @@
       </div>
     </div>
   </aside>
+
+  <aside id="formPanel" class="form-panel collapsed" aria-label="フォームセンター" aria-hidden="true">
+    <header class="form-panel-header">
+      <div>
+        <p class="form-panel-kicker">授業内アクティビティ</p>
+        <h3>フォームセンター</h3>
+      </div>
+      <button id="formCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="フォームを閉じる">
+        <span class="material-symbols-rounded">close</span>
+      </button>
+    </header>
+    <nav class="form-tabs" aria-label="フォーム表示切り替え">
+      <button type="button" class="active" data-form-tab="live">実施中</button>
+      <button type="button" data-form-tab="templates">保存済み</button>
+      <button type="button" data-form-tab="history">履歴</button>
+    </nav>
+    <p id="formPanelStatus" class="form-panel-status" aria-live="polite"></p>
+
+    <section class="form-panel-view" data-form-view="live">
+      <div id="formLiveEmpty" class="form-empty-state">
+        <span class="material-symbols-rounded">pending_actions</span>
+        <strong>実施中のフォームはありません</strong>
+        <p>「保存済み」からフォームを選んで配信します。</p>
+        <button id="formLiveOpenTemplatesBtn" class="form-secondary-btn" type="button">保存済みを開く</button>
+      </div>
+      <div id="formLiveContent" class="hidden">
+        <div class="form-live-summary">
+          <div>
+            <p class="form-panel-kicker">回答受付中</p>
+            <h4 id="formLiveTitle"></h4>
+          </div>
+          <div class="form-response-count"><strong id="formResponseCount">0</strong><span id="formRosterCount">/ 0人</span></div>
+        </div>
+        <div id="formLiveResults" class="form-live-results"></div>
+        <div class="form-live-actions">
+          <button id="formPresentResultsBtn" class="form-secondary-btn" type="button">
+            <span class="material-symbols-rounded">present_to_all</span> 拡大表示
+          </button>
+          <button id="formCloseRunBtn" class="form-danger-btn" type="button">回答受付を終了</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="form-panel-view hidden" data-form-view="templates">
+      <button id="formCreateBtn" class="form-primary-btn form-create-btn" type="button">
+        <span class="material-symbols-rounded">add</span> 新しいフォーム
+      </button>
+      <div id="formTemplateList" class="form-list"></div>
+    </section>
+
+    <section class="form-panel-view hidden" data-form-view="history">
+      <div id="formHistoryList" class="form-list"></div>
+      <div id="formHistoryDetail" class="form-history-detail hidden"></div>
+    </section>
+  </aside>
+
+  <div id="formEditorBackdrop" class="form-editor-backdrop hidden" role="presentation">
+    <section class="form-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="formEditorHeading">
+      <header class="form-editor-header">
+        <div>
+          <p class="form-panel-kicker">保存して何度でも配信</p>
+          <h2 id="formEditorHeading">フォームを作成</h2>
+        </div>
+        <button id="formEditorCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="作問画面を閉じる">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </header>
+      <div class="form-editor-body">
+        <label class="form-field">
+          <span>フォーム名</span>
+          <input id="formEditorTitle" type="text" maxlength="120" placeholder="例：授業の振り返り" />
+        </label>
+        <div id="formQuestionEditorList" class="form-question-editor-list"></div>
+        <div class="form-add-question-row" aria-label="問題を追加">
+          <button type="button" data-add-form-question="text"><span class="material-symbols-rounded">short_text</span>自由記述</button>
+          <button type="button" data-add-form-question="single_choice"><span class="material-symbols-rounded">radio_button_checked</span>単一選択</button>
+          <button type="button" data-add-form-question="multiple_choice"><span class="material-symbols-rounded">check_box</span>複数選択</button>
+        </div>
+      </div>
+      <footer class="form-editor-footer">
+        <p id="formEditorStatus" aria-live="polite"></p>
+        <button id="formEditorCancelBtn" class="form-secondary-btn" type="button">キャンセル</button>
+        <button id="formEditorSaveBtn" class="form-primary-btn" type="button">保存</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="formResultsBackdrop" class="form-results-backdrop hidden" role="presentation">
+    <section class="form-results-dialog" role="dialog" aria-modal="true" aria-labelledby="formResultsHeading">
+      <header>
+        <div>
+          <p class="form-panel-kicker">リアルタイム集計</p>
+          <h2 id="formResultsHeading">回答結果</h2>
+        </div>
+        <button id="formResultsCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="結果表示を閉じる">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </header>
+      <div id="formPresentedResults" class="form-presented-results"></div>
+    </section>
+  </div>
 
   <!-- ▼ テキストボックス設定バー（画面下中央） ▼ -->
   <div id="textSettings" class="hidden">
@@ -627,7 +732,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830"></script>
 </body>
 
 </html>

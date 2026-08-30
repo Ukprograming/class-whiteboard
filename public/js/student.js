@@ -6,8 +6,9 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -139,6 +140,11 @@ let currentClassCode = null;
 let nickname = null;
 let sharedBoardSession = null;
 let applyingSharedBoardRemote = false;
+const studentForms = initStudentForms({
+  socket,
+  getClassCode: () => currentClassCode,
+  onOpen: () => setChatPanelOpen(false),
+});
 
 let captureTimerId = null;
 let initialThumbnailTimerId = null;

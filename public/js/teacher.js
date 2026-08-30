@@ -4,7 +4,7 @@ import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a";
 import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260828a";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826";
+import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -14,6 +14,7 @@ import {
   saveTeacherClassHints,
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return;
@@ -453,6 +454,11 @@ const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogB
 const teacherDistributeBoardBtn = document.getElementById("teacherDistributeBoardBtn");
 const teacherSharedBoardToggleBtn = document.getElementById("teacherSharedBoardToggleBtn");
 const teacherManageClassesBtn = document.getElementById("teacherManageClassesBtn");
+const teacherForms = initTeacherForms({
+  socket,
+  getClassCode: () => currentClassCode,
+  onOpen: () => setChatPanelOpen(false),
+});
 const classManagementBackdrop = document.getElementById("classManagementBackdrop");
 const classManagementCloseBtn = document.getElementById("classManagementCloseBtn");
 const classManagementStatus = document.getElementById("classManagementStatus");
@@ -708,6 +714,7 @@ async function activateTeacherClass(classCode) {
   await socket.emit("join-teacher", { classCode: code });
   await socket.emit("teacher-start-class", { classCode: code });
   await socket.emit("joinAsTeacher", { classCode: code });
+  await teacherForms.refreshForClass();
   return true;
 }
 
@@ -2208,6 +2215,7 @@ socket.on("teacher-class-started", payload => {
   if (statusLabel && payload?.classCode) {
     statusLabel.textContent = `クラス開始中: ${payload.classCode}`;
   }
+  void teacherForms.refreshForClass();
 });
 
 // ======== 生徒画面モーダル用ツール切り替え ========
@@ -3739,6 +3747,8 @@ function updateChatHomeButton() {
 function setChatPanelOpen(open) {
   chatPanelOpen = open;
   if (!chatPanel || !chatToggleBtn) return;
+
+  if (open) teacherForms.closePanel();
 
   chatPanel.classList.toggle("collapsed", !open);
   updateChatHomeButton();

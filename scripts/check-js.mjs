@@ -13,15 +13,18 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/form-api.js",
   "public/js/monitor-sync.js",
   "public/js/realtime-join-coordinator.js",
   "public/js/realtime-load-control.js",
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
   "public/js/student.js",
+  "public/js/student-forms.js",
   "public/js/supabase-api.js",
   "public/js/timer-utils.mjs",
   "public/js/teacher.js",
+  "public/js/teacher-forms.js",
   "public/js/teacher-class-storage.js",
   "public/js/teacher-login.js",
   "public/js/teacher-signup.js",

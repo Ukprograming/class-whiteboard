@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node scripts/check-js.mjs",
-    "test": "npm run check && node scripts/test-eraser-hit.mjs && node scripts/test-timer-utils.mjs"
+    "test": "npm run check && node scripts/test-eraser-hit.mjs && node scripts/test-timer-utils.mjs && node scripts/test-form-contract.mjs"
   },
   "keywords": [],
   "author": "",
