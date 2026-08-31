@@ -14,9 +14,32 @@ try {
   copyFileSync(sourcePath, modulePath);
   const {
     STUDENT_IMPORT_HEADERS,
+    extractVisibleSpreadsheetText,
     parseStudentWorkbook,
     validateStudentImport,
   } = await import(pathToFileURL(modulePath).href);
+
+  const phoneticSharedString = `
+    <si>
+      <t>氏名1</t>
+      <rPh sb="0" eb="2"><t>シメイ</t></rPh>
+      <phoneticPr fontId="1" type="fullwidthKatakana" />
+    </si>
+  `;
+  assert(
+    extractVisibleSpreadsheetText(phoneticSharedString) === "氏名1",
+    "Excel phonetic text was appended to the visible display name.",
+  );
+  const richTextWithPhonetics = `
+    <x:si>
+      <x:r><x:t>氏名</x:t></x:r><x:r><x:t>1</x:t></x:r>
+      <x:rPh sb="0" eb="2"><x:t>シメイ</x:t></x:rPh>
+    </x:si>
+  `;
+  assert(
+    extractVisibleSpreadsheetText(richTextWithPhonetics) === "氏名1",
+    "Visible rich text was not preserved while removing namespaced phonetics.",
+  );
 
   const templateBytes = readFileSync("public/templates/student-bulk-registration-template.xlsx");
   const templateBuffer = templateBytes.buffer.slice(

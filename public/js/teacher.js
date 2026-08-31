@@ -18,7 +18,7 @@ import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b";
 import {
   parseStudentWorkbook,
   validateStudentImport,
-} from "./student-bulk-import.js?v=student-bulk-import-20260831";
+} from "./student-bulk-import.js?v=student-bulk-import-20260831b";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return;

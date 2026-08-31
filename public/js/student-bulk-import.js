@@ -29,9 +29,12 @@ function readXmlAttribute(tag, attributeName) {
   return decodeXmlText(match?.[1] ?? match?.[2] ?? "");
 }
 
-function joinTextNodes(xml) {
+export function extractVisibleSpreadsheetText(xml) {
+  const visibleXml = String(xml || "")
+    .replace(/<(?:\w+:)?rPh\b[^>]*>[\s\S]*?<\/(?:\w+:)?rPh>/gi, "")
+    .replace(/<(?:\w+:)?phoneticPr\b[^>]*(?:\/>|>[\s\S]*?<\/(?:\w+:)?phoneticPr>)/gi, "");
   const text = [];
-  for (const match of xml.matchAll(/<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/gi)) {
+  for (const match of visibleXml.matchAll(/<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/gi)) {
     text.push(decodeXmlText(match[1]));
   }
   return text.join("");
@@ -155,7 +158,7 @@ function readSharedStrings(entries) {
   const bytes = entries.get("xl/sharedStrings.xml");
   if (!bytes) return [];
   const xml = new TextDecoder("utf-8").decode(bytes);
-  return [...xml.matchAll(/<(?:\w+:)?si\b[^>]*>([\s\S]*?)<\/(?:\w+:)?si>/gi)].map((match) => joinTextNodes(match[1]));
+  return [...xml.matchAll(/<(?:\w+:)?si\b[^>]*>([\s\S]*?)<\/(?:\w+:)?si>/gi)].map((match) => extractVisibleSpreadsheetText(match[1]));
 }
 
 function columnIndexFromReference(reference) {
@@ -167,7 +170,7 @@ function columnIndexFromReference(reference) {
 
 function cellText(cellTag, cellBody, sharedStrings) {
   const type = readXmlAttribute(cellTag, "t");
-  if (type === "inlineStr") return joinTextNodes(cellBody);
+  if (type === "inlineStr") return extractVisibleSpreadsheetText(cellBody);
   const value = cellBody.match(/<(?:\w+:)?v\b[^>]*>([\s\S]*?)<\/(?:\w+:)?v>/i)?.[1] ?? "";
   if (type === "s") return sharedStrings[Number.parseInt(value, 10)] ?? "";
   if (type === "b") return value === "1" ? "TRUE" : "FALSE";
