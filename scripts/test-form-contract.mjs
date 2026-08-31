@@ -52,8 +52,10 @@ for (const id of [
   "formPanel",
   "formTemplateList",
   "formLiveResults",
+  "formLiveStudentNamesToggle",
   "formEditorBackdrop",
   "formResultsBackdrop",
+  "formPresentedStudentNamesToggle",
 ]) {
   assert.match(teacherHtml, new RegExp(`id="${id}"`));
 }
@@ -70,7 +72,11 @@ for (const id of [
 assert.match(teacherForms, /formApi\.startRun/);
 assert.match(teacherForms, /formApi\.subscribeToResponses/);
 assert.match(teacherForms, /className = "form-bar-fill"/);
-assert.match(teacherForms, /anonymous: true/);
+assert.match(teacherForms, /\{ showStudentNames = false \} = \{\}/);
+assert.match(teacherForms, /if \(showStudentNames\)/);
+assert.match(teacherForms, /let liveStudentNamesVisible = false/);
+assert.match(teacherForms, /let presentedStudentNamesVisible = false/);
+assert.doesNotMatch(teacherForms, /anonymous: true/);
 assert.match(teacherForms, /replaceMaterialIcons\(questionEditorList\)/);
 assert.match(studentForms, /socket\?\.on\("teacher-form-opened"/);
 assert.match(studentForms, /formApi\.submitResponse/);
@@ -89,6 +95,7 @@ for (const iconName of [
 
 assert.match(styles, /\.form-editor-dialog,[\s\S]*width: min\(760px, 100%\)/);
 assert.match(styles, /\.form-question-editor-actions \.app-icon/);
+assert.match(styles, /\.form-name-toggle\[aria-checked="true"\]/);
 
 for (const eventName of ["teacher-form-opened", "teacher-form-closed"]) {
   assert.ok(realtimeApi.split(`"${eventName}"`).length >= 4, `${eventName} is not wired through all realtime sets`);

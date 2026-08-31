@@ -83,6 +83,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   const liveTitle = document.getElementById("formLiveTitle");
   const responseCount = document.getElementById("formResponseCount");
   const rosterCount = document.getElementById("formRosterCount");
+  const liveStudentNamesToggle = document.getElementById("formLiveStudentNamesToggle");
   const liveResults = document.getElementById("formLiveResults");
   const closeRunBtn = document.getElementById("formCloseRunBtn");
   const presentResultsBtn = document.getElementById("formPresentResultsBtn");
@@ -102,6 +103,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   const resultsBackdrop = document.getElementById("formResultsBackdrop");
   const resultsHeading = document.getElementById("formResultsHeading");
   const resultsCloseBtn = document.getElementById("formResultsCloseBtn");
+  const presentedStudentNamesToggle = document.getElementById("formPresentedStudentNamesToggle");
   const presentedResults = document.getElementById("formPresentedResults");
 
   if (!toggleBtn || !panel || !formApi.enabled) {
@@ -121,6 +123,9 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   let unsubscribeResponses = null;
   let responseRefreshTimer = null;
   let activeRunRefreshToken = 0;
+  let liveStudentNamesVisible = false;
+  let presentedStudentNamesVisible = false;
+  let historyResultState = null;
   let editorTemplateId = null;
   let editorQuestions = [];
 
@@ -231,6 +236,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   function renderHistory(message = "") {
     if (!historyList) return;
     historyList.innerHTML = "";
+    historyResultState = null;
     if (historyDetail) {
       historyDetail.innerHTML = "";
       historyDetail.classList.add("hidden");
@@ -264,7 +270,37 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     return new Set((responses || []).map((response) => response.student_id)).size;
   }
 
-  function buildResults(run, responses, { anonymous = false } = {}) {
+  function syncStudentNamesToggle(button, visible) {
+    if (!button) return;
+    button.setAttribute("aria-checked", visible ? "true" : "false");
+    button.title = visible ? "生徒名を非表示にする" : "生徒名を表示する";
+    const state = button.querySelector(".form-name-toggle-state");
+    if (state) state.textContent = visible ? "表示中" : "非表示";
+  }
+
+  function createStudentNamesToggle(visible, onChange) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "form-name-toggle";
+    button.setAttribute("role", "switch");
+    button.setAttribute("aria-label", "生徒名を表示");
+
+    const label = document.createElement("span");
+    label.className = "form-name-toggle-label";
+    label.textContent = "生徒名";
+    const track = document.createElement("span");
+    track.className = "form-name-toggle-track";
+    track.setAttribute("aria-hidden", "true");
+    track.appendChild(document.createElement("span"));
+    const state = document.createElement("span");
+    state.className = "form-name-toggle-state";
+    button.append(label, track, state);
+    button.addEventListener("click", onChange);
+    syncStudentNamesToggle(button, visible);
+    return button;
+  }
+
+  function buildResults(run, responses, { showStudentNames = false } = {}) {
     const fragment = document.createDocumentFragment();
     (run?.questions || []).forEach((question, index) => {
       const questionResponses = responses.filter(
@@ -291,7 +327,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
           questionResponses.forEach((response) => {
             const row = document.createElement("div");
             row.className = "form-text-response";
-            if (!anonymous) {
+            if (showStudentNames) {
               const name = document.createElement("small");
               name.textContent = response.student?.display_name || response.student?.student_login_id || "生徒";
               row.appendChild(name);
@@ -351,13 +387,24 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     liveTitle.textContent = activeRun.title;
     responseCount.textContent = String(getRespondentCount(activeResponses));
     rosterCount.textContent = `/ ${activeRosterCount}人`;
+    syncStudentNamesToggle(liveStudentNamesToggle, liveStudentNamesVisible);
     liveResults.innerHTML = "";
-    liveResults.appendChild(buildResults(activeRun, activeResponses));
+    liveResults.appendChild(buildResults(activeRun, activeResponses, {
+      showStudentNames: liveStudentNamesVisible,
+    }));
 
     if (presentedResults && !resultsBackdrop.classList.contains("hidden")) {
-      presentedResults.innerHTML = "";
-      presentedResults.appendChild(buildResults(activeRun, activeResponses, { anonymous: true }));
+      renderPresentedResults();
     }
+  }
+
+  function renderPresentedResults() {
+    if (!presentedResults || !activeRun) return;
+    syncStudentNamesToggle(presentedStudentNamesToggle, presentedStudentNamesVisible);
+    presentedResults.innerHTML = "";
+    presentedResults.appendChild(buildResults(activeRun, activeResponses, {
+      showStudentNames: presentedStudentNamesVisible,
+    }));
   }
 
   function stopResponseSubscription() {
@@ -412,6 +459,8 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       activeRun = null;
       activeResponses = [];
       activeRosterCount = 0;
+      liveStudentNamesVisible = false;
+      presentedStudentNamesVisible = false;
       renderLiveResults();
       setStatus("クラスに参加するとフォームを配信できます。", false);
       return;
@@ -420,11 +469,17 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     const nextRun = await formApi.getActiveRun(classCode);
     if (token !== activeRunRefreshToken) return;
     const changedRun = nextRun?.id !== activeRun?.id;
+    if (changedRun) {
+      liveStudentNamesVisible = false;
+      presentedStudentNamesVisible = false;
+    }
     activeRun = nextRun;
     if (!activeRun) {
       stopResponseSubscription();
       activeResponses = [];
       activeRosterCount = await formApi.getRosterCount(classCode);
+      liveStudentNamesVisible = false;
+      presentedStudentNamesVisible = false;
       renderLiveResults();
       return;
     }
@@ -642,6 +697,8 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       activeRunRefreshToken += 1;
       activeRun = await formApi.getRun(runId);
       activeResponses = [];
+      liveStudentNamesVisible = false;
+      presentedStudentNamesVisible = false;
       activeRosterCount = await formApi.getRosterCount(classCode);
       subscribeToActiveResponses();
       renderLiveResults();
@@ -676,6 +733,8 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       stopResponseSubscription();
       activeRun = null;
       activeResponses = [];
+      liveStudentNamesVisible = false;
+      presentedStudentNamesVisible = false;
       renderLiveResults();
       await refreshHistory();
       setStatus("回答受付を終了し、結果を履歴に保存しました。");
@@ -706,18 +765,12 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
         formApi.getRun(runId),
         formApi.getResponses(runId),
       ]);
-      historyDetail.innerHTML = "";
-      const summary = document.createElement("div");
-      summary.className = "form-live-summary";
-      const text = document.createElement("div");
-      const kicker = document.createElement("p");
-      kicker.className = "form-panel-kicker";
-      kicker.textContent = `${getRespondentCount(responses)}人が回答`;
-      const title = document.createElement("h4");
-      title.textContent = run.title;
-      text.append(kicker, title);
-      summary.appendChild(text);
-      historyDetail.append(summary, buildResults(run, responses));
+      historyResultState = {
+        run,
+        responses,
+        studentNamesVisible: false,
+      };
+      renderHistoryResult();
       historyDetail.classList.remove("hidden");
       historyDetail.scrollIntoView({ behavior: "smooth", block: "start" });
       setStatus("");
@@ -725,6 +778,29 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       console.error("Failed to show form history", error);
       setStatus(error?.message || "実施結果を読み込めませんでした。", true);
     }
+  }
+
+  function renderHistoryResult() {
+    if (!historyResultState || !historyDetail) return;
+    const { run, responses, studentNamesVisible } = historyResultState;
+    historyDetail.innerHTML = "";
+    const summary = document.createElement("div");
+    summary.className = "form-live-summary";
+    const text = document.createElement("div");
+    const kicker = document.createElement("p");
+    kicker.className = "form-panel-kicker";
+    kicker.textContent = `${getRespondentCount(responses)}人が回答`;
+    const title = document.createElement("h4");
+    title.textContent = run.title;
+    text.append(kicker, title);
+    const toggle = createStudentNamesToggle(studentNamesVisible, () => {
+      historyResultState.studentNamesVisible = !historyResultState.studentNamesVisible;
+      renderHistoryResult();
+    });
+    summary.append(text, toggle);
+    historyDetail.append(summary, buildResults(run, responses, {
+      showStudentNames: studentNamesVisible,
+    }));
   }
 
   toggleBtn.addEventListener("click", () => setPanelOpen(panel.classList.contains("collapsed")));
@@ -737,11 +813,19 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   editorCancelBtn?.addEventListener("click", closeEditor);
   editorSaveBtn?.addEventListener("click", () => void saveEditor());
   resultsCloseBtn?.addEventListener("click", () => resultsBackdrop.classList.add("hidden"));
+  liveStudentNamesToggle?.addEventListener("click", () => {
+    liveStudentNamesVisible = !liveStudentNamesVisible;
+    renderLiveResults();
+  });
+  presentedStudentNamesToggle?.addEventListener("click", () => {
+    presentedStudentNamesVisible = !presentedStudentNamesVisible;
+    renderPresentedResults();
+  });
   presentResultsBtn?.addEventListener("click", () => {
     if (!activeRun) return;
     resultsHeading.textContent = activeRun.title;
-    presentedResults.innerHTML = "";
-    presentedResults.appendChild(buildResults(activeRun, activeResponses, { anonymous: true }));
+    presentedStudentNamesVisible = false;
+    renderPresentedResults();
     resultsBackdrop.classList.remove("hidden");
   });
 

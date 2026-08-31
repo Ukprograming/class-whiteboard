@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員用ホワイトボード＋ノート確認</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260827b&amp;forms=20260830b&amp;student-bulk-import=20260831" rel="stylesheet" />
+  <link href="./style.css?v=tool-settings-20260818b&amp;png-stamps=20260824&amp;modal-tools=20260824&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260827b&amp;forms=20260830b&amp;student-bulk-import=20260831&amp;form-privacy=20260831" rel="stylesheet" />
   <!-- pdf.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -282,7 +282,14 @@
             <p class="form-panel-kicker">回答受付中</p>
             <h4 id="formLiveTitle"></h4>
           </div>
-          <div class="form-response-count"><strong id="formResponseCount">0</strong><span id="formRosterCount">/ 0人</span></div>
+          <div class="form-live-summary-tools">
+            <div class="form-response-count"><strong id="formResponseCount">0</strong><span id="formRosterCount">/ 0人</span></div>
+            <button id="formLiveStudentNamesToggle" class="form-name-toggle" type="button" role="switch" aria-checked="false" aria-label="生徒名を表示">
+              <span class="form-name-toggle-label">生徒名</span>
+              <span class="form-name-toggle-track" aria-hidden="true"><span></span></span>
+              <span class="form-name-toggle-state">非表示</span>
+            </button>
+          </div>
         </div>
         <div id="formLiveResults" class="form-live-results"></div>
         <div class="form-live-actions">
@@ -345,9 +352,16 @@
           <p class="form-panel-kicker">リアルタイム集計</p>
           <h2 id="formResultsHeading">回答結果</h2>
         </div>
-        <button id="formResultsCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="結果表示を閉じる">
-          <span class="material-symbols-rounded">close</span>
-        </button>
+        <div class="form-results-header-actions">
+          <button id="formPresentedStudentNamesToggle" class="form-name-toggle" type="button" role="switch" aria-checked="false" aria-label="生徒名を表示">
+            <span class="form-name-toggle-label">生徒名</span>
+            <span class="form-name-toggle-track" aria-hidden="true"><span></span></span>
+            <span class="form-name-toggle-state">非表示</span>
+          </button>
+          <button id="formResultsCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="結果表示を閉じる">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
       </header>
       <div id="formPresentedResults" class="form-presented-results"></div>
     </section>
@@ -748,7 +762,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830b&amp;student-bulk-import=20260831b"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830b&amp;student-bulk-import=20260831b&amp;form-privacy=20260831"></script>
 </body>
 
 </html>
