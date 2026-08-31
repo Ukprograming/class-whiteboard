@@ -1357,6 +1357,117 @@ export const managementApi = {
   },
 };
 
+export const assignmentApi = {
+  async listTeacherAssignments(classId) {
+    assertSupabase();
+    const { data: distributions, error: distributionError } = await supabase
+      .from("board_distributions")
+      .select("id, class_id, title, created_at")
+      .eq("class_id", classId)
+      .eq("distribution_kind", "assignment")
+      .order("created_at", { ascending: false });
+    if (distributionError) throw distributionError;
+    if (!distributions?.length) return [];
+
+    const distributionIds = distributions.map((item) => item.id);
+    const { data: boardRows, error: boardError } = await supabase
+      .from("board_files")
+      .select("distribution_id, assignment_submitted_at")
+      .in("distribution_id", distributionIds);
+    if (boardError) throw boardError;
+
+    const counts = new Map();
+    for (const row of boardRows || []) {
+      const current = counts.get(row.distribution_id) || { total: 0, submitted: 0 };
+      current.total += 1;
+      if (row.assignment_submitted_at) current.submitted += 1;
+      counts.set(row.distribution_id, current);
+    }
+
+    return distributions.map((distribution) => ({
+      ...distribution,
+      recipientCount: counts.get(distribution.id)?.total || 0,
+      submittedCount: counts.get(distribution.id)?.submitted || 0,
+    }));
+  },
+
+  async listAssignmentStudentBoards(distributionId) {
+    assertSupabase();
+    const { data, error } = await supabase
+      .from("board_files")
+      .select("id, student_id, name, folder_path, updated_at, assignment_submitted_at")
+      .eq("distribution_id", distributionId)
+      .eq("owner_kind", "student")
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async listPendingStudentAssignments(payload) {
+    assertSupabase();
+    const owner = await resolveOwner({ ...payload, role: "student" });
+    const { data: boardRows, error: boardError } = await supabase
+      .from("board_files")
+      .select("id, distribution_id, name, folder_path, created_at, updated_at")
+      .eq("owner_kind", "student")
+      .eq("student_id", owner.studentId)
+      .not("distribution_id", "is", null)
+      .is("assignment_submitted_at", null);
+    if (boardError) throw boardError;
+    if (!boardRows?.length) {
+      return { studentId: owner.studentId, assignments: [] };
+    }
+
+    const distributionIds = [...new Set(boardRows.map((row) => row.distribution_id))];
+    const { data: distributions, error: distributionError } = await supabase
+      .from("board_distributions")
+      .select("id, title, created_at")
+      .in("id", distributionIds)
+      .eq("distribution_kind", "assignment");
+    if (distributionError) throw distributionError;
+    const distributionById = new Map((distributions || []).map((item) => [item.id, item]));
+
+    const assignments = boardRows
+      .map((board) => {
+        const distribution = distributionById.get(board.distribution_id);
+        if (!distribution) return null;
+        return {
+          boardFileId: board.id,
+          distributionId: board.distribution_id,
+          title: distribution.title || board.name,
+          folderPath: board.folder_path || "",
+          distributedAt: distribution.created_at,
+          updatedAt: board.updated_at,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.distributedAt) - new Date(a.distributedAt));
+    return { studentId: owner.studentId, assignments };
+  },
+
+  subscribeStudentAssignments(studentId, onChange) {
+    assertSupabase();
+    const normalizedStudentId = String(studentId || "").trim();
+    if (!normalizedStudentId) throw new Error("Student ID is required.");
+    const channel = supabase
+      .channel(`student-assignment-files:${normalizedStudentId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "board_files",
+          filter: `student_id=eq.${normalizedStudentId}`,
+        },
+        () => onChange?.()
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+};
+
 async function getClassByCode(classCode) {
   assertSupabase();
   const { data, error } = await supabase
@@ -1396,7 +1507,9 @@ async function resolveOwner(payload) {
     .eq("class_id", klass.id)
     .eq("active", true);
 
-  if (payload.nickname) {
+  if (payload.studentId) {
+    query = query.eq("id", String(payload.studentId).trim());
+  } else if (payload.nickname) {
     const target = String(payload.nickname).trim();
     query = query.or(`student_login_id.eq.${target},display_name.eq.${target}`);
   } else {
@@ -1696,6 +1809,20 @@ export const boardApi = {
     assertSupabase();
     const owner = await resolveOwner(payload);
     const fileId = payload.fileId || crypto.randomUUID();
+    let existingDistributionId = null;
+    let existingAssignmentSubmittedAt = null;
+    if (payload.fileId) {
+      let metadataQuery = supabase
+        .from("board_files")
+        .select("distribution_id, assignment_submitted_at")
+        .eq("id", payload.fileId)
+        .limit(1);
+      metadataQuery = applyOwnerFilter(metadataQuery, owner);
+      const { data: existingFile, error: metadataError } = await metadataQuery.maybeSingle();
+      if (metadataError) throw metadataError;
+      existingDistributionId = existingFile?.distribution_id || null;
+      existingAssignmentSubmittedAt = existingFile?.assignment_submitted_at || null;
+    }
     const folderPath = normalizeFolderPath(payload.folderPath);
     const fileName = String(payload.fileName || "").trim();
     const snapshotPath = owner.ownerKind === "teacher"
@@ -1726,6 +1853,8 @@ export const boardApi = {
       thumbnail_path: null,
       source_board_id: null,
       shared_board_id: null,
+      distribution_id: existingDistributionId,
+      assignment_submitted_at: existingAssignmentSubmittedAt,
       size_bytes: blob.size,
       updated_at: new Date().toISOString(),
     };
@@ -1733,7 +1862,7 @@ export const boardApi = {
     const { data, error } = await supabase
       .from("board_files")
       .upsert(row)
-      .select("id, name")
+      .select("id, name, distribution_id, assignment_submitted_at")
       .single();
 
     if (error) throw error;
@@ -1743,6 +1872,8 @@ export const boardApi = {
       mode: payload.fileId ? "update" : "create",
       fileId: data.id,
       fileName: data.name,
+      distributionId: data.distribution_id || null,
+      assignmentSubmittedAt: data.assignment_submitted_at || null,
       assetReferences,
       message: payload.fileId ? "Saved changes." : "Saved board.",
     };

@@ -73,6 +73,7 @@
           <button id="teacherOverwriteSaveBtn" class="topbar-btn">上書き保存</button>
           <button id="teacherOpenLoadDialogBtn"><span class="material-symbols-rounded">folder_open</span> 開く...</button>
           <button id="teacherDistributeBoardBtn"><span class="material-symbols-rounded">send</span> クラス全員に配布</button>
+          <button id="teacherAssignmentCheckBtn"><span class="material-symbols-rounded">assignment_turned_in</span> 課題チェック</button>
           <button id="teacherManageClassesBtn"><span class="material-symbols-rounded">group</span> クラス・生徒管理</button>
           <button id="teacherSharedBoardToggleBtn"><span class="material-symbols-rounded">groups</span> 共同編集を開始</button>
           <hr>
@@ -89,7 +90,7 @@
 
     <!-- 中央：モード切り替え -->
     <div class="topbar-center">
-      <div class="mode-switcher">
+      <div id="teacherDefaultModeSwitcher" class="mode-switcher">
         <button id="teacherModeWhiteboard" class="mode-btn active" title="ホワイトボード">
           <span class="material-symbols-rounded">edit_note</span>
         </button>
@@ -98,6 +99,24 @@
         </button>
         <!-- ノート確認は一旦非表示または必要なら追加 -->
         <!-- <button id="teacherModeNotebook" class="mode-btn" title="ノート確認"><span class="material-symbols-rounded">assignment</span></button> -->
+      </div>
+      <div id="assignmentReviewSwitcher" class="assignment-review-switcher hidden" aria-label="課題の生徒切り替え">
+        <button id="assignmentPreviousStudentBtn" class="assignment-review-nav-btn" type="button" title="前の生徒">
+          <span class="material-symbols-rounded">chevron_left</span><span>前の生徒</span>
+        </button>
+        <div id="assignmentStudentRosterWrap" class="assignment-student-roster-wrap">
+          <button id="assignmentStudentRosterBtn" class="assignment-review-student-btn" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="material-symbols-rounded">group</span>
+            <span id="assignmentReviewStudentLabel">生徒一覧</span>
+          </button>
+          <div id="assignmentStudentRoster" class="assignment-student-roster" role="menu"></div>
+        </div>
+        <button id="assignmentNextStudentBtn" class="assignment-review-nav-btn" type="button" title="次の生徒">
+          <span>次の生徒</span><span class="material-symbols-rounded">chevron_right</span>
+        </button>
+        <button id="assignmentReviewExitBtn" class="assignment-review-exit-btn" type="button" title="課題チェックを終了" aria-label="課題チェックを終了">
+          <span class="material-symbols-rounded">close</span>
+        </button>
       </div>
     </div>
 
@@ -355,6 +374,55 @@
         <button id="formEditorCancelBtn" class="form-secondary-btn" type="button">キャンセル</button>
         <button id="formEditorSaveBtn" class="form-primary-btn" type="button">保存</button>
       </footer>
+    </section>
+  </div>
+
+  <div id="distributionDialogBackdrop" class="workflow-dialog-backdrop hidden" role="presentation">
+    <section class="workflow-dialog" role="dialog" aria-modal="true" aria-labelledby="distributionDialogTitle">
+      <header class="workflow-dialog-header">
+        <div>
+          <p class="workflow-dialog-kicker">クラス全員に一斉配布</p>
+          <h2 id="distributionDialogTitle">配布方法を選択</h2>
+        </div>
+        <button id="distributionDialogCloseBtn" class="icon-btn-sm" type="button" aria-label="閉じる"><span class="material-symbols-rounded">close</span></button>
+      </header>
+      <label class="workflow-dialog-field" for="distributionTitleInput">
+        <span>生徒に表示する名前</span>
+        <input id="distributionTitleInput" type="text" maxlength="120" />
+      </label>
+      <fieldset class="distribution-kind-options">
+        <legend>配布種別</legend>
+        <label class="distribution-kind-card">
+          <input type="radio" name="distributionKind" value="material" checked />
+          <span class="material-symbols-rounded">library_books</span>
+          <span><strong>資料</strong><small>生徒のファイルとして配布します</small></span>
+        </label>
+        <label class="distribution-kind-card">
+          <input type="radio" name="distributionKind" value="assignment" />
+          <span class="material-symbols-rounded">assignment</span>
+          <span><strong>課題</strong><small>未提出通知と課題チェックの対象になります</small></span>
+        </label>
+      </fieldset>
+      <p id="distributionDialogStatus" class="workflow-dialog-status" aria-live="polite"></p>
+      <footer class="workflow-dialog-actions">
+        <button id="distributionDialogCancelBtn" class="form-secondary-btn" type="button">キャンセル</button>
+        <button id="distributionDialogSubmitBtn" class="form-primary-btn" type="button">配布する</button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="assignmentCheckBackdrop" class="workflow-dialog-backdrop hidden" role="presentation">
+    <section class="workflow-dialog assignment-check-dialog" role="dialog" aria-modal="true" aria-labelledby="assignmentCheckTitle">
+      <header class="workflow-dialog-header">
+        <div>
+          <p class="workflow-dialog-kicker">配布済み課題</p>
+          <h2 id="assignmentCheckTitle">課題チェック</h2>
+        </div>
+        <button id="assignmentCheckCloseBtn" class="icon-btn-sm" type="button" aria-label="閉じる"><span class="material-symbols-rounded">close</span></button>
+      </header>
+      <p class="workflow-dialog-description">開く課題を選ぶと、生徒ごとの課題ボードをホワイトボード上で確認・編集できます。</p>
+      <div id="assignmentCheckList" class="assignment-check-list"></div>
+      <p id="assignmentCheckStatus" class="workflow-dialog-status" aria-live="polite"></p>
     </section>
   </div>
 
@@ -780,7 +848,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830b&amp;student-bulk-import=20260831b&amp;form-privacy=20260831&amp;form-excel-history=20260831&amp;youtube=20260831b"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830b&amp;student-bulk-import=20260831b&amp;form-privacy=20260831&amp;form-excel-history=20260831&amp;youtube=20260831b&amp;assignments=20260831"></script>
 </body>
 
 </html>

@@ -240,6 +240,10 @@
 
     <!-- 右側：チャットなど -->
     <div class="topbar-right">
+      <button id="studentAssignmentChip" class="icon-btn hidden" type="button" title="未提出の課題" aria-label="未提出の課題を開く" aria-expanded="false">
+        <span class="material-symbols-rounded">assignment</span>
+        <span id="studentAssignmentCount" class="assignment-notify-count">0</span>
+      </button>
       <button id="studentFormChip" class="icon-btn hidden" type="button" title="フォーム" aria-label="フォームを開く">
         <span class="material-symbols-rounded">fact_check</span>
         <span id="studentFormLiveDot" class="form-live-dot hidden"></span>
@@ -250,6 +254,21 @@
       </button>
     </div>
   </header>
+
+  <aside id="studentAssignmentPanel" class="student-assignment-panel collapsed" aria-label="未提出の課題" aria-hidden="true">
+    <header class="student-assignment-panel-header">
+      <div>
+        <p>取り組む課題</p>
+        <h2>未提出の課題</h2>
+      </div>
+      <button id="studentAssignmentCloseBtn" class="icon-btn-sm" type="button" title="閉じる" aria-label="課題一覧を閉じる">
+        <span class="material-symbols-rounded">close</span>
+      </button>
+    </header>
+    <p class="student-assignment-panel-help">課題を選ぶと、このホワイトボードで開きます。上書き保存すると提出済みになります。</p>
+    <div id="studentAssignmentList" class="student-assignment-list"></div>
+    <p id="studentAssignmentStatus" class="workflow-dialog-status" aria-live="polite"></p>
+  </aside>
 
   <!-- 左サイド フローティングツールバー (折りたたみ可) -->
   <aside id="wbSidebar" class="floating-sidebar">
@@ -617,7 +636,7 @@
   <script src="./js/legacy-socket-loader.js"></script>
   <script src="./js/password-visibility.js?v=20260825"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-ui-20260824b&amp;draw-style=20260824&amp;highlighter-settings=20260824&amp;login-flow=20260824&amp;png-stamps=20260824&amp;chat-panel-fit=20260824c&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830&amp;form-history=20260831&amp;youtube=20260831b"></script>
+  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-ui-20260824b&amp;draw-style=20260824&amp;highlighter-settings=20260824&amp;login-flow=20260824&amp;png-stamps=20260824&amp;chat-panel-fit=20260824c&amp;realtime-scale=20260824&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;timer-tool=20260826&amp;table-tool=20260828a&amp;forms=20260830&amp;form-history=20260831&amp;youtube=20260831b&amp;assignments=20260831"></script>
 
 </body>
 

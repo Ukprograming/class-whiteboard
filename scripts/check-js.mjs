@@ -694,6 +694,10 @@ const distributionMigrationSource = readFileSync(
   "supabase/migrations/20260818031132_create_immutable_class_distributions.sql",
   "utf8"
 );
+const assignmentMigrationSource = readFileSync(
+  "supabase/migrations/20260831090000_add_assignment_distribution_workflow.sql",
+  "utf8"
+);
 if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
     !whiteboardSource.includes('this._newEntityId("object")')) {
   console.error("Whiteboard entities must use collision-resistant IDs.");
@@ -820,6 +824,28 @@ const missingDistributionContracts = distributionContracts
   .map(([, contract]) => contract);
 if (missingDistributionContracts.length > 0) {
   console.error(`Immutable class distribution contracts missing: ${missingDistributionContracts.join(", ")}`);
+  ok = false;
+}
+const assignmentContracts = [
+  [teacherHtmlSource, 'id="teacherAssignmentCheckBtn"'],
+  [teacherHtmlSource, 'id="assignmentReviewSwitcher"'],
+  [teacherSource, "assignmentApi.listTeacherAssignments("],
+  [teacherSource, "showBoardChangeSaveDecision("],
+  [studentHtmlSource, 'id="studentAssignmentChip"'],
+  [studentSource, "assignmentApi.listPendingStudentAssignments("],
+  [studentSource, "showStudentBoardChangeDecision("],
+  [realtimeApiSource, "subscribeStudentAssignments(studentId, onChange)"],
+  [realtimeApiSource, "existingDistributionId = existingFile?.distribution_id || null"],
+  [copyBoardFunctionSource, "p_distribution_kind: normalizedKind"],
+  [assignmentMigrationSource, "distribution_kind in ('material', 'assignment')"],
+  [assignmentMigrationSource, "board_files_mark_assignment_submitted"],
+  [assignmentMigrationSource, "alter publication supabase_realtime add table public.board_files"],
+];
+const missingAssignmentContracts = assignmentContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingAssignmentContracts.length > 0) {
+  console.error(`Assignment workflow contracts missing: ${missingAssignmentContracts.join(", ")}`);
   ok = false;
 }
 const assetStorageContracts = [

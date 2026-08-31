@@ -1,14 +1,16 @@
 // public/js/student.js
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260828a&forms=20260830b&youtube=20260831b";
 import {
+  assignmentApi,
   authApi,
   boardApi,
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -91,6 +93,12 @@ const CHAT_REACTIONS = {
 const chatReactionButtons = Array.from(
   document.querySelectorAll("[data-chat-reaction]")
 );
+const studentAssignmentChip = document.getElementById("studentAssignmentChip");
+const studentAssignmentCount = document.getElementById("studentAssignmentCount");
+const studentAssignmentPanel = document.getElementById("studentAssignmentPanel");
+const studentAssignmentCloseBtn = document.getElementById("studentAssignmentCloseBtn");
+const studentAssignmentList = document.getElementById("studentAssignmentList");
+const studentAssignmentStatus = document.getElementById("studentAssignmentStatus");
 
 function getChatTemplateKind(btn) {
   if (!btn) return "";
@@ -140,11 +148,211 @@ let currentClassCode = null;
 let nickname = null;
 let sharedBoardSession = null;
 let applyingSharedBoardRemote = false;
+let pendingStudentAssignments = [];
+let studentAssignmentPanelOpen = false;
+let unsubscribeStudentAssignments = null;
+let assignmentRefreshInFlight = false;
 const studentForms = initStudentForms({
   socket,
   getClassCode: () => currentClassCode,
-  onOpen: () => setChatPanelOpen(false),
+  onOpen: () => {
+    setChatPanelOpen(false);
+    setStudentAssignmentPanelOpen(false);
+  },
 });
+
+function setStudentAssignmentPanelOpen(open) {
+  studentAssignmentPanelOpen = open && pendingStudentAssignments.length > 0;
+  studentAssignmentPanel?.classList.toggle("collapsed", !studentAssignmentPanelOpen);
+  studentAssignmentPanel?.setAttribute("aria-hidden", studentAssignmentPanelOpen ? "false" : "true");
+  studentAssignmentChip?.setAttribute("aria-expanded", studentAssignmentPanelOpen ? "true" : "false");
+  if (studentAssignmentPanelOpen) setChatPanelOpen(false);
+}
+
+function showStudentBoardChangeDecision(message) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "workflow-dialog-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "workflow-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    const header = document.createElement("header");
+    header.className = "workflow-dialog-header";
+    const heading = document.createElement("div");
+    const kicker = document.createElement("p");
+    kicker.className = "workflow-dialog-kicker";
+    kicker.textContent = "未保存の変更があります";
+    const title = document.createElement("h2");
+    title.textContent = "保存を確認";
+    heading.append(kicker, title);
+    header.appendChild(heading);
+    const description = document.createElement("p");
+    description.className = "workflow-dialog-description";
+    description.textContent = message;
+    const actions = document.createElement("footer");
+    actions.className = "workflow-dialog-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.className = "form-secondary-btn";
+    cancelButton.type = "button";
+    cancelButton.textContent = "キャンセル";
+    const discardButton = document.createElement("button");
+    discardButton.className = "form-secondary-btn";
+    discardButton.type = "button";
+    discardButton.textContent = "保存せずに開く";
+    const saveButton = document.createElement("button");
+    saveButton.className = "form-primary-btn";
+    saveButton.type = "button";
+    saveButton.textContent = "保存する";
+    actions.append(cancelButton, discardButton, saveButton);
+    dialog.append(header, description, actions);
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+
+    const finish = (choice) => {
+      backdrop.remove();
+      resolve(choice);
+    };
+    cancelButton.addEventListener("click", () => finish("cancel"));
+    discardButton.addEventListener("click", () => finish("discard"));
+    saveButton.addEventListener("click", () => finish("save"));
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) finish("cancel");
+    });
+    saveButton.focus();
+  });
+}
+
+async function confirmStudentBoardChange() {
+  if (!whiteboard?.isBoardDirty) return true;
+  const choice = await showStudentBoardChangeDecision(
+    "課題を開く前に、現在のホワイトボードを保存しますか？"
+  );
+  if (choice === "cancel") return false;
+  if (choice === "discard") return true;
+  if (!currentBoardFileId || !currentBoardFileName) {
+    alert("このボードはまだ保存されていません。先にファイルメニューの「保存...」で保存してください。");
+    openBoardDialog("save");
+    return false;
+  }
+  return studentSaveBoardInternal(
+    lastUsedFolderPath || "",
+    currentBoardFileName,
+    currentBoardFileId,
+    { silent: true }
+  );
+}
+
+function renderPendingStudentAssignments() {
+  if (!studentAssignmentList) return;
+  studentAssignmentList.innerHTML = "";
+  if (!pendingStudentAssignments.length) {
+    const empty = document.createElement("p");
+    empty.className = "workflow-dialog-description";
+    empty.textContent = "未提出の課題はありません。";
+    studentAssignmentList.appendChild(empty);
+    return;
+  }
+
+  for (const assignment of pendingStudentAssignments) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "student-assignment-item";
+    const details = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = assignment.title;
+    const date = document.createElement("small");
+    date.textContent = `配布: ${new Date(assignment.distributedAt).toLocaleString()}`;
+    details.append(title, date);
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-rounded";
+    icon.textContent = "arrow_forward";
+    button.append(details, icon);
+    button.addEventListener("click", () => void openPendingStudentAssignment(assignment));
+    studentAssignmentList.appendChild(button);
+  }
+  replaceMaterialIcons(studentAssignmentList);
+}
+
+async function refreshPendingStudentAssignments() {
+  if (!supabaseEnabled || !currentClassCode || !nickname || assignmentRefreshInFlight) return;
+  assignmentRefreshInFlight = true;
+  try {
+    const result = await assignmentApi.listPendingStudentAssignments({
+      classCode: currentClassCode,
+      nickname,
+    });
+    pendingStudentAssignments = result.assignments || [];
+    const count = pendingStudentAssignments.length;
+    if (studentAssignmentCount) studentAssignmentCount.textContent = count > 99 ? "99+" : String(count);
+    studentAssignmentChip?.classList.toggle("hidden", count === 0);
+    if (count === 0) setStudentAssignmentPanelOpen(false);
+    renderPendingStudentAssignments();
+    if (studentAssignmentStatus) {
+      studentAssignmentStatus.textContent = "";
+      studentAssignmentStatus.classList.remove("error");
+    }
+
+    if (!unsubscribeStudentAssignments && result.studentId) {
+      unsubscribeStudentAssignments = assignmentApi.subscribeStudentAssignments(
+        result.studentId,
+        () => void refreshPendingStudentAssignments()
+      );
+    }
+  } catch (error) {
+    console.error("Failed to refresh pending assignments", error);
+    if (studentAssignmentStatus) {
+      studentAssignmentStatus.textContent = "課題一覧を更新できませんでした。";
+      studentAssignmentStatus.classList.add("error");
+    }
+  } finally {
+    assignmentRefreshInFlight = false;
+  }
+}
+
+async function openPendingStudentAssignment(assignment) {
+  const canContinue = await confirmStudentBoardChange();
+  if (!canContinue) return;
+  if (studentAssignmentStatus) studentAssignmentStatus.textContent = "課題を開いています…";
+  try {
+    const result = await boardApi.loadBoard({
+      action: "loadBoard",
+      role: "student",
+      classCode: currentClassCode,
+      nickname,
+      folderPath: assignment.folderPath || "",
+      fileId: assignment.boardFileId,
+    });
+    sharedBoardSession = null;
+    applyingSharedBoardRemote = true;
+    try {
+      whiteboard.importBoardData(result.boardData);
+    } finally {
+      applyingSharedBoardRemote = false;
+    }
+    whiteboard.markSaved?.();
+    currentBoardFileId = result.fileId || assignment.boardFileId;
+    currentBoardFileName = String(result.fileName || assignment.title).replace(/\.json$/i, "");
+    lastUsedFolderPath = assignment.folderPath || "";
+    hasRestoredStudentDraft = false;
+    await clearStudentDraft();
+    viewMode = "whiteboard";
+    updateModeUI();
+    if (statusLabel) statusLabel.textContent = `課題: ${assignment.title} / ${nickname}`;
+    setStudentAssignmentPanelOpen(false);
+  } catch (error) {
+    console.error("Failed to open assignment", error);
+    if (studentAssignmentStatus) {
+      studentAssignmentStatus.textContent = `課題を開けませんでした: ${error?.message || error}`;
+      studentAssignmentStatus.classList.add("error");
+    }
+  }
+}
+
+studentAssignmentChip?.addEventListener("click", () => {
+  setStudentAssignmentPanelOpen(!studentAssignmentPanelOpen);
+});
+studentAssignmentCloseBtn?.addEventListener("click", () => setStudentAssignmentPanelOpen(false));
 
 let captureTimerId = null;
 let initialThumbnailTimerId = null;
@@ -613,6 +821,7 @@ if (studentLoginForm) {
           : canonicalStudentId;
         if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
         updateModeUI();
+        void refreshPendingStudentAssignments();
       }
     } finally {
       setStudentLoginPending(false);
@@ -654,6 +863,7 @@ async function restoreStudentSessionOnLoad() {
     if (!draftRestored) {
       await loadActiveSharedBoard(currentClassCode);
     }
+    void refreshPendingStudentAssignments();
   } catch (error) {
     console.error("Failed to restore the student session:", error);
     setStudentLoginMessage(
@@ -1083,18 +1293,19 @@ function selectFolder(folderPath) {
 
 // ---- 保存 / 読み込みの実処理 ----
 
-async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
+async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId, options = {}) {
+  const silent = options.silent === true;
   if (boardFileSaveInFlight) {
-    alert("保存処理中です。完了するまでお待ちください。");
-    return;
+    if (!silent) alert("保存処理中です。完了するまでお待ちください。");
+    return false;
   }
   if (!currentClassCode || !nickname) {
-    alert("クラスに参加してから保存してください。");
-    return;
+    if (!silent) alert("クラスに参加してから保存してください。");
+    return false;
   }
   if (!whiteboard || typeof whiteboard.exportBoardData !== "function") {
-    alert("ホワイトボードの状態を取得できません。");
-    return;
+    if (!silent) alert("ホワイトボードの状態を取得できません。");
+    return false;
   }
 
   boardFileSaveInFlight = true;
@@ -1147,11 +1358,11 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     }
 
     if (!res.ok || json.ok === false) {
-      alert(
+      if (!silent) alert(
         (json && json.message) ||
         `ホワイトボードの保存に失敗しました。（status=${res.status}）`
       );
-      return;
+      return false;
     }
 
     const mode = json.mode || (overwriteFileId ? "update" : "create");
@@ -1185,13 +1396,18 @@ async function studentSaveBoardInternal(folderPath, fileName, overwriteFileId) {
       (mode === "update"
         ? "ホワイトボードを上書き保存しました。"
         : "ホワイトボードを保存しました。");
-    alert(savedCurrentRevision === false
-      ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
-      : savedMessage);
+    if (!silent) {
+      alert(savedCurrentRevision === false
+        ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
+        : savedMessage);
+    }
     if (savedCurrentRevision !== false) closeBoardDialog();
+    if (savedCurrentRevision !== false) void refreshPendingStudentAssignments();
+    return savedCurrentRevision !== false;
   } catch (err) {
     console.error(err);
-    alert("ホワイトボードの保存に失敗しました。");
+    if (!silent) alert("ホワイトボードの保存に失敗しました。");
+    return false;
   } finally {
     boardFileSaveInFlight = false;
   }
@@ -1614,6 +1830,8 @@ function hideStudentChatNotifyDot() {
 function setChatPanelOpen(open) {
   chatPanelOpen = open;
   if (!chatPanel || !chatToggleBtn) return;
+
+  if (open) setStudentAssignmentPanelOpen(false);
 
   chatPanel.classList.toggle("collapsed", !open);
   if (open) {

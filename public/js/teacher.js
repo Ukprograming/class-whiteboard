@@ -4,7 +4,7 @@ import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a&forms=20260830b&youtube=20260831b";
 import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260828a&youtube=20260831b";
-import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -15,6 +15,7 @@ import {
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
 import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831";
 import {
   parseStudentWorkbook,
   validateStudentImport,
@@ -118,6 +119,15 @@ const notebookViewContainer = document.getElementById("notebookViewContainer");
 const teacherModeWhiteboard = document.getElementById("teacherModeWhiteboard");
 const teacherModeStudentView = document.getElementById("teacherModeStudentView");
 const teacherModeNotebook = document.getElementById("teacherModeNotebook");
+const teacherDefaultModeSwitcher = document.getElementById("teacherDefaultModeSwitcher");
+const assignmentReviewSwitcher = document.getElementById("assignmentReviewSwitcher");
+const assignmentPreviousStudentBtn = document.getElementById("assignmentPreviousStudentBtn");
+const assignmentNextStudentBtn = document.getElementById("assignmentNextStudentBtn");
+const assignmentStudentRosterWrap = document.getElementById("assignmentStudentRosterWrap");
+const assignmentStudentRosterBtn = document.getElementById("assignmentStudentRosterBtn");
+const assignmentStudentRoster = document.getElementById("assignmentStudentRoster");
+const assignmentReviewStudentLabel = document.getElementById("assignmentReviewStudentLabel");
+const assignmentReviewExitBtn = document.getElementById("assignmentReviewExitBtn");
 
 // 生徒画面確認タイル & モーダル
 const studentsInfo = document.getElementById("studentsInfo");
@@ -429,6 +439,7 @@ let currentBoardFileId = null;
 let currentBoardFileName = "";
 let currentBoardOwnerKind = "teacher";
 let boardFileSaveInFlight = false;
+let assignmentReviewState = null;
 
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = Math.max(
@@ -456,8 +467,19 @@ let notebookStudents = {}; // { studentId: { latestImageData } }
 const teacherOpenSaveDialogBtn = document.getElementById("teacherOpenSaveDialogBtn");
 const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogBtn");
 const teacherDistributeBoardBtn = document.getElementById("teacherDistributeBoardBtn");
+const teacherAssignmentCheckBtn = document.getElementById("teacherAssignmentCheckBtn");
 const teacherSharedBoardToggleBtn = document.getElementById("teacherSharedBoardToggleBtn");
 const teacherManageClassesBtn = document.getElementById("teacherManageClassesBtn");
+const distributionDialogBackdrop = document.getElementById("distributionDialogBackdrop");
+const distributionDialogCloseBtn = document.getElementById("distributionDialogCloseBtn");
+const distributionDialogCancelBtn = document.getElementById("distributionDialogCancelBtn");
+const distributionDialogSubmitBtn = document.getElementById("distributionDialogSubmitBtn");
+const distributionTitleInput = document.getElementById("distributionTitleInput");
+const distributionDialogStatus = document.getElementById("distributionDialogStatus");
+const assignmentCheckBackdrop = document.getElementById("assignmentCheckBackdrop");
+const assignmentCheckCloseBtn = document.getElementById("assignmentCheckCloseBtn");
+const assignmentCheckList = document.getElementById("assignmentCheckList");
+const assignmentCheckStatus = document.getElementById("assignmentCheckStatus");
 const teacherForms = initTeacherForms({
   socket,
   getClassCode: () => currentClassCode,
@@ -1375,10 +1397,11 @@ function selectFolder(folderPath) {
 
 }
 
-async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
+async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, options = {}) {
+  const silent = options.silent === true;
   if (boardFileSaveInFlight) {
-    alert("保存処理中です。完了するまでお待ちください。");
-    return;
+    if (!silent) alert("保存処理中です。完了するまでお待ちください。");
+    return false;
   }
   boardFileSaveInFlight = true;
   try {
@@ -1390,12 +1413,12 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     });
 
     if (!currentClassCode) {
-      alert("先にクラスコードを入力して「開始」してください。");
-      return;
+      if (!silent) alert("先にクラスコードを入力して「開始」してください。");
+      return false;
     }
     if (!teacherBoard || typeof teacherBoard.exportBoardData !== "function") {
-      alert("ホワイトボードの状態を取得できません。");
-      return;
+      if (!silent) alert("ホワイトボードの状態を取得できません。");
+      return false;
     }
 
     const isStudentScope =
@@ -1403,8 +1426,8 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
       boardScopeStudentNickname.trim() !== "";
 
     if (boardScopeMode === "student" && !isStudentScope) {
-      alert("生徒ボードに保存するには、ニックネームを入力してください。");
-      return;
+      if (!silent) alert("生徒ボードに保存するには、ニックネームを入力してください。");
+      return false;
     }
 
     const saveRevision = teacherBoard.getRevision?.();
@@ -1467,11 +1490,11 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
     console.log("[teacherSaveBoardInternal] response", res.status, json);
 
     if (!res.ok || json.ok === false) {
-      alert(
+      if (!silent) alert(
         (json && json.message) ||
         `ホワイトボードの保存に失敗しました。（status=${res.status}）`
       );
-      return;
+      return false;
     }
 
     const mode = json.mode || (overwriteFileId ? "update" : "create");
@@ -1502,13 +1525,17 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId) {
       (mode === "update"
         ? "ホワイトボードを上書き保存しました。"
         : "ホワイトボードを保存しました。");
-    alert(savedCurrentRevision === false
-      ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
-      : savedMessage);
+    if (!silent) {
+      alert(savedCurrentRevision === false
+        ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
+        : savedMessage);
+    }
     if (savedCurrentRevision !== false) closeBoardDialog();
+    return savedCurrentRevision !== false;
   } catch (err) {
     console.error("[teacherSaveBoardInternal] error", err);
-    alert("ホワイトボードの保存に失敗しました: " + err);
+    if (!silent) alert("ホワイトボードの保存に失敗しました: " + err);
+    return false;
   } finally {
     boardFileSaveInFlight = false;
   }
@@ -1671,15 +1698,104 @@ function onClickLoadConfirm() {
 
 if (teacherOpenSaveDialogBtn) {
   teacherOpenSaveDialogBtn.addEventListener("click", () => {
+    if (assignmentReviewState && currentBoardFileId && currentBoardFileName) {
+      void teacherSaveBoardInternal(
+        lastUsedFolderPath || "",
+        currentBoardFileName,
+        currentBoardFileId
+      );
+      return;
+    }
     openBoardDialog("save");
   });
 }
 
 if (teacherOpenLoadDialogBtn) {
-  teacherOpenLoadDialogBtn.addEventListener("click", () => openBoardDialog("load"));
+  teacherOpenLoadDialogBtn.addEventListener("click", () => {
+    if (assignmentReviewState) {
+      alert("別のファイルを開くには、先に課題チェックを終了してください。");
+      return;
+    }
+    openBoardDialog("load");
+  });
 }
 
 let distributionInFlight = false;
+
+function showBoardChangeSaveDecision(message) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "workflow-dialog-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "workflow-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+
+    const header = document.createElement("header");
+    header.className = "workflow-dialog-header";
+    const heading = document.createElement("div");
+    const kicker = document.createElement("p");
+    kicker.className = "workflow-dialog-kicker";
+    kicker.textContent = "未保存の変更があります";
+    const title = document.createElement("h2");
+    title.textContent = "保存を確認";
+    heading.append(kicker, title);
+    header.appendChild(heading);
+
+    const description = document.createElement("p");
+    description.className = "workflow-dialog-description";
+    description.textContent = message;
+
+    const actions = document.createElement("footer");
+    actions.className = "workflow-dialog-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.className = "form-secondary-btn";
+    cancelButton.type = "button";
+    cancelButton.textContent = "キャンセル";
+    const discardButton = document.createElement("button");
+    discardButton.className = "form-secondary-btn";
+    discardButton.type = "button";
+    discardButton.textContent = "保存せずに切り替える";
+    const saveButton = document.createElement("button");
+    saveButton.className = "form-primary-btn";
+    saveButton.type = "button";
+    saveButton.textContent = "保存する";
+    actions.append(cancelButton, discardButton, saveButton);
+    dialog.append(header, description, actions);
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+
+    const finish = (choice) => {
+      backdrop.remove();
+      resolve(choice);
+    };
+    cancelButton.addEventListener("click", () => finish("cancel"));
+    discardButton.addEventListener("click", () => finish("discard"));
+    saveButton.addEventListener("click", () => finish("save"));
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) finish("cancel");
+    });
+    saveButton.focus();
+  });
+}
+
+async function confirmTeacherBoardChange(message) {
+  if (!teacherBoard?.isBoardDirty) return true;
+  const choice = await showBoardChangeSaveDecision(message);
+  if (choice === "cancel") return false;
+  if (choice === "discard") return true;
+  if (!currentBoardFileId || !currentBoardFileName) {
+    alert("このボードはまだ保存されていません。先にファイルメニューの「保存...」で保存してください。");
+    openBoardDialog("save");
+    return false;
+  }
+  return teacherSaveBoardInternal(
+    lastUsedFolderPath || "",
+    currentBoardFileName,
+    currentBoardFileId,
+    { silent: true }
+  );
+}
 
 function defaultDistributionTitle() {
   if (currentBoardFileName) return currentBoardFileName;
@@ -1693,8 +1809,20 @@ function defaultDistributionTitle() {
   return `配布資料_${date}_${time}`;
 }
 
-async function distributeCurrentBoardToClass() {
+function setDistributionDialogOpen(open) {
+  distributionDialogBackdrop?.classList.toggle("hidden", !open);
+  if (!open && distributionDialogStatus) {
+    distributionDialogStatus.textContent = "";
+    distributionDialogStatus.classList.remove("error");
+  }
+}
+
+function openDistributionDialog() {
   if (distributionInFlight) return;
+  if (assignmentReviewState) {
+    alert("一斉配布を行うには、先に課題チェックを終了してください。");
+    return;
+  }
   if (!supabaseEnabled || !boardApi.enabled) {
     alert("クラス一斉配布は Supabase 版で利用できます。");
     return;
@@ -1707,25 +1835,38 @@ async function distributeCurrentBoardToClass() {
     alert("現在のホワイトボードを取得できません。");
     return;
   }
+  if (distributionTitleInput) distributionTitleInput.value = defaultDistributionTitle();
+  const materialOption = document.querySelector('input[name="distributionKind"][value="material"]');
+  if (materialOption) materialOption.checked = true;
+  setDistributionDialogOpen(true);
+  distributionTitleInput?.focus();
+  distributionTitleInput?.select();
+}
 
-  const enteredTitle = window.prompt(
-    "生徒の「ファイルを開く」に表示するファイル名を入力してください。",
-    defaultDistributionTitle()
-  );
-  if (enteredTitle === null) return;
-  const title = enteredTitle.trim();
+async function distributeCurrentBoardToClass(title, distributionKind) {
+  if (distributionInFlight) return;
   if (!title) {
-    alert("ファイル名を入力してください。");
+    if (distributionDialogStatus) {
+      distributionDialogStatus.textContent = "生徒に表示する名前を入力してください。";
+      distributionDialogStatus.classList.add("error");
+    }
     return;
   }
   if (title.length > 120) {
-    alert("ファイル名は120文字以内にしてください。");
+    if (distributionDialogStatus) {
+      distributionDialogStatus.textContent = "名前は120文字以内にしてください。";
+      distributionDialogStatus.classList.add("error");
+    }
     return;
   }
 
   distributionInFlight = true;
   teacherDistributeBoardBtn.disabled = true;
   teacherDistributeBoardBtn.innerHTML = '<span class="material-symbols-rounded">hourglass_top</span> 配布中…';
+  if (distributionDialogSubmitBtn) {
+    distributionDialogSubmitBtn.disabled = true;
+    distributionDialogSubmitBtn.textContent = "配布中…";
+  }
 
   try {
     const classes = await managementApi.listClasses();
@@ -1770,22 +1911,322 @@ async function distributeCurrentBoardToClass() {
       classId: selectedClass.id,
       title,
       targetFolderPath: "",
+      distributionKind,
     });
     const copiedCount = Number(result.copiedCount) || 0;
-    alert(`「${title}」を ${copiedCount} 人の生徒に配布しました。\n生徒は「ファイルを開く」から開けます。`);
+    setDistributionDialogOpen(false);
+    const kindLabel = distributionKind === "assignment" ? "課題" : "資料";
+    alert(`「${title}」を${kindLabel}として ${copiedCount} 人の生徒に配布しました。\n${distributionKind === "assignment" ? "未提出の生徒には課題通知が表示されます。" : "生徒は「ファイルを開く」から開けます。"}`);
   } catch (error) {
     console.error("Failed to distribute the current board", error);
-    alert(`クラスへの配布に失敗しました。\n${error?.message || error}`);
+    if (distributionDialogStatus) {
+      distributionDialogStatus.textContent = `配布に失敗しました: ${error?.message || error}`;
+      distributionDialogStatus.classList.add("error");
+    }
   } finally {
     distributionInFlight = false;
     teacherDistributeBoardBtn.disabled = false;
     teacherDistributeBoardBtn.innerHTML = '<span class="material-symbols-rounded">send</span> クラス全員に配布';
+    if (distributionDialogSubmitBtn) {
+      distributionDialogSubmitBtn.disabled = false;
+      distributionDialogSubmitBtn.textContent = "配布する";
+    }
   }
 }
 
 if (teacherDistributeBoardBtn) {
-  teacherDistributeBoardBtn.addEventListener("click", () => void distributeCurrentBoardToClass());
+  teacherDistributeBoardBtn.addEventListener("click", openDistributionDialog);
 }
+
+distributionDialogCloseBtn?.addEventListener("click", () => setDistributionDialogOpen(false));
+distributionDialogCancelBtn?.addEventListener("click", () => setDistributionDialogOpen(false));
+distributionDialogBackdrop?.addEventListener("click", (event) => {
+  if (event.target === distributionDialogBackdrop && !distributionInFlight) {
+    setDistributionDialogOpen(false);
+  }
+});
+distributionDialogSubmitBtn?.addEventListener("click", () => {
+  const distributionKind = document.querySelector('input[name="distributionKind"]:checked')?.value || "material";
+  const title = distributionTitleInput?.value.trim() || "";
+  void distributeCurrentBoardToClass(title, distributionKind);
+});
+
+function setAssignmentCheckDialogOpen(open) {
+  assignmentCheckBackdrop?.classList.toggle("hidden", !open);
+  if (!open && assignmentCheckStatus) {
+    assignmentCheckStatus.textContent = "";
+    assignmentCheckStatus.classList.remove("error");
+  }
+}
+
+async function getCurrentTeacherClass() {
+  const classes = await managementApi.listClasses();
+  managedClasses = classes;
+  saveTeacherClassHints(classes);
+  return classes.find(
+    klass => String(klass.class_code || "").toUpperCase() === String(currentClassCode || "").toUpperCase()
+  ) || null;
+}
+
+function renderAssignmentCheckList(assignments, classId) {
+  if (!assignmentCheckList) return;
+  assignmentCheckList.innerHTML = "";
+  if (!assignments.length) {
+    const empty = document.createElement("p");
+    empty.className = "workflow-dialog-description";
+    empty.textContent = "このクラスには、課題として配布したボードがまだありません。";
+    assignmentCheckList.appendChild(empty);
+    return;
+  }
+
+  for (const assignment of assignments) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "assignment-check-item";
+    const details = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = assignment.title;
+    const date = document.createElement("small");
+    date.textContent = `配布: ${new Date(assignment.created_at).toLocaleString()}`;
+    details.append(title, date);
+    const progress = document.createElement("span");
+    progress.className = "assignment-progress";
+    progress.textContent = `${assignment.submittedCount} / ${assignment.recipientCount} 提出`;
+    button.append(details, progress);
+    button.addEventListener("click", () => void startAssignmentReview(assignment, classId));
+    assignmentCheckList.appendChild(button);
+  }
+  replaceMaterialIcons(assignmentCheckList);
+}
+
+async function openAssignmentCheckDialog() {
+  if (assignmentReviewState) {
+    alert("現在の課題チェックを終了してから、別の課題を選択してください。");
+    return;
+  }
+  if (!supabaseEnabled || !boardApi.enabled) {
+    alert("課題チェックは Supabase 版で利用できます。");
+    return;
+  }
+  if (!currentClassCode) {
+    alert("先に確認するクラスを開始してください。");
+    return;
+  }
+  setAssignmentCheckDialogOpen(true);
+  if (assignmentCheckList) assignmentCheckList.innerHTML = "";
+  if (assignmentCheckStatus) assignmentCheckStatus.textContent = "課題一覧を読み込んでいます…";
+  try {
+    const selectedClass = await getCurrentTeacherClass();
+    if (!selectedClass) throw new Error("現在のクラスを教師アカウントから確認できませんでした。");
+    const assignments = await assignmentApi.listTeacherAssignments(selectedClass.id);
+    renderAssignmentCheckList(assignments, selectedClass.id);
+    if (assignmentCheckStatus) assignmentCheckStatus.textContent = "";
+  } catch (error) {
+    console.error("Failed to load assignments", error);
+    if (assignmentCheckStatus) {
+      assignmentCheckStatus.textContent = `課題一覧を読み込めませんでした: ${error?.message || error}`;
+      assignmentCheckStatus.classList.add("error");
+    }
+  }
+}
+
+function assignmentStudentDisplayName(student) {
+  return student.display_name
+    ? `${student.display_name}（${student.student_login_id}）`
+    : student.student_login_id;
+}
+
+function renderAssignmentStudentRoster() {
+  if (!assignmentStudentRoster || !assignmentReviewState) return;
+  assignmentStudentRoster.innerHTML = "";
+  assignmentReviewState.students.forEach((student, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "assignment-roster-item";
+    button.classList.toggle("active", index === assignmentReviewState.currentIndex);
+    button.setAttribute("role", "menuitem");
+    const label = document.createElement("span");
+    label.textContent = assignmentStudentDisplayName(student);
+    const status = document.createElement("span");
+    status.className = `assignment-status-pill${student.assignment_submitted_at ? " submitted" : ""}`;
+    status.textContent = student.assignment_submitted_at ? "提出済み" : "未提出";
+    button.append(label, status);
+    button.addEventListener("click", () => {
+      assignmentStudentRosterWrap?.classList.remove("roster-pinned");
+      void loadAssignmentStudentAt(index);
+    });
+    assignmentStudentRoster.appendChild(button);
+  });
+  replaceMaterialIcons(assignmentStudentRoster);
+}
+
+function updateAssignmentReviewControls() {
+  if (!assignmentReviewState) return;
+  const { students, currentIndex, assignment } = assignmentReviewState;
+  const student = students[currentIndex];
+  assignmentPreviousStudentBtn.disabled = currentIndex <= 0;
+  assignmentNextStudentBtn.disabled = currentIndex < 0 || currentIndex >= students.length - 1;
+  if (assignmentReviewStudentLabel) {
+    assignmentReviewStudentLabel.textContent = student
+      ? `${assignmentStudentDisplayName(student)} ・ ${currentIndex + 1}/${students.length}`
+      : assignment.title;
+  }
+  assignmentStudentRosterBtn?.setAttribute("aria-expanded", assignmentStudentRosterWrap?.classList.contains("roster-pinned") ? "true" : "false");
+  renderAssignmentStudentRoster();
+}
+
+async function loadAssignmentStudentAt(index, options = {}) {
+  if (!assignmentReviewState) return false;
+  const student = assignmentReviewState.students[index];
+  if (!student) return false;
+  if (!options.skipSavePrompt) {
+    const canContinue = await confirmTeacherBoardChange(
+      "別の生徒に切り替える前に、現在の課題ボードを保存しますか？"
+    );
+    if (!canContinue) return false;
+  }
+
+  try {
+    const result = await boardApi.loadBoard({
+      action: "loadBoard",
+      role: "student",
+      classCode: currentClassCode,
+      studentId: student.student_id,
+      nickname: student.student_login_id,
+      folderPath: student.folder_path || "",
+      fileId: student.id,
+    });
+    teacherBoard.importBoardData(result.boardData);
+    teacherBoard.markSaved?.();
+    assignmentReviewState.currentIndex = index;
+    currentBoardFileId = result.fileId || student.id;
+    currentBoardFileName = String(result.fileName || student.name || assignmentReviewState.assignment.title).replace(/\.json$/i, "");
+    currentBoardOwnerKind = "student";
+    lastUsedFolderPath = student.folder_path || "";
+    boardScopeMode = "student";
+    boardScopeStudentNickname = student.student_login_id;
+    if (statusLabel) {
+      statusLabel.textContent = `課題チェック: ${assignmentReviewState.assignment.title} / ${assignmentStudentDisplayName(student)}`;
+    }
+    updateAssignmentReviewControls();
+    return true;
+  } catch (error) {
+    console.error("Failed to load assignment student board", error);
+    alert(`生徒の課題ボードを開けませんでした。\n${error?.message || error}`);
+    return false;
+  }
+}
+
+async function startAssignmentReview(assignment, classId) {
+  if (sharedBoardSession) {
+    alert("共同編集を停止してから課題チェックを開始してください。");
+    return;
+  }
+  const canContinue = await confirmTeacherBoardChange(
+    "課題チェックを開く前に、現在のホワイトボードを保存しますか？"
+  );
+  if (!canContinue) return;
+
+  if (assignmentCheckStatus) assignmentCheckStatus.textContent = "生徒の課題ボードを準備しています…";
+  try {
+    const [boardRows, roster] = await Promise.all([
+      assignmentApi.listAssignmentStudentBoards(assignment.id),
+      managementApi.listStudents(classId),
+    ]);
+    const rosterById = new Map(roster.map((student) => [student.id, student]));
+    const students = boardRows
+      .map((board) => ({ ...board, ...(rosterById.get(board.student_id) || {}) }))
+      .sort((a, b) => String(a.student_login_id || "").localeCompare(String(b.student_login_id || ""), "ja"));
+    if (!students.length) throw new Error("この課題の生徒ボードがありません。");
+
+    assignmentReviewState = {
+      assignment,
+      classId,
+      students,
+      currentIndex: -1,
+      returnBoard: {
+        boardData: teacherBoard.exportBoardData(),
+        fileId: currentBoardFileId,
+        fileName: currentBoardFileName,
+        ownerKind: currentBoardOwnerKind,
+        folderPath: lastUsedFolderPath,
+        scopeMode: boardScopeMode,
+        scopeStudentNickname: boardScopeStudentNickname,
+        statusText: statusLabel?.textContent || "",
+      },
+    };
+    setAssignmentCheckDialogOpen(false);
+    setTeacherViewMode("whiteboard");
+    teacherDefaultModeSwitcher?.classList.add("hidden");
+    assignmentReviewSwitcher?.classList.remove("hidden");
+    await loadAssignmentStudentAt(0, { skipSavePrompt: true });
+  } catch (error) {
+    assignmentReviewState = null;
+    console.error("Failed to start assignment review", error);
+    if (assignmentCheckStatus) {
+      assignmentCheckStatus.textContent = `課題を開けませんでした: ${error?.message || error}`;
+      assignmentCheckStatus.classList.add("error");
+    }
+  }
+}
+
+async function exitAssignmentReview() {
+  if (!assignmentReviewState) return;
+  const canContinue = await confirmTeacherBoardChange(
+    "課題チェックを終了する前に、現在の課題ボードを保存しますか？"
+  );
+  if (!canContinue) return;
+  const previous = assignmentReviewState.returnBoard;
+  assignmentReviewState = null;
+  assignmentStudentRosterWrap?.classList.remove("roster-pinned");
+  assignmentReviewSwitcher?.classList.add("hidden");
+  teacherDefaultModeSwitcher?.classList.remove("hidden");
+  let restoredBoardData = previous.boardData;
+  if (previous.fileId && boardApi.enabled) {
+    try {
+      const loadPayload = {
+        action: "loadBoard",
+        role: previous.ownerKind === "student" ? "student" : "teacher",
+        classCode: currentClassCode,
+        folderPath: previous.folderPath || "",
+        fileId: previous.fileId,
+      };
+      if (previous.ownerKind === "student" && previous.scopeStudentNickname) {
+        loadPayload.nickname = previous.scopeStudentNickname;
+      }
+      const loaded = await boardApi.loadBoard(loadPayload);
+      restoredBoardData = loaded.boardData;
+    } catch (error) {
+      console.warn("Failed to reload the board shown before assignment review; using the in-memory snapshot.", error);
+    }
+  }
+  teacherBoard.importBoardData(restoredBoardData);
+  teacherBoard.markSaved?.();
+  currentBoardFileId = previous.fileId;
+  currentBoardFileName = previous.fileName;
+  currentBoardOwnerKind = previous.ownerKind;
+  lastUsedFolderPath = previous.folderPath;
+  boardScopeMode = previous.scopeMode;
+  boardScopeStudentNickname = previous.scopeStudentNickname;
+  if (statusLabel) statusLabel.textContent = previous.statusText;
+}
+
+teacherAssignmentCheckBtn?.addEventListener("click", () => void openAssignmentCheckDialog());
+assignmentCheckCloseBtn?.addEventListener("click", () => setAssignmentCheckDialogOpen(false));
+assignmentCheckBackdrop?.addEventListener("click", (event) => {
+  if (event.target === assignmentCheckBackdrop) setAssignmentCheckDialogOpen(false);
+});
+assignmentPreviousStudentBtn?.addEventListener("click", () => {
+  if (assignmentReviewState) void loadAssignmentStudentAt(assignmentReviewState.currentIndex - 1);
+});
+assignmentNextStudentBtn?.addEventListener("click", () => {
+  if (assignmentReviewState) void loadAssignmentStudentAt(assignmentReviewState.currentIndex + 1);
+});
+assignmentStudentRosterBtn?.addEventListener("click", () => {
+  assignmentStudentRosterWrap?.classList.toggle("roster-pinned");
+  updateAssignmentReviewControls();
+});
+assignmentReviewExitBtn?.addEventListener("click", () => void exitAssignmentReview());
 
 const teacherOverwriteSaveBtn = document.getElementById("teacherOverwriteSaveBtn");
 
@@ -1817,6 +2258,10 @@ if (teacherOverwriteSaveBtn) {
 // ========= クラス開始（教員として参加） =========
 if (teacherSharedBoardToggleBtn) {
   teacherSharedBoardToggleBtn.addEventListener("click", () => {
+    if (assignmentReviewState) {
+      alert("共同編集を開始するには、先に課題チェックを終了してください。");
+      return;
+    }
     if (sharedBoardSession) {
       void stopSharedBoard();
     } else {

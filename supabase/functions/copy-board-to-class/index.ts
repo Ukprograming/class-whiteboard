@@ -152,15 +152,23 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, message: "Unauthorized" }, 401);
     }
 
-    const { sourceBoardId, classId, title, targetFolderPath = "" } = await req.json();
+    const {
+      sourceBoardId,
+      classId,
+      title,
+      targetFolderPath = "",
+      distributionKind = "material",
+    } = await req.json();
     const normalizedTitle = String(title || "").trim();
     const normalizedFolder = String(targetFolderPath || "").trim();
+    const normalizedKind = String(distributionKind || "material").trim().toLowerCase();
     if (!UUID_PATTERN.test(String(sourceBoardId || "")) ||
         !UUID_PATTERN.test(String(classId || "")) ||
-        !normalizedTitle || normalizedTitle.length > 120) {
+        !normalizedTitle || normalizedTitle.length > 120 ||
+        !["material", "assignment"].includes(normalizedKind)) {
       return jsonResponse({
         ok: false,
-        message: "sourceBoardId, classId, and a 1-120 character title are required",
+        message: "sourceBoardId, classId, a 1-120 character title, and a valid distribution kind are required",
       }, 400);
     }
 
@@ -194,6 +202,7 @@ Deno.serve(async (req) => {
         p_snapshot_path: snapshot.targetSnapshotPath,
         p_title: normalizedTitle,
         p_target_folder_path: normalizedFolder,
+        p_distribution_kind: normalizedKind,
       })
       .single();
 
