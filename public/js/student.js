@@ -8,7 +8,7 @@ import {
   supabaseEnabled,
 } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
-import { initStudentForms } from "./student-forms.js?v=forms-20260830";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();

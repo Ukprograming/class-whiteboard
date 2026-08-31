@@ -1,5 +1,11 @@
-import { formApi } from "./form-api.js?v=forms-20260830";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
+import {
+  buildResponseTableModel,
+  exportFormQuestionsXlsx,
+  exportFormResponsesXlsx,
+  parseFormQuestionsWorkbook,
+} from "./form-excel.js?v=form-excel-20260831";
 
 const QUESTION_LABELS = {
   text: "自由記述",
@@ -84,11 +90,15 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   const responseCount = document.getElementById("formResponseCount");
   const rosterCount = document.getElementById("formRosterCount");
   const liveStudentNamesToggle = document.getElementById("formLiveStudentNamesToggle");
+  const liveAggregateViewBtn = document.getElementById("formLiveAggregateViewBtn");
+  const liveTableViewBtn = document.getElementById("formLiveTableViewBtn");
+  const liveExportBtn = document.getElementById("formLiveExportBtn");
   const liveResults = document.getElementById("formLiveResults");
   const closeRunBtn = document.getElementById("formCloseRunBtn");
   const presentResultsBtn = document.getElementById("formPresentResultsBtn");
   const templateList = document.getElementById("formTemplateList");
   const createBtn = document.getElementById("formCreateBtn");
+  const questionImportFile = document.getElementById("formQuestionImportFile");
   const historyList = document.getElementById("formHistoryList");
   const historyDetail = document.getElementById("formHistoryDetail");
   const editorBackdrop = document.getElementById("formEditorBackdrop");
@@ -96,6 +106,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   const editorCloseBtn = document.getElementById("formEditorCloseBtn");
   const editorCancelBtn = document.getElementById("formEditorCancelBtn");
   const editorSaveBtn = document.getElementById("formEditorSaveBtn");
+  const editorExportBtn = document.getElementById("formEditorExportBtn");
   const editorTitle = document.getElementById("formEditorTitle");
   const editorStatus = document.getElementById("formEditorStatus");
   const questionEditorList = document.getElementById("formQuestionEditorList");
@@ -104,6 +115,9 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   const resultsHeading = document.getElementById("formResultsHeading");
   const resultsCloseBtn = document.getElementById("formResultsCloseBtn");
   const presentedStudentNamesToggle = document.getElementById("formPresentedStudentNamesToggle");
+  const presentedAggregateViewBtn = document.getElementById("formPresentedAggregateViewBtn");
+  const presentedTableViewBtn = document.getElementById("formPresentedTableViewBtn");
+  const presentedExportBtn = document.getElementById("formPresentedExportBtn");
   const presentedResults = document.getElementById("formPresentedResults");
 
   if (!toggleBtn || !panel || !formApi.enabled) {
@@ -119,12 +133,16 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   let history = [];
   let activeRun = null;
   let activeResponses = [];
-  let activeRosterCount = 0;
+  let activeRoster = [];
   let unsubscribeResponses = null;
   let responseRefreshTimer = null;
   let activeRunRefreshToken = 0;
   let liveStudentNamesVisible = false;
   let presentedStudentNamesVisible = false;
+  let liveResultView = "aggregate";
+  let presentedResultView = "aggregate";
+  let liveTableColumnWidths = {};
+  let presentedTableColumnWidths = {};
   let historyResultState = null;
   let editorTemplateId = null;
   let editorQuestions = [];
@@ -220,13 +238,20 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       edit.textContent = "編集";
       edit.addEventListener("click", () => openEditor(template));
 
+      const exportExcel = document.createElement("button");
+      exportExcel.type = "button";
+      exportExcel.textContent = "Excel出力";
+      exportExcel.addEventListener("click", () => {
+        exportFormQuestionsXlsx({ title: template.title, questions: template.questions });
+      });
+
       const remove = document.createElement("button");
       remove.type = "button";
       remove.dataset.action = "delete";
       remove.textContent = "削除";
       remove.addEventListener("click", () => void deleteTemplate(template));
 
-      actions.append(start, edit, remove);
+      actions.append(start, edit, exportExcel, remove);
       card.append(title, meta, actions);
       templateList.appendChild(card);
     });
@@ -298,6 +323,167 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     button.addEventListener("click", onChange);
     syncStudentNamesToggle(button, visible);
     return button;
+  }
+
+  function syncResultViewButtons(aggregateButton, tableButton, viewMode) {
+    aggregateButton?.classList.toggle("active", viewMode === "aggregate");
+    aggregateButton?.setAttribute("aria-pressed", viewMode === "aggregate" ? "true" : "false");
+    tableButton?.classList.toggle("active", viewMode === "table");
+    tableButton?.setAttribute("aria-pressed", viewMode === "table" ? "true" : "false");
+  }
+
+  function createResultViewSwitch(viewMode, onChange) {
+    const group = document.createElement("div");
+    group.className = "form-result-view-switch";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "回答の表示形式");
+    const aggregate = document.createElement("button");
+    aggregate.type = "button";
+    aggregate.textContent = "集計";
+    aggregate.addEventListener("click", () => onChange("aggregate"));
+    const table = document.createElement("button");
+    table.type = "button";
+    table.textContent = "一覧";
+    table.addEventListener("click", () => onChange("table"));
+    group.append(aggregate, table);
+    syncResultViewButtons(aggregate, table, viewMode);
+    return group;
+  }
+
+  function buildResponseTable(run, responses, roster, {
+    showStudentNames = false,
+    columnWidths = {},
+    onColumnWidthChange,
+  } = {}) {
+    const model = buildResponseTableModel(run, responses, roster, { showStudentNames });
+    const shell = document.createElement("div");
+    shell.className = "form-response-table-shell";
+    const hint = document.createElement("p");
+    hint.className = "form-table-resize-hint";
+    hint.textContent = "見出しの右端をドラッグすると列幅を変更できます。";
+    const scroller = document.createElement("div");
+    scroller.className = "form-response-table-scroll";
+    const table = document.createElement("table");
+    table.className = "form-response-table";
+    const colgroup = document.createElement("colgroup");
+    const widthForColumn = (column) => Math.max(64, Number(columnWidths[column.key]) || column.width);
+    const cols = model.columns.map((column) => {
+      const col = document.createElement("col");
+      col.style.width = `${widthForColumn(column)}px`;
+      colgroup.appendChild(col);
+      return col;
+    });
+    table.style.width = `${model.columns.reduce((sum, column) => sum + widthForColumn(column), 0)}px`;
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    model.columns.forEach((column, columnIndex) => {
+      const th = document.createElement("th");
+      th.scope = "col";
+      const label = document.createElement("span");
+      label.textContent = column.label;
+      const resizer = document.createElement("span");
+      resizer.className = "form-column-resizer";
+      resizer.tabIndex = 0;
+      resizer.setAttribute("role", "separator");
+      resizer.setAttribute("aria-orientation", "vertical");
+      resizer.setAttribute("aria-label", `${column.label}列の幅を変更`);
+
+      const applyWidth = (width) => {
+        const nextWidth = Math.max(64, Math.min(600, Math.round(width)));
+        columnWidths[column.key] = nextWidth;
+        cols[columnIndex].style.width = `${nextWidth}px`;
+        table.style.width = `${model.columns.reduce(
+          (sum, item) => sum + Math.max(64, Number(columnWidths[item.key]) || item.width),
+          0
+        )}px`;
+        onColumnWidthChange?.(column.key, nextWidth);
+      };
+      resizer.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        resizer.focus({ preventScroll: true });
+        const startX = event.clientX;
+        const startWidth = widthForColumn(column);
+        const pointerId = event.pointerId;
+        resizer.classList.add("is-dragging");
+        try {
+          resizer.setPointerCapture?.(pointerId);
+        } catch {
+          // Window listeners below keep drag resizing available when capture is unsupported.
+        }
+        const move = (moveEvent) => {
+          if (moveEvent.pointerId !== pointerId) return;
+          applyWidth(startWidth + moveEvent.clientX - startX);
+        };
+        const end = (endEvent) => {
+          if (endEvent?.pointerId !== undefined && endEvent.pointerId !== pointerId) return;
+          resizer.classList.remove("is-dragging");
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", end);
+          window.removeEventListener("pointercancel", end);
+          try {
+            if (resizer.hasPointerCapture?.(pointerId)) resizer.releasePointerCapture(pointerId);
+          } catch {
+            // The pointer may already have been released by the browser.
+          }
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+      });
+      resizer.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        applyWidth(widthForColumn(column) + (event.key === "ArrowRight" ? 16 : -16));
+      });
+      th.append(label, resizer);
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    const tbody = document.createElement("tbody");
+    if (!model.rows.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = Math.max(1, model.columns.length);
+      cell.className = "form-response-table-empty";
+      cell.textContent = "このクラスに登録されている生徒はいません。";
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    } else {
+      model.rows.forEach((item) => {
+        const row = document.createElement("tr");
+        row.dataset.studentId = item.studentId;
+        item.values.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = String(value ?? "");
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+    }
+    table.append(colgroup, thead, tbody);
+    scroller.appendChild(table);
+    shell.append(hint, scroller);
+    return shell;
+  }
+
+  function renderResultContent(container, run, responses, roster, {
+    viewMode = "aggregate",
+    showStudentNames = false,
+    columnWidths = {},
+    onColumnWidthChange,
+  } = {}) {
+    container.innerHTML = "";
+    if (viewMode === "table") {
+      container.appendChild(buildResponseTable(run, responses, roster, {
+        showStudentNames,
+        columnWidths,
+        onColumnWidthChange,
+      }));
+    } else {
+      container.appendChild(buildResults(run, responses, { showStudentNames }));
+    }
   }
 
   function buildResults(run, responses, { showStudentNames = false } = {}) {
@@ -386,12 +572,15 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
 
     liveTitle.textContent = activeRun.title;
     responseCount.textContent = String(getRespondentCount(activeResponses));
-    rosterCount.textContent = `/ ${activeRosterCount}人`;
+    rosterCount.textContent = `/ ${activeRoster.length}人`;
     syncStudentNamesToggle(liveStudentNamesToggle, liveStudentNamesVisible);
-    liveResults.innerHTML = "";
-    liveResults.appendChild(buildResults(activeRun, activeResponses, {
+    syncResultViewButtons(liveAggregateViewBtn, liveTableViewBtn, liveResultView);
+    renderResultContent(liveResults, activeRun, activeResponses, activeRoster, {
+      viewMode: liveResultView,
       showStudentNames: liveStudentNamesVisible,
-    }));
+      columnWidths: liveTableColumnWidths,
+      onColumnWidthChange: (key, width) => { liveTableColumnWidths[key] = width; },
+    });
 
     if (presentedResults && !resultsBackdrop.classList.contains("hidden")) {
       renderPresentedResults();
@@ -401,10 +590,13 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   function renderPresentedResults() {
     if (!presentedResults || !activeRun) return;
     syncStudentNamesToggle(presentedStudentNamesToggle, presentedStudentNamesVisible);
-    presentedResults.innerHTML = "";
-    presentedResults.appendChild(buildResults(activeRun, activeResponses, {
+    syncResultViewButtons(presentedAggregateViewBtn, presentedTableViewBtn, presentedResultView);
+    renderResultContent(presentedResults, activeRun, activeResponses, activeRoster, {
+      viewMode: presentedResultView,
       showStudentNames: presentedStudentNamesVisible,
-    }));
+      columnWidths: presentedTableColumnWidths,
+      onColumnWidthChange: (key, width) => { presentedTableColumnWidths[key] = width; },
+    });
   }
 
   function stopResponseSubscription() {
@@ -458,9 +650,13 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       stopResponseSubscription();
       activeRun = null;
       activeResponses = [];
-      activeRosterCount = 0;
+      activeRoster = [];
       liveStudentNamesVisible = false;
       presentedStudentNamesVisible = false;
+      liveResultView = "aggregate";
+      presentedResultView = "aggregate";
+      liveTableColumnWidths = {};
+      presentedTableColumnWidths = {};
       renderLiveResults();
       setStatus("クラスに参加するとフォームを配信できます。", false);
       return;
@@ -472,12 +668,16 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     if (changedRun) {
       liveStudentNamesVisible = false;
       presentedStudentNamesVisible = false;
+      liveResultView = "aggregate";
+      presentedResultView = "aggregate";
+      liveTableColumnWidths = {};
+      presentedTableColumnWidths = {};
     }
     activeRun = nextRun;
     if (!activeRun) {
       stopResponseSubscription();
       activeResponses = [];
-      activeRosterCount = await formApi.getRosterCount(classCode);
+      activeRoster = await formApi.getRoster(classCode);
       liveStudentNamesVisible = false;
       presentedStudentNamesVisible = false;
       renderLiveResults();
@@ -486,11 +686,11 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
 
     const [responses, roster] = await Promise.all([
       formApi.getResponses(activeRun.id),
-      formApi.getRosterCount(classCode),
+      formApi.getRoster(classCode),
     ]);
     if (token !== activeRunRefreshToken) return;
     activeResponses = responses;
-    activeRosterCount = roster;
+    activeRoster = roster;
     renderLiveResults();
     if (changedRun || !unsubscribeResponses) subscribeToActiveResponses();
   }
@@ -505,9 +705,11 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     }
   }
 
-  function openEditor(template = null) {
+  function openEditor(template = null, { imported = false } = {}) {
     editorTemplateId = template?.id || null;
-    editorHeading.textContent = template ? "フォームを編集" : "フォームを作成";
+    editorHeading.textContent = template?.id
+      ? "フォームを編集"
+      : imported ? "Excelからフォームを作成" : "フォームを作成";
     editorTitle.value = template?.title || "";
     editorQuestions = template?.questions?.length
       ? template.questions.map(normalizeEditorQuestion)
@@ -516,6 +718,31 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     renderQuestionEditor();
     editorBackdrop.classList.remove("hidden");
     requestAnimationFrame(() => editorTitle.focus());
+  }
+
+  async function importQuestionsFromExcel(file) {
+    try {
+      setStatus("Excelファイルを読み込んでいます…");
+      const imported = await parseFormQuestionsWorkbook(file);
+      openEditor(imported, { imported: true });
+      setEditorStatus(`${imported.questions.length}問を読み込みました。内容を確認して保存してください。`);
+      setStatus("");
+    } catch (error) {
+      console.error("Failed to import form questions", error);
+      setStatus(error?.message || "フォーム設問を読み込めませんでした。", true);
+    } finally {
+      if (questionImportFile) questionImportFile.value = "";
+    }
+  }
+
+  function exportEditorToExcel() {
+    try {
+      const title = validateEditor();
+      exportFormQuestionsXlsx({ title, questions: editorQuestions });
+      setEditorStatus("現在の設問をExcelファイルに出力しました。");
+    } catch (error) {
+      setEditorStatus(error?.message || "Excelファイルを出力できませんでした。", true);
+    }
   }
 
   function closeEditor() {
@@ -699,7 +926,11 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       activeResponses = [];
       liveStudentNamesVisible = false;
       presentedStudentNamesVisible = false;
-      activeRosterCount = await formApi.getRosterCount(classCode);
+      liveResultView = "aggregate";
+      presentedResultView = "aggregate";
+      liveTableColumnWidths = {};
+      presentedTableColumnWidths = {};
+      activeRoster = await formApi.getRoster(classCode);
       subscribeToActiveResponses();
       renderLiveResults();
       await socket?.emit("teacher-form-opened", {
@@ -733,8 +964,13 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       stopResponseSubscription();
       activeRun = null;
       activeResponses = [];
+      activeRoster = [];
       liveStudentNamesVisible = false;
       presentedStudentNamesVisible = false;
+      liveResultView = "aggregate";
+      presentedResultView = "aggregate";
+      liveTableColumnWidths = {};
+      presentedTableColumnWidths = {};
       renderLiveResults();
       await refreshHistory();
       setStatus("回答受付を終了し、結果を履歴に保存しました。");
@@ -761,14 +997,19 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   async function showHistoryRun(runId) {
     try {
       setStatus("結果を読み込んでいます…");
-      const [run, responses] = await Promise.all([
+      const classCode = getClassCode?.();
+      const [run, responses, roster] = await Promise.all([
         formApi.getRun(runId),
         formApi.getResponses(runId),
+        formApi.getRoster(classCode),
       ]);
       historyResultState = {
         run,
         responses,
+        roster,
         studentNamesVisible: false,
+        viewMode: "aggregate",
+        columnWidths: {},
       };
       renderHistoryResult();
       historyDetail.classList.remove("hidden");
@@ -782,7 +1023,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
 
   function renderHistoryResult() {
     if (!historyResultState || !historyDetail) return;
-    const { run, responses, studentNamesVisible } = historyResultState;
+    const { run, responses, roster, studentNamesVisible, viewMode, columnWidths } = historyResultState;
     historyDetail.innerHTML = "";
     const summary = document.createElement("div");
     summary.className = "form-live-summary";
@@ -793,14 +1034,34 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     const title = document.createElement("h4");
     title.textContent = run.title;
     text.append(kicker, title);
+    const toolbar = document.createElement("div");
+    toolbar.className = "form-result-toolbar";
+    toolbar.appendChild(createResultViewSwitch(viewMode, (nextView) => {
+      historyResultState.viewMode = nextView;
+      renderHistoryResult();
+    }));
+    const exportExcel = document.createElement("button");
+    exportExcel.type = "button";
+    exportExcel.className = "form-compact-action";
+    exportExcel.textContent = "Excel出力";
+    exportExcel.addEventListener("click", () => {
+      exportFormResponsesXlsx({ run, responses, roster, showStudentNames: studentNamesVisible });
+    });
     const toggle = createStudentNamesToggle(studentNamesVisible, () => {
       historyResultState.studentNamesVisible = !historyResultState.studentNamesVisible;
       renderHistoryResult();
     });
-    summary.append(text, toggle);
-    historyDetail.append(summary, buildResults(run, responses, {
+    toolbar.append(exportExcel, toggle);
+    summary.append(text, toolbar);
+    const content = document.createElement("div");
+    content.className = "form-live-results";
+    renderResultContent(content, run, responses, roster, {
+      viewMode,
       showStudentNames: studentNamesVisible,
-    }));
+      columnWidths,
+      onColumnWidthChange: (key, width) => { historyResultState.columnWidths[key] = width; },
+    });
+    historyDetail.append(summary, content);
   }
 
   toggleBtn.addEventListener("click", () => setPanelOpen(panel.classList.contains("collapsed")));
@@ -808,23 +1069,64 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   tabButtons.forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.formTab)));
   liveOpenTemplatesBtn?.addEventListener("click", () => selectTab("templates"));
   createBtn?.addEventListener("click", () => openEditor());
+  questionImportFile?.addEventListener("change", () => {
+    const file = questionImportFile.files?.[0];
+    if (file) void importQuestionsFromExcel(file);
+  });
   closeRunBtn?.addEventListener("click", () => void closeActiveRun());
   editorCloseBtn?.addEventListener("click", closeEditor);
   editorCancelBtn?.addEventListener("click", closeEditor);
+  editorExportBtn?.addEventListener("click", exportEditorToExcel);
   editorSaveBtn?.addEventListener("click", () => void saveEditor());
   resultsCloseBtn?.addEventListener("click", () => resultsBackdrop.classList.add("hidden"));
   liveStudentNamesToggle?.addEventListener("click", () => {
     liveStudentNamesVisible = !liveStudentNamesVisible;
     renderLiveResults();
   });
+  liveAggregateViewBtn?.addEventListener("click", () => {
+    liveResultView = "aggregate";
+    renderLiveResults();
+  });
+  liveTableViewBtn?.addEventListener("click", () => {
+    liveResultView = "table";
+    renderLiveResults();
+  });
+  liveExportBtn?.addEventListener("click", () => {
+    if (!activeRun) return;
+    exportFormResponsesXlsx({
+      run: activeRun,
+      responses: activeResponses,
+      roster: activeRoster,
+      showStudentNames: liveStudentNamesVisible,
+    });
+  });
   presentedStudentNamesToggle?.addEventListener("click", () => {
     presentedStudentNamesVisible = !presentedStudentNamesVisible;
     renderPresentedResults();
+  });
+  presentedAggregateViewBtn?.addEventListener("click", () => {
+    presentedResultView = "aggregate";
+    renderPresentedResults();
+  });
+  presentedTableViewBtn?.addEventListener("click", () => {
+    presentedResultView = "table";
+    renderPresentedResults();
+  });
+  presentedExportBtn?.addEventListener("click", () => {
+    if (!activeRun) return;
+    exportFormResponsesXlsx({
+      run: activeRun,
+      responses: activeResponses,
+      roster: activeRoster,
+      showStudentNames: presentedStudentNamesVisible,
+    });
   });
   presentResultsBtn?.addEventListener("click", () => {
     if (!activeRun) return;
     resultsHeading.textContent = activeRun.title;
     presentedStudentNamesVisible = false;
+    presentedResultView = "aggregate";
+    presentedTableColumnWidths = {};
     renderPresentedResults();
     resultsBackdrop.classList.remove("hidden");
   });

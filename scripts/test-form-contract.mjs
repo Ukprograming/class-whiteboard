@@ -14,6 +14,8 @@ const [
   realtimeApi,
   uiIcons,
   styles,
+  historyMigration,
+  formExcel,
 ] = await Promise.all([
   read("supabase/migrations/20260830062951_add_class_forms.sql"),
   read("public/teacher.html"),
@@ -24,6 +26,8 @@ const [
   read("public/js/supabase-api.js"),
   read("public/js/ui-icons.js"),
   read("public/style.css"),
+  read("supabase/migrations/20260831045725_allow_students_to_review_form_history.sql"),
+  read("public/js/form-excel.js"),
 ]);
 
 const tables = [
@@ -53,9 +57,17 @@ for (const id of [
   "formTemplateList",
   "formLiveResults",
   "formLiveStudentNamesToggle",
+  "formLiveAggregateViewBtn",
+  "formLiveTableViewBtn",
+  "formLiveExportBtn",
+  "formQuestionImportFile",
   "formEditorBackdrop",
+  "formEditorExportBtn",
   "formResultsBackdrop",
   "formPresentedStudentNamesToggle",
+  "formPresentedAggregateViewBtn",
+  "formPresentedTableViewBtn",
+  "formPresentedExportBtn",
 ]) {
   assert.match(teacherHtml, new RegExp(`id="${id}"`));
 }
@@ -65,6 +77,10 @@ for (const id of [
   "studentFormBackdrop",
   "studentFormQuestions",
   "studentFormProgress",
+  "studentFormActiveTab",
+  "studentFormHistoryTab",
+  "studentFormHistoryList",
+  "studentFormHistoryDetail",
 ]) {
   assert.match(studentHtml, new RegExp(`id="${id}"`));
 }
@@ -78,9 +94,24 @@ assert.match(teacherForms, /let liveStudentNamesVisible = false/);
 assert.match(teacherForms, /let presentedStudentNamesVisible = false/);
 assert.doesNotMatch(teacherForms, /anonymous: true/);
 assert.match(teacherForms, /replaceMaterialIcons\(questionEditorList\)/);
+assert.match(teacherForms, /buildResponseTableModel/);
+assert.match(teacherForms, /className = "form-column-resizer"/);
+assert.match(teacherForms, /window\.addEventListener\("pointermove", move\)/);
+assert.match(teacherForms, /resizer\.focus\(\{ preventScroll: true \}\)/);
+assert.match(teacherForms, /parseFormQuestionsWorkbook/);
+assert.match(teacherForms, /exportFormResponsesXlsx/);
 assert.match(studentForms, /socket\?\.on\("teacher-form-opened"/);
 assert.match(studentForms, /formApi\.submitResponse/);
+assert.match(studentForms, /formApi\.listMyRunHistory/);
+assert.match(studentForms, /自分の回答を見る/);
 assert.match(formApi, /onConflict: "run_question_id,student_id"/);
+assert.match(formApi, /async getRoster\(classCode\)/);
+assert.match(formApi, /\.order\("created_at", \{ ascending: true \}\)/);
+assert.match(formApi, /async listMyRunHistory\(limit = 100\)/);
+assert.match(historyMigration, /form_runs_student_select_class/);
+assert.match(historyMigration, /form_run_questions_student_select_class/);
+assert.doesNotMatch(historyMigration, /form_responses_student_select_class/);
+assert.match(formExcel, /FORM_QUESTION_SHEET_NAME = "フォーム設問"/);
 
 for (const iconName of [
   "arrow_downward",
@@ -96,6 +127,9 @@ for (const iconName of [
 assert.match(styles, /\.form-editor-dialog,[\s\S]*width: min\(760px, 100%\)/);
 assert.match(styles, /\.form-question-editor-actions \.app-icon/);
 assert.match(styles, /\.form-name-toggle\[aria-checked="true"\]/);
+assert.match(styles, /\.form-response-table/);
+assert.match(styles, /\.form-column-resizer/);
+assert.match(styles, /\.student-form-history-card/);
 
 for (const eventName of ["teacher-form-opened", "teacher-form-closed"]) {
   assert.ok(realtimeApi.split(`"${eventName}"`).length >= 4, `${eventName} is not wired through all realtime sets`);

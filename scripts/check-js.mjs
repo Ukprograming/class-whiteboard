@@ -14,6 +14,7 @@ const commonJsFiles = [
 const moduleFiles = [
   "public/js/board-ui.js",
   "public/js/form-api.js",
+  "public/js/form-excel.js",
   "public/js/monitor-sync.js",
   "public/js/realtime-join-coordinator.js",
   "public/js/realtime-load-control.js",
@@ -32,6 +33,7 @@ const moduleFiles = [
   "public/js/ui-icons.js",
   "public/js/whiteboard.js",
   "public/js/youtube-utils.mjs",
+  "public/js/xlsx-utils.js",
 ];
 
 function runNodeCheck(filePath) {

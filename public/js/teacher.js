@@ -14,7 +14,7 @@ import {
   saveTeacherClassHints,
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
-import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831";
 import {
   parseStudentWorkbook,
   validateStudentImport,

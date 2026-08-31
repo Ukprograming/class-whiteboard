@@ -252,6 +252,33 @@ export const formApi = {
     return Number(count) || 0;
   },
 
+  async getRoster(classCode) {
+    assertFormsEnabled();
+    const klass = await getClassByCode(classCode);
+    const { data, error } = await supabase
+      .from("students")
+      .select("id, student_login_id, display_name, active, created_at")
+      .eq("class_id", klass.id)
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async listMyRunHistory(limit = 100) {
+    assertFormsEnabled();
+    const student = await getCurrentStudent();
+    const { data, error } = await supabase
+      .from("form_runs")
+      .select("id, template_id, class_id, title, status, started_at, closed_at")
+      .eq("class_id", student.class_id)
+      .order("started_at", { ascending: false })
+      .limit(Math.max(1, Math.min(Number(limit) || 100, 100)));
+    if (error) throw error;
+    return data || [];
+  },
+
   async getMyResponses(runId) {
     assertFormsEnabled();
     const student = await getCurrentStudent();

@@ -1,28 +1,45 @@
-import { formApi } from "./form-api.js?v=forms-20260830";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831";
 
-const QUESTION_LABELS = {
-  text: "自由記述",
-  single_choice: "1つ選択",
-  multiple_choice: "複数選択可",
-};
+const QUESTION_LABELS = { text: "自由記述", single_choice: "1つ選択", multiple_choice: "複数選択可" };
+
+function formatDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function createEmptyState(message) {
+  const empty = document.createElement("div");
+  empty.className = "student-form-history-empty";
+  empty.textContent = message;
+  return empty;
+}
 
 export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   const chip = document.getElementById("studentFormChip");
+  const liveDot = document.getElementById("studentFormLiveDot");
   const backdrop = document.getElementById("studentFormBackdrop");
+  const kicker = document.getElementById("studentFormKicker");
   const title = document.getElementById("studentFormTitle");
   const minimizeBtn = document.getElementById("studentFormMinimizeBtn");
+  const activeTab = document.getElementById("studentFormActiveTab");
+  const historyTab = document.getElementById("studentFormHistoryTab");
+  const activeView = document.getElementById("studentFormActiveView");
+  const historyView = document.getElementById("studentFormHistoryView");
   const progress = document.getElementById("studentFormProgress");
   const questionsEl = document.getElementById("studentFormQuestions");
   const statusEl = document.getElementById("studentFormStatus");
   const doneBtn = document.getElementById("studentFormDoneBtn");
+  const historyList = document.getElementById("studentFormHistoryList");
+  const historyDetail = document.getElementById("studentFormHistoryDetail");
 
-  if (!chip || !backdrop || !formApi.enabled) {
-    return { refreshActiveRun: async () => {} };
-  }
+  if (!chip || !backdrop || !formApi.enabled) return { refreshActiveRun: async () => {} };
 
   let activeRun = null;
+  let historyRuns = [];
   let responsesByQuestion = new Map();
   let minimized = false;
+  let currentView = "active";
+  let selectedHistoryRunId = "";
   let refreshToken = 0;
 
   function setStatus(message = "", isError = false) {
@@ -30,20 +47,50 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
     statusEl.classList.toggle("is-error", !!isError);
   }
 
-  function setVisible(visible) {
-    backdrop.classList.toggle("hidden", !visible);
-    minimized = !visible && !!activeRun;
-    if (visible) onOpen?.();
+  function updateChip() {
+    const hasForms = !!activeRun || historyRuns.length > 0;
+    chip.classList.toggle("hidden", !hasForms);
+    liveDot?.classList.toggle("hidden", !activeRun);
+    chip.title = activeRun ? "回答中のフォームがあります" : "これまでのフォーム";
+    chip.setAttribute("aria-label", activeRun ? "回答中のフォームを開く" : "これまでのフォームを開く");
   }
 
-  function clearActiveRun() {
+  function selectView(viewName) {
+    currentView = viewName === "history" ? "history" : "active";
+    activeTab?.classList.toggle("active", currentView === "active");
+    activeTab?.setAttribute("aria-selected", currentView === "active" ? "true" : "false");
+    historyTab?.classList.toggle("active", currentView === "history");
+    historyTab?.setAttribute("aria-selected", currentView === "history" ? "true" : "false");
+    activeView?.classList.toggle("hidden", currentView !== "active");
+    historyView?.classList.toggle("hidden", currentView !== "history");
+    if (currentView === "active") {
+      kicker.textContent = activeRun ? "先生からフォームが届きました" : "回答中";
+      title.textContent = activeRun?.title || "回答中のフォーム";
+    } else {
+      kicker.textContent = "自分の回答をあとから確認";
+      title.textContent = "これまでのフォーム";
+      renderHistoryList();
+    }
+  }
+
+  function setVisible(visible) {
+    backdrop.classList.toggle("hidden", !visible);
+    minimized = !visible;
+    if (visible) {
+      onOpen?.();
+      if (!activeRun && currentView === "active") selectView("history");
+      else selectView(currentView);
+    }
+  }
+
+  function clearActiveRun({ switchToHistory = false } = {}) {
     activeRun = null;
     responsesByQuestion = new Map();
-    minimized = false;
-    backdrop.classList.add("hidden");
-    chip.classList.add("hidden");
     questionsEl.innerHTML = "";
+    progress.textContent = "現在、回答受付中のフォームはありません。";
     setStatus("");
+    if (switchToHistory) selectView("history");
+    updateChip();
   }
 
   function updateProgress() {
@@ -56,17 +103,17 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   }
 
   function renderQuestions() {
-    if (!activeRun) return;
-    title.textContent = activeRun.title;
+    if (!activeRun) {
+      clearActiveRun();
+      return;
+    }
     questionsEl.innerHTML = "";
-
     activeRun.questions.forEach((question, index) => {
       const saved = responsesByQuestion.get(question.id);
       const card = document.createElement("article");
       card.className = "student-form-question";
       card.dataset.runQuestionId = question.id;
       card.classList.toggle("is-answered", !!saved);
-
       const heading = document.createElement("h3");
       heading.textContent = `${index + 1}. ${question.prompt}`;
       const meta = document.createElement("p");
@@ -124,29 +171,16 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
     let selectedOptionIds = [];
     if (question.question_type === "text") {
       answerText = card.querySelector("[data-form-answer='text']")?.value?.trim() || "";
-      if (!answerText) {
-        setStatus("回答を入力してから送信してください。", true);
-        return;
-      }
+      if (!answerText) return setStatus("回答を入力してから送信してください。", true);
     } else {
-      selectedOptionIds = Array.from(card.querySelectorAll("[data-form-answer='choice']:checked"))
-        .map((input) => input.value);
-      if (!selectedOptionIds.length) {
-        setStatus("選択肢を選んでから送信してください。", true);
-        return;
-      }
+      selectedOptionIds = Array.from(card.querySelectorAll("[data-form-answer='choice']:checked")).map((input) => input.value);
+      if (!selectedOptionIds.length) return setStatus("選択肢を選んでから送信してください。", true);
     }
-
     try {
       button.disabled = true;
       savedLabel.textContent = "送信中…";
       setStatus("");
-      const response = await formApi.submitResponse({
-        runId: activeRun.id,
-        questionId: question.id,
-        answerText,
-        selectedOptionIds,
-      });
+      const response = await formApi.submitResponse({ runId: activeRun.id, questionId: question.id, answerText, selectedOptionIds });
       responsesByQuestion.set(question.id, response);
       card.classList.add("is-answered");
       savedLabel.textContent = "送信済み";
@@ -165,6 +199,116 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
     }
   }
 
+  function answerTextForHistory(question, response) {
+    if (!response) return "未回答";
+    if (question.question_type === "text") return response.answer_text || "未回答";
+    const labelsById = new Map((question.options || []).map((option) => [String(option.id), option.label]));
+    const labels = (response.selected_option_ids || []).map((id) => labelsById.get(String(id)) || String(id));
+    return labels.length ? labels.join("、") : "未回答";
+  }
+
+  function renderHistoryList() {
+    if (!historyList || currentView !== "history") return;
+    historyList.innerHTML = "";
+    historyDetail?.classList.add("hidden");
+    if (!historyRuns.length) {
+      historyList.appendChild(createEmptyState("これまでに配信されたフォームはありません。"));
+      return;
+    }
+    historyRuns.forEach((run) => {
+      const card = document.createElement("article");
+      card.className = "student-form-history-card";
+      const text = document.createElement("div");
+      const heading = document.createElement("h3");
+      heading.textContent = run.title;
+      const meta = document.createElement("p");
+      meta.textContent = `${run.status === "open" ? "回答受付中" : "受付終了"} ・ ${formatDate(run.started_at)}`;
+      text.append(heading, meta);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "form-secondary-btn";
+      button.textContent = run.status === "open" ? "回答する" : "自分の回答を見る";
+      button.addEventListener("click", () => void openHistoryRun(run));
+      card.append(text, button);
+      historyList.appendChild(card);
+    });
+  }
+
+  async function openHistoryRun(runSummary) {
+    if (runSummary.status === "open" && activeRun?.id === runSummary.id) {
+      selectView("active");
+      return;
+    }
+    try {
+      selectedHistoryRunId = runSummary.id;
+      historyList.innerHTML = "";
+      historyList.appendChild(createEmptyState("回答を読み込んでいます…"));
+      const [run, responses] = await Promise.all([formApi.getRun(runSummary.id), formApi.getMyResponses(runSummary.id)]);
+      if (selectedHistoryRunId !== runSummary.id) return;
+      const responseMap = new Map(responses.map((response) => [response.run_question_id, response]));
+      historyList.innerHTML = "";
+      historyDetail.innerHTML = "";
+      const header = document.createElement("div");
+      header.className = "student-form-history-detail-header";
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "form-secondary-btn";
+      back.textContent = "一覧へ戻る";
+      back.addEventListener("click", () => {
+        selectedHistoryRunId = "";
+        historyDetail.classList.add("hidden");
+        renderHistoryList();
+      });
+      const heading = document.createElement("div");
+      const runTitle = document.createElement("h3");
+      runTitle.textContent = run.title;
+      const meta = document.createElement("p");
+      meta.textContent = `${run.status === "open" ? "回答受付中" : "受付終了"} ・ ${formatDate(run.started_at)}`;
+      heading.append(runTitle, meta);
+      header.append(heading, back);
+      historyDetail.appendChild(header);
+      (run.questions || []).forEach((question, index) => {
+        const card = document.createElement("article");
+        card.className = "student-form-history-answer";
+        const questionText = document.createElement("h4");
+        questionText.textContent = `${index + 1}. ${question.prompt}`;
+        const label = document.createElement("p");
+        label.className = "student-form-question-meta";
+        label.textContent = QUESTION_LABELS[question.question_type] || "回答";
+        const answer = document.createElement("div");
+        answer.className = "student-form-history-answer-value";
+        const response = responseMap.get(question.id);
+        answer.textContent = answerTextForHistory(question, response);
+        answer.classList.toggle("is-unanswered", !response);
+        card.append(questionText, label, answer);
+        historyDetail.appendChild(card);
+      });
+      historyDetail.classList.remove("hidden");
+    } catch (error) {
+      console.error("Failed to load student form history", error);
+      historyList.innerHTML = "";
+      historyList.appendChild(createEmptyState(error?.message || "自分の回答を読み込めませんでした。"));
+    }
+  }
+
+  async function refreshHistory() {
+    try {
+      historyRuns = await formApi.listMyRunHistory();
+      updateChip();
+      if (currentView === "history" && !selectedHistoryRunId) renderHistoryList();
+      return historyRuns;
+    } catch (error) {
+      console.error("Failed to load student form history list", error);
+      historyRuns = [];
+      updateChip();
+      if (currentView === "history") {
+        historyList.innerHTML = "";
+        historyList.appendChild(createEmptyState(error?.message || "フォーム履歴を読み込めませんでした。"));
+      }
+      return [];
+    }
+  }
+
   async function refreshActiveRun({ openIfNew = true, expectedRunId = "" } = {}) {
     const classCode = getClassCode?.();
     if (!classCode) return null;
@@ -173,7 +317,8 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
       const run = await formApi.getActiveRun(classCode);
       if (token !== refreshToken) return null;
       if (!run || (expectedRunId && run.id !== expectedRunId)) {
-        if (!run) clearActiveRun();
+        if (!run) clearActiveRun({ switchToHistory: !backdrop.classList.contains("hidden") });
+        await refreshHistory();
         return run;
       }
       const isNew = run.id !== activeRun?.id;
@@ -181,48 +326,47 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
       const responses = await formApi.getMyResponses(run.id);
       if (token !== refreshToken) return null;
       responsesByQuestion = new Map(responses.map((response) => [response.run_question_id, response]));
-      chip.classList.remove("hidden");
       renderQuestions();
+      updateChip();
+      void refreshHistory();
       if (isNew && openIfNew) {
+        currentView = "active";
         minimized = false;
         setVisible(true);
       } else if (!minimized && !backdrop.classList.contains("hidden")) {
-        setVisible(true);
+        selectView(currentView);
       }
       return run;
     } catch (error) {
       console.error("Failed to load active form", error);
       setStatus(error?.message || "フォームを読み込めませんでした。", true);
+      await refreshHistory();
       return null;
     }
   }
 
   chip.addEventListener("click", () => {
-    if (!activeRun) {
-      void refreshActiveRun();
-      return;
-    }
+    currentView = activeRun ? "active" : "history";
     setVisible(true);
   });
   minimizeBtn?.addEventListener("click", () => setVisible(false));
   doneBtn?.addEventListener("click", () => setVisible(false));
+  activeTab?.addEventListener("click", () => selectView("active"));
+  historyTab?.addEventListener("click", () => selectView("history"));
 
   socket?.on("teacher-form-opened", (payload = {}) => {
     const classCode = String(getClassCode?.() || "").trim().toUpperCase();
     const payloadClassCode = String(payload.classCode || "").trim().toUpperCase();
     if (!classCode || payloadClassCode !== classCode) return;
     void refreshActiveRun({ openIfNew: true, expectedRunId: payload.runId }).then((run) => {
-      if (!run && payload.runId) {
-        setTimeout(() => void refreshActiveRun({ openIfNew: true, expectedRunId: payload.runId }), 500);
-      }
+      if (!run && payload.runId) setTimeout(() => void refreshActiveRun({ openIfNew: true, expectedRunId: payload.runId }), 500);
     });
   });
-
   socket?.on("teacher-form-closed", (payload = {}) => {
     if (!activeRun || payload.runId !== activeRun.id) return;
-    clearActiveRun();
+    clearActiveRun({ switchToHistory: true });
+    void refreshHistory();
   });
-
   socket?.on("join-success", () => void refreshActiveRun({ openIfNew: true }));
   socket?.on("realtime-reconnected", () => void refreshActiveRun({ openIfNew: true }));
 
