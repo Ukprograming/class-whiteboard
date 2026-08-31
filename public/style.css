@@ -1467,6 +1467,98 @@ body {
   justify-self: start;
 }
 
+.class-management-bulk-import {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #d9e1e7;
+}
+
+.class-management-bulk-import h4 {
+  margin: 0;
+  color: #263642;
+  font-size: 15px;
+}
+
+.class-management-bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.class-management-template-link,
+.class-management-file-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.class-management-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.class-management-file-label:focus-within,
+.class-management-template-link:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+}
+
+.class-management-import-result {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.class-management-import-result[hidden] {
+  display: none;
+}
+
+.class-management-import-result.is-error {
+  border-color: #f0b4ae;
+  background: #fff3f1;
+}
+
+.class-management-import-result p {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.class-management-import-errors {
+  display: grid;
+  gap: 4px;
+  max-height: 150px;
+  margin: 0;
+  padding-left: 22px;
+  overflow-y: auto;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.class-management-import-errors:empty {
+  display: none;
+}
+
+.class-management-import-result .share-btn {
+  justify-self: start;
+}
+
 .class-management-section-heading,
 .class-management-student-row {
   display: flex;
@@ -1665,6 +1757,16 @@ body {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .class-management-bulk-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .class-management-template-link,
+  .class-management-file-label {
+    width: 100%;
   }
 }
 

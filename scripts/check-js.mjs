@@ -20,6 +20,7 @@ const moduleFiles = [
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
   "public/js/student.js",
+  "public/js/student-bulk-import.js",
   "public/js/student-forms.js",
   "public/js/supabase-api.js",
   "public/js/timer-utils.mjs",
@@ -365,6 +366,7 @@ const studentSource = readFileSync("public/js/student.js", "utf8");
 const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
+const studentBulkImportSource = readFileSync("public/js/student-bulk-import.js", "utf8");
 const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
 const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
@@ -754,6 +756,30 @@ if (missingStudentDeletionContracts.length > 0) {
   console.error(
     `Secure student deletion contracts missing: ${missingStudentDeletionContracts.join(", ")}`
   );
+  ok = false;
+}
+const studentBulkImportContracts = [
+  [teacherHtmlSource, 'id="classManagementStudentTemplateDownload"'],
+  [teacherHtmlSource, 'href="./templates/student-bulk-registration-template.xlsx"'],
+  [teacherHtmlSource, 'id="classManagementStudentImportFile"'],
+  [teacherHtmlSource, 'id="classManagementStudentImportBtn"'],
+  [teacherSource, "parseStudentWorkbook(file)"],
+  [teacherSource, "validateStudentImport(parsedWorkbook, managedStudents)"],
+  [teacherSource, "await managementApi.createStudent({"],
+  [studentBulkImportSource, 'STUDENT_IMPORT_SHEET_NAME = "生徒一括登録"'],
+  [studentBulkImportSource, "MAX_STUDENT_IMPORT_ROWS = 200"],
+  [studentBulkImportSource, 'new DecompressionStream("deflate-raw")'],
+];
+const missingStudentBulkImportContracts = studentBulkImportContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingStudentBulkImportContracts.length > 0) {
+  console.error(`Student bulk import contracts missing: ${missingStudentBulkImportContracts.join(", ")}`);
+  ok = false;
+}
+const studentImportTemplateHeader = readFileSync("public/templates/student-bulk-registration-template.xlsx").subarray(0, 2).toString("utf8");
+if (studentImportTemplateHeader !== "PK") {
+  console.error("Student bulk import template is not a valid XLSX ZIP file.");
   ok = false;
 }
 const distributionContracts = [

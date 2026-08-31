@@ -15,6 +15,10 @@ import {
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
 import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b";
+import {
+  parseStudentWorkbook,
+  validateStudentImport,
+} from "./student-bulk-import.js?v=student-bulk-import-20260831";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return;
@@ -474,6 +478,11 @@ const classManagementStudentList = document.getElementById("classManagementStude
 const classManagementRefreshBtn = document.getElementById("classManagementRefreshBtn");
 const classManagementSelectedCount = document.getElementById("classManagementSelectedCount");
 const classManagementDeleteStudentsBtn = document.getElementById("classManagementDeleteStudentsBtn");
+const classManagementStudentImportFile = document.getElementById("classManagementStudentImportFile");
+const classManagementStudentImportResult = document.getElementById("classManagementStudentImportResult");
+const classManagementStudentImportSummary = document.getElementById("classManagementStudentImportSummary");
+const classManagementStudentImportErrors = document.getElementById("classManagementStudentImportErrors");
+const classManagementStudentImportBtn = document.getElementById("classManagementStudentImportBtn");
 const deleteStudentsBackdrop = document.getElementById("deleteStudentsBackdrop");
 const deleteStudentsCloseBtn = document.getElementById("deleteStudentsCloseBtn");
 const deleteStudentsForm = document.getElementById("deleteStudentsForm");
@@ -486,6 +495,8 @@ let managedClasses = [];
 let managedStudents = [];
 let classManagementBusy = false;
 const selectedManagedStudentIds = new Set();
+let pendingStudentImportRows = [];
+let pendingStudentImportFileName = "";
 
 let boardDialogOverlay = null;
 let boardDialogMode = "save";           // "save" or "load"
@@ -1831,12 +1842,52 @@ function setClassManagementBusy(isBusy) {
       });
     });
   if (classManagementRefreshBtn) classManagementRefreshBtn.disabled = isBusy;
+  if (classManagementStudentImportFile) classManagementStudentImportFile.disabled = isBusy;
   if (classManagementStudentList) {
     classManagementStudentList.querySelectorAll("input, button").forEach((element) => {
       element.disabled = isBusy;
     });
   }
   updateManagedStudentSelectionControls();
+  updateStudentImportControls();
+}
+
+function updateStudentImportControls() {
+  if (!classManagementStudentImportBtn) return;
+  classManagementStudentImportBtn.disabled = classManagementBusy || pendingStudentImportRows.length === 0;
+  classManagementStudentImportBtn.textContent = pendingStudentImportRows.length > 0
+    ? `${pendingStudentImportRows.length}人を一括登録`
+    : "一括登録";
+}
+
+function resetStudentImport() {
+  pendingStudentImportRows = [];
+  pendingStudentImportFileName = "";
+  if (classManagementStudentImportFile) classManagementStudentImportFile.value = "";
+  if (classManagementStudentImportResult) {
+    classManagementStudentImportResult.hidden = true;
+    classManagementStudentImportResult.classList.remove("is-error");
+  }
+  if (classManagementStudentImportSummary) classManagementStudentImportSummary.textContent = "";
+  if (classManagementStudentImportErrors) classManagementStudentImportErrors.innerHTML = "";
+  updateStudentImportControls();
+}
+
+function renderStudentImportResult({ summary, errors = [], allowRegistration = false }) {
+  pendingStudentImportRows = allowRegistration ? pendingStudentImportRows : [];
+  if (classManagementStudentImportResult) {
+    classManagementStudentImportResult.hidden = false;
+    classManagementStudentImportResult.classList.toggle("is-error", errors.length > 0);
+  }
+  if (classManagementStudentImportSummary) classManagementStudentImportSummary.textContent = summary;
+  if (classManagementStudentImportErrors) {
+    classManagementStudentImportErrors.innerHTML = errors.map((error) => {
+      const prefix = error.rowNumber > 0 ? `${error.rowNumber}行目: ` : "";
+      const studentId = error.studentLoginId ? `（${escapeHtml(error.studentLoginId)}）` : "";
+      return `<li>${prefix}${escapeHtml(error.message)}${studentId}</li>`;
+    }).join("");
+  }
+  updateStudentImportControls();
 }
 
 function escapeHtml(value) {
@@ -1982,6 +2033,7 @@ function closeClassManagement() {
   if (!classManagementBackdrop) return;
   closeDeleteStudentsConfirmation();
   classManagementStudentPassword.value = "";
+  resetStudentImport();
   selectedManagedStudentIds.clear();
   updateManagedStudentSelectionControls();
   classManagementBackdrop.classList.remove("show");
@@ -1998,10 +2050,110 @@ if (classManagementBackdrop) {
 }
 if (classManagementRefreshBtn) classManagementRefreshBtn.addEventListener("click", () => void refreshClassManagement());
 if (classManagementClassSelect) classManagementClassSelect.addEventListener("change", () => {
+  resetStudentImport();
   selectedManagedStudentIds.clear();
   updateManagedStudentSelectionControls();
   void renderManagedStudents();
 });
+if (classManagementStudentImportFile) {
+  classManagementStudentImportFile.addEventListener("change", async () => {
+    const file = classManagementStudentImportFile.files?.[0];
+    if (!file) return;
+    const selectedClass = managedClasses.find((klass) => klass.id === classManagementClassSelect?.value);
+    if (!selectedClass) {
+      resetStudentImport();
+      setClassManagementStatus("先に対象クラスを選択してください。", true);
+      return;
+    }
+
+    pendingStudentImportRows = [];
+    pendingStudentImportFileName = file.name;
+    setClassManagementBusy(true);
+    try {
+      const parsedWorkbook = await parseStudentWorkbook(file);
+      const validation = validateStudentImport(parsedWorkbook, managedStudents);
+      if (validation.errors.length > 0) {
+        renderStudentImportResult({
+          summary: `「${file.name}」を確認しました。${validation.dataRowCount}人分のうち、${validation.errors.length}件の修正が必要です。修正後のExcelを読み込み直してください。`,
+          errors: validation.errors,
+        });
+        setClassManagementStatus("Excelの入力内容に修正が必要です。", true);
+      } else {
+        pendingStudentImportRows = validation.validRows;
+        renderStudentImportResult({
+          summary: `「${file.name}」から${validation.validRows.length}人分を読み込みました。対象クラス「${selectedClass.name}」（${selectedClass.class_code}）へ登録します。`,
+          allowRegistration: true,
+        });
+        setClassManagementStatus("Excelの読込が完了しました。内容を確認して一括登録してください。");
+      }
+    } catch (error) {
+      renderStudentImportResult({
+        summary: `「${file.name}」を読み込めませんでした。`,
+        errors: [{ rowNumber: 0, message: error.message || "Excelファイルを確認してください。" }],
+      });
+      setClassManagementStatus(error.message || "Excelファイルを読み込めませんでした。", true);
+    } finally {
+      setClassManagementBusy(false);
+    }
+  });
+}
+if (classManagementStudentImportBtn) {
+  classManagementStudentImportBtn.addEventListener("click", async () => {
+    const selectedClass = managedClasses.find((klass) => klass.id === classManagementClassSelect?.value);
+    if (!selectedClass || pendingStudentImportRows.length === 0) return;
+
+    const rowsToRegister = [...pendingStudentImportRows];
+    const sourceFileName = pendingStudentImportFileName;
+    pendingStudentImportRows = [];
+    setClassManagementBusy(true);
+    const failures = [];
+    let registeredCount = 0;
+
+    for (let index = 0; index < rowsToRegister.length; index += 1) {
+      const row = rowsToRegister[index];
+      if (classManagementStudentImportSummary) {
+        classManagementStudentImportSummary.textContent = `${rowsToRegister.length}人中 ${index + 1}人目を登録しています…`;
+      }
+      try {
+        await managementApi.createStudent({
+          classCode: selectedClass.class_code,
+          studentLoginId: row.studentLoginId,
+          displayName: row.displayName,
+          password: row.password,
+        });
+        registeredCount += 1;
+      } catch (error) {
+        failures.push({
+          rowNumber: row.rowNumber,
+          studentLoginId: row.studentLoginId,
+          message: error.message || "登録できませんでした",
+        });
+      }
+    }
+
+    try {
+      await renderManagedStudents();
+    } catch (error) {
+      failures.push({ rowNumber: 0, message: `登録済み一覧を更新できませんでした: ${error.message || "再読み込みしてください"}` });
+    }
+
+    pendingStudentImportFileName = "";
+    if (classManagementStudentImportFile) classManagementStudentImportFile.value = "";
+    if (failures.length > 0) {
+      renderStudentImportResult({
+        summary: `「${sourceFileName}」の一括登録が完了しました。成功 ${registeredCount}人 / 失敗 ${failures.length}件です。失敗した行を修正し、登録済みの生徒を除いて読み込み直してください。`,
+        errors: failures,
+      });
+      setClassManagementStatus(`一括登録: ${registeredCount}人を追加し、${failures.length}件は登録できませんでした。`, true);
+    } else {
+      renderStudentImportResult({
+        summary: `「${sourceFileName}」から${registeredCount}人を「${selectedClass.name}」へ登録しました。`,
+      });
+      setClassManagementStatus(`${registeredCount}人の生徒を一括登録しました。`);
+    }
+    setClassManagementBusy(false);
+  });
+}
 if (classManagementDeleteStudentsBtn) {
   classManagementDeleteStudentsBtn.addEventListener("click", openDeleteStudentsConfirmation);
 }
