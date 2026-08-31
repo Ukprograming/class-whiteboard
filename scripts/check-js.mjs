@@ -31,6 +31,7 @@ const moduleFiles = [
   "public/js/teacher-signup.js",
   "public/js/ui-icons.js",
   "public/js/whiteboard.js",
+  "public/js/youtube-utils.mjs",
 ];
 
 function runNodeCheck(filePath) {
@@ -370,7 +371,28 @@ const studentBulkImportSource = readFileSync("public/js/student-bulk-import.js",
 const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
 const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
+const youtubeUtilsSource = readFileSync("public/js/youtube-utils.mjs", "utf8");
+const styleSource = readFileSync("public/style.css", "utf8");
 const serverSource = readFileSync("server.js", "utf8");
+const youtubeEmbedContracts = [
+  [youtubeUtilsSource, 'const YOUTUBE_HOSTS = new Set(['],
+  [youtubeUtilsSource, 'https://www.youtube-nocookie.com/embed/'],
+  [youtubeUtilsSource, 'autoplay: "0"'],
+  [whiteboardSource, 'kind: "youtube"'],
+  [whiteboardSource, 'this.onAction({ type: "object", object: obj })'],
+  [whiteboardSource, 'this._syncYouTubePlayerOverlay();'],
+  [teacherSource, 'allowYouTubePlayback: false'],
+  [styleSource, '.youtube-player-layer'],
+  [studentHtmlSource, 'youtube=20260831b'],
+  [teacherHtmlSource, 'youtube=20260831b'],
+];
+const missingYouTubeEmbedContracts = youtubeEmbedContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingYouTubeEmbedContracts.length > 0) {
+  console.error(`YouTube embed contracts missing: ${missingYouTubeEmbedContracts.join(", ")}`);
+  ok = false;
+}
 const passwordVisibilityContracts = [
   [teacherLoginHtmlSource, 'data-password-visibility aria-controls="teacherPassword"'],
   [studentHtmlSource, 'data-password-visibility aria-controls="loginStudentPassword"'],

@@ -1,9 +1,9 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style-20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style-20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&youtube=20260831b";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825&youtube=20260831b";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a&forms=20260830b";
-import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260828a";
+import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260828a&forms=20260830b&youtube=20260831b";
+import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260828a&youtube=20260831b";
 import { authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 import {
   canAcceptTeacherBoardSnapshot,
@@ -3543,7 +3543,10 @@ function startMonitoringStudent(studentSocketId, nickname) {
     modalOverlayCanvas.height = h * dpr;
 
     // Whiteboard は「上レイヤー」に紐づける
-    modalBoard = new TableWhiteboard({ canvas: modalOverlayCanvas });
+    modalBoard = new TableWhiteboard({
+      canvas: modalOverlayCanvas,
+      allowYouTubePlayback: false,
+    });
     modalBoard.setTeacherMode(true);
 
     // Whiteboard がズーム／パン／ピンチ操作で再描画されるたびに、下の

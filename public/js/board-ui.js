@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260828a";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260828a&youtube=20260831b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b";
 
