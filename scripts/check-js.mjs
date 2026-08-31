@@ -13,6 +13,7 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/assignment-utils.mjs",
   "public/js/form-api.js",
   "public/js/form-excel.js",
   "public/js/monitor-sync.js",
@@ -365,6 +366,7 @@ if (missingSecureRealtimeContracts.length > 0) {
 
 const whiteboardSource = readFileSync("public/js/whiteboard.js", "utf8");
 const teacherSource = readFileSync("public/js/teacher.js", "utf8");
+const assignmentUtilsSource = readFileSync("public/js/assignment-utils.mjs", "utf8");
 const studentSource = readFileSync("public/js/student.js", "utf8");
 const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
@@ -830,6 +832,8 @@ const assignmentContracts = [
   [teacherHtmlSource, 'id="teacherAssignmentCheckBtn"'],
   [teacherHtmlSource, 'id="assignmentReviewSwitcher"'],
   [teacherSource, "assignmentApi.listTeacherAssignments("],
+  [assignmentUtilsSource, "board_file_id: board.id"],
+  [teacherSource, "fileId: student.board_file_id"],
   [teacherSource, "showBoardChangeSaveDecision("],
   [studentHtmlSource, 'id="studentAssignmentChip"'],
   [studentSource, "assignmentApi.listPendingStudentAssignments("],

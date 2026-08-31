@@ -16,6 +16,7 @@ import {
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
 import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831";
+import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901";
 import {
   parseStudentWorkbook,
   validateStudentImport,
@@ -2094,12 +2095,12 @@ async function loadAssignmentStudentAt(index, options = {}) {
       studentId: student.student_id,
       nickname: student.student_login_id,
       folderPath: student.folder_path || "",
-      fileId: student.id,
+      fileId: student.board_file_id,
     });
     teacherBoard.importBoardData(result.boardData);
     teacherBoard.markSaved?.();
     assignmentReviewState.currentIndex = index;
-    currentBoardFileId = result.fileId || student.id;
+    currentBoardFileId = result.fileId || student.board_file_id;
     currentBoardFileName = String(result.fileName || student.name || assignmentReviewState.assignment.title).replace(/\.json$/i, "");
     currentBoardOwnerKind = "student";
     lastUsedFolderPath = student.folder_path || "";
@@ -2133,9 +2134,7 @@ async function startAssignmentReview(assignment, classId) {
       assignmentApi.listAssignmentStudentBoards(assignment.id),
       managementApi.listStudents(classId),
     ]);
-    const rosterById = new Map(roster.map((student) => [student.id, student]));
-    const students = boardRows
-      .map((board) => ({ ...board, ...(rosterById.get(board.student_id) || {}) }))
+    const students = mergeAssignmentBoardRows(boardRows, roster)
       .sort((a, b) => String(a.student_login_id || "").localeCompare(String(b.student_login_id || ""), "ja"));
     if (!students.length) throw new Error("この課題の生徒ボードがありません。");
 
