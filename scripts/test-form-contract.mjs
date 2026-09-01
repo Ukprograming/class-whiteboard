@@ -29,7 +29,7 @@ const [
   read("public/style.css"),
   read("supabase/migrations/20260831045725_allow_students_to_review_form_history.sql"),
   read("public/js/form-excel.js"),
-  read("supabase/migrations/20260901041829_add_form_question_images.sql"),
+  read("supabase/migrations/20260901043918_add_form_question_images.sql"),
 ]);
 
 const tables = [
