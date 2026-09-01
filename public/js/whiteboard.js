@@ -4139,6 +4139,10 @@ export class Whiteboard {
           }
           if (hitObj.kind === "table") {
             const cell = this._getTableCellAt(hitObj, wx, wy) || { row: 0, col: 0 };
+            const wasTableSelected =
+              this.selectedObj === hitObj &&
+              this.multiSelectedObjects.length === 1 &&
+              this.multiSelectedObjects[0] === hitObj;
             if (e.touches) {
               const now = Date.now();
               this.pendingTableTouchTap = {
@@ -4158,7 +4162,7 @@ export class Whiteboard {
               this.pendingTableTouchTap = null;
               this.lastTableTap = null;
             }
-            const currentRange = this.selectedObj === hitObj
+            const currentRange = wasTableSelected
               ? this.getSelectedTableCellRange()
               : null;
             const anchor = e.shiftKey && currentRange
@@ -4166,13 +4170,13 @@ export class Whiteboard {
               : cell;
             this._setTableCellSelection(hitObj, anchor, cell);
 
-            // 外周付近は表全体の移動、セル内部は範囲選択に使う。
-            if (this._isNearTableOuterEdge(hitObj, wx, wy)) {
-              this._startSelectionDrag(wx, wy);
-            } else {
+            // 未選択の表は全体を移動し、選択済みの表はセル範囲を選択する。
+            if (wasTableSelected) {
               this.isSelectingTableCells = true;
               this.tableCellSelectionObject = hitObj;
               e.preventDefault?.();
+            } else {
+              this._startSelectionDrag(wx, wy);
             }
             this.render();
             return;
