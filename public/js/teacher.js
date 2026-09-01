@@ -128,6 +128,7 @@ const assignmentStudentRosterWrap = document.getElementById("assignmentStudentRo
 const assignmentStudentRosterBtn = document.getElementById("assignmentStudentRosterBtn");
 const assignmentStudentRoster = document.getElementById("assignmentStudentRoster");
 const assignmentReviewStudentLabel = document.getElementById("assignmentReviewStudentLabel");
+const assignmentReviewSubmissionStatus = document.getElementById("assignmentReviewSubmissionStatus");
 const assignmentReviewExitBtn = document.getElementById("assignmentReviewExitBtn");
 
 // 生徒画面確認タイル & モーダル
@@ -2071,6 +2072,11 @@ function updateAssignmentReviewControls() {
     assignmentReviewStudentLabel.textContent = student
       ? `${assignmentStudentDisplayName(student)} ・ ${currentIndex + 1}/${students.length}`
       : assignment.title;
+  }
+  if (assignmentReviewSubmissionStatus) {
+    assignmentReviewSubmissionStatus.classList.toggle("hidden", !student);
+    assignmentReviewSubmissionStatus.classList.toggle("submitted", !!student?.assignment_submitted_at);
+    assignmentReviewSubmissionStatus.textContent = student?.assignment_submitted_at ? "提出済み" : "未提出";
   }
   assignmentStudentRosterBtn?.setAttribute("aria-expanded", assignmentStudentRosterWrap?.classList.contains("roster-pinned") ? "true" : "false");
   renderAssignmentStudentRoster();

@@ -831,9 +831,11 @@ if (missingDistributionContracts.length > 0) {
 const assignmentContracts = [
   [teacherHtmlSource, 'id="teacherAssignmentCheckBtn"'],
   [teacherHtmlSource, 'id="assignmentReviewSwitcher"'],
+  [teacherHtmlSource, 'id="assignmentReviewSubmissionStatus"'],
   [teacherSource, "assignmentApi.listTeacherAssignments("],
   [assignmentUtilsSource, "board_file_id: board.id"],
   [teacherSource, "fileId: student.board_file_id"],
+  [teacherSource, 'assignmentReviewSubmissionStatus.textContent = student?.assignment_submitted_at ? "提出済み" : "未提出"'],
   [teacherSource, "showBoardChangeSaveDecision("],
   [studentHtmlSource, 'id="studentAssignmentChip"'],
   [studentSource, "assignmentApi.listPendingStudentAssignments("],
@@ -850,6 +852,20 @@ const missingAssignmentContracts = assignmentContracts
   .map(([, contract]) => contract);
 if (missingAssignmentContracts.length > 0) {
   console.error(`Assignment workflow contracts missing: ${missingAssignmentContracts.join(", ")}`);
+  ok = false;
+}
+const compactStatusContracts = [
+  [teacherHtmlSource, 'class="class-status-pill" role="status" tabindex="0"'],
+  [studentHtmlSource, 'class="class-status-pill" role="status" tabindex="0"'],
+  [styleSource, ".class-status-pill:hover > span:last-child"],
+  [teacherHtmlSource, "status-hover=20260901"],
+  [studentHtmlSource, "status-hover=20260901"],
+];
+const missingCompactStatusContracts = compactStatusContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingCompactStatusContracts.length > 0) {
+  console.error(`Compact class status contracts missing: ${missingCompactStatusContracts.join(", ")}`);
   ok = false;
 }
 const assetStorageContracts = [
