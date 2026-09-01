@@ -21,6 +21,7 @@ const EDGE_FUNCTION_BASE_URL = (
 const TEACHER_REALTIME_EVENTS = new Set([
   "teacher-start-class",
   "student-view-start",
+  "student-view-start-targeted",
   "student-view-stop",
   "teacher-form-opened",
   "teacher-form-closed",
@@ -70,6 +71,7 @@ const ORDERED_RETRY_EVENTS = new Set([
 const RELIABLE_CONTROL_EVENTS = new Set([
   "teacher-start-class",
   "student-view-start",
+  "student-view-start-targeted",
   "student-view-stop",
   "teacher-form-opened",
   "teacher-form-closed",
@@ -324,8 +326,12 @@ function createSupabaseRealtimeBridge() {
       case "leave-class":
         return leaveRealtime();
       case "student-mode-change":
-        state.mode = payload.mode || state.mode;
-        void trackPresence();
+        {
+          const nextMode = payload.mode || state.mode;
+          const modeChanged = nextMode !== state.mode;
+          state.mode = nextMode;
+          if (modeChanged) void trackPresence();
+        }
         return reliableControlQueue.enqueue(eventName, payload);
       default:
         if (ORDERED_RETRY_EVENTS.has(eventName)) {
@@ -540,6 +546,7 @@ function createSupabaseRealtimeBridge() {
     state.studentRecordId = membership.studentRecordId;
     state.studentIdByLoginId = membership.studentIdByLoginId;
     state.nickname = nickname;
+    if (role === "student") state.mode = String(payload.mode || "whiteboard");
     state.online = false;
 
     const presenceChannel = supabase.channel(`class:${classCode}:presence`, {
@@ -644,9 +651,6 @@ function createSupabaseRealtimeBridge() {
         if (state.sharedChannel !== sharedChannel) return false;
         if (role === "teacher") {
           await subscribeChannel(teacherInboxChannel, "Teacher inbox");
-          for (const studentRecordId of new Set(membership.studentIdByLoginId.values())) {
-            await getStudentOutboxChannel(studentRecordId);
-          }
         } else if (studentInboxChannel) {
           // Student traffic uses the same per-student private topic in both
           // directions. This keeps classmates isolated while allowing all
@@ -1069,6 +1073,13 @@ function createSupabaseRealtimeBridge() {
         break;
       case "student-view-start":
       case "student-view-stop":
+        dispatch(eventName, { classCode: payload.classCode });
+        break;
+      case "student-view-start-targeted":
+        if (
+          payload.targetStudentSocketId &&
+          payload.targetStudentSocketId !== socketId
+        ) return;
         dispatch(eventName, { classCode: payload.classCode });
         break;
       case "request-highres":

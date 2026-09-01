@@ -195,11 +195,15 @@ try {
       presenceEventsPerSecond.set(bucket, (presenceEventsPerSecond.get(bucket) || 0) + 1);
     }
     const peakPresenceEvents = Math.max(...presenceEventsPerSecond.values());
-    const initialChannelJoins = Array.from({ length: 24 }, (_, index) => index * 80);
+    // Teacher joins only the four class-wide channels up front. Each active
+    // student's private channel is joined lazily after that student's Presence
+    // entry appears, instead of subscribing the entire roster before ready.
+    const initialChannelJoins = Array.from({ length: 4 }, (_, index) => index * 80);
     for (const delayMs of studentDelays) {
       for (const channelOffsetMs of [0, 80, 160, 240]) {
         initialChannelJoins.push(delayMs + channelOffsetMs);
       }
+      initialChannelJoins.push(delayMs + 320);
     }
     const channelJoinsPerSecond = new Map();
     for (const delayMs of initialChannelJoins) {
@@ -310,7 +314,6 @@ const studentDuplexContracts = [
   "const TEACHER_INBOX_EVENTS = new Set(STUDENT_REALTIME_EVENTS);",
   'const teacherInboxChannel = role === "teacher"',
   "await subscribeChannel(teacherInboxChannel, \"Teacher inbox\")",
-  "for (const studentRecordId of new Set(membership.studentIdByLoginId.values()))",
   "handleRemoteEvent(eventPayload, \"teacher-inbox\")",
   "targetChannel = await getStudentOutboxChannel(studentRecordId)",
   "channelStatuses.get(targetChannel) !== \"SUBSCRIBED\"",
@@ -321,6 +324,10 @@ const missingStudentDuplexContracts = studentDuplexContracts.filter(
 );
 if (missingStudentDuplexContracts.length > 0) {
   console.error("Student duplex Realtime routing contracts are incomplete.");
+  ok = false;
+}
+if (realtimeApiSource.includes("for (const studentRecordId of new Set(membership.studentIdByLoginId.values()))")) {
+  console.error("Teacher Realtime readiness must not wait for every active roster channel.");
   ok = false;
 }
 const studentDuplexPolicyContracts = [
@@ -374,6 +381,38 @@ const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentBulkImportSource = readFileSync("public/js/student-bulk-import.js", "utf8");
 const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
+
+const realtimeScaleFixContracts = [
+  [realtimeApiSource, '"student-view-start-targeted"'],
+  [realtimeApiSource, "const modeChanged = nextMode !== state.mode"],
+  [realtimeApiSource, "if (modeChanged) void trackPresence()"],
+  [teacherSource, 'socket.emit("student-view-start-targeted"'],
+  [teacherSource, 'if (supabaseEnabled)'],
+  [teacherSource, 'socket.emit("student-view-start", { classCode: currentClassCode })'],
+  [teacherSource, "updateStudentTilePreview(socketId)"],
+  [teacherSource, "updateNotebookTile(studentId)"],
+  [studentSource, 'socket.on("student-view-start-targeted", handleStudentViewStart)'],
+  [studentSource, "mode: viewMode"],
+  [studentSource, "updateModeUI({ notifyRealtime: false })"],
+  [studentSource, "function updateModeUI({ notifyRealtime = true } = {})"],
+  [studentSource, "if (!supabaseEnabled) updateModeUI()"],
+  [teacherHtmlSource, "realtime-scale=20260902"],
+  [studentHtmlSource, "realtime-scale=20260902"],
+];
+const missingRealtimeScaleFixContracts = realtimeScaleFixContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingRealtimeScaleFixContracts.length > 0) {
+  console.error(`20-client Realtime scale fixes missing: ${missingRealtimeScaleFixContracts.join(", ")}`);
+  ok = false;
+}
+const teacherAnnouncementEventsSource = realtimeApiSource.match(
+  /const TEACHER_ANNOUNCEMENT_EVENTS = new Set\(\[([\s\S]*?)\]\);/
+)?.[1] || "";
+if (teacherAnnouncementEventsSource.includes('"student-view-start-targeted"')) {
+  console.error("Targeted student-view start must not be broadcast to the whole class.");
+  ok = false;
+}
 const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
 const youtubeUtilsSource = readFileSync("public/js/youtube-utils.mjs", "utf8");
 const styleSource = readFileSync("public/style.css", "utf8");

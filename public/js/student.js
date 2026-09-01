@@ -7,7 +7,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260901";
@@ -804,6 +804,7 @@ if (studentLoginForm) {
         const joined = await socket.emit("join-class", {
           classCode: canonicalClassCode,
           nickname: canonicalStudentId,
+          mode: viewMode,
         });
         if (supabaseEnabled && !joined) {
           setStudentLoginMessage("クラスに参加できませんでした。", true);
@@ -820,7 +821,7 @@ if (studentLoginForm) {
           ? `${signedInStudent.displayName}（ID: ${canonicalStudentId}）`
           : canonicalStudentId;
         if (statusLabel) statusLabel.textContent = `クラス: ${canonicalClassCode} / ${displayLabel}`;
-        updateModeUI();
+        updateModeUI({ notifyRealtime: false });
         void refreshPendingStudentAssignments();
       }
     } finally {
@@ -846,6 +847,7 @@ async function restoreStudentSessionOnLoad() {
     const joined = await socket.emit("join-class", {
       classCode: currentClassCode,
       nickname,
+      mode: viewMode,
     });
     if (!joined) {
       setStudentLoginMessage("前回のクラスへの再参加に失敗しました。もう一度ログインしてください。", true);
@@ -857,7 +859,7 @@ async function restoreStudentSessionOnLoad() {
       ? `${restoredSession.displayName}（ID: ${nickname}）`
       : nickname;
     if (statusLabel) statusLabel.textContent = `クラス: ${currentClassCode} / ${displayLabel}`;
-    updateModeUI();
+    updateModeUI({ notifyRealtime: false });
 
     const draftRestored = await restoreStudentDraft(currentClassCode, nickname);
     if (!draftRestored) {
@@ -889,8 +891,9 @@ socket.on("join-success", (payload) => {
   currentClassCode = payload.classCode || currentClassCode;
   nickname = payload.nickname || nickname;
 
-  // ★ クラス参加後に現在モード（初期値: whiteboard）をサーバーに通知
-  updateModeUI();
+  // Supabase login/restore paths update the UI after the awaited join returns.
+  // The legacy Socket.IO path still relies on this server event.
+  if (!supabaseEnabled) updateModeUI();
   if (!studentSessionRestoreInProgress && !hasRestoredStudentDraft) {
     void loadActiveSharedBoard(payload.classCode);
   }
@@ -1607,7 +1610,7 @@ socket.on("join-student", payload => {
    共有モード / 表示モード切り替え
    ======================================== */
 
-function updateModeUI() {
+function updateModeUI({ notifyRealtime = true } = {}) {
   // ボタンの見た目
   if (modeWhiteboardBtn) {
     const active = viewMode === "whiteboard";
@@ -1686,7 +1689,7 @@ function updateModeUI() {
 
   // ★ 現在の表示モードをサーバーに通知
   //   viewMode: "whiteboard" | "screen" | "notebook"
-  if (currentClassCode && nickname) {
+  if (notifyRealtime && currentClassCode && nickname) {
     socket.emit("student-mode-change", {
       classCode: currentClassCode,
       mode: viewMode
@@ -3075,12 +3078,16 @@ function scheduleInitialThumbnail() {
   }, delayMs);
 }
 
-// 教員が「生徒画面確認モード」に入った
-socket.on("student-view-start", () => {
+// 教員が「生徒画面確認モード」に入った。遅れて参加した生徒には
+// private channel 経由の個別イベントが届くが、開始処理は共通にする。
+function handleStudentViewStart() {
   if (!currentClassCode || !nickname) return;
   restartCaptureLoop();
   scheduleInitialThumbnail();
-});
+}
+
+socket.on("student-view-start", handleStudentViewStart);
+socket.on("student-view-start-targeted", handleStudentViewStart);
 
 // 教員が生徒画面から離れた
 socket.on("student-view-stop", () => {

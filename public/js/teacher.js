@@ -4,7 +4,7 @@ import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260901a&forms=20260830b&youtube=20260831b&camera-tool=20260901";
 import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260901a&youtube=20260831b&multi-select=20260901b";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -3186,7 +3186,7 @@ socket.on("student-list-update", (list) => {
   const nextStudentSocketIds = new Set(
     normalizedList.map((student) => student?.socketId).filter(Boolean)
   );
-  const hasNewlyConnectedStudent = Array.from(nextStudentSocketIds).some(
+  const newlyConnectedStudentSocketIds = Array.from(nextStudentSocketIds).filter(
     (socketId) => !connectedStudentSocketIds.has(socketId)
   );
 
@@ -3197,13 +3197,24 @@ socket.on("student-list-update", (list) => {
   });
   connectedStudentSocketIds = nextStudentSocketIds;
 
-  // タイル表示中に参加した生徒にも、共通の5秒更新を開始してもらう。
+  // タイル表示中に参加した生徒だけに、private channel 経由で
+  // 5秒更新の開始を伝える。クラス全体への再送と既存ループの再起動を避ける。
   if (
-    hasNewlyConnectedStudent &&
+    newlyConnectedStudentSocketIds.length > 0 &&
     (currentTeacherViewMode === "student" || currentTeacherViewMode === "notebook") &&
     currentClassCode
   ) {
-    socket.emit("student-view-start", { classCode: currentClassCode });
+    if (supabaseEnabled) {
+      newlyConnectedStudentSocketIds.forEach((studentSocketId) => {
+        void socket.emit("student-view-start-targeted", {
+          classCode: currentClassCode,
+          targetStudentSocketId: studentSocketId,
+        });
+      });
+    } else {
+      // Legacy Socket.IO does not have the private-channel targeted event.
+      socket.emit("student-view-start", { classCode: currentClassCode });
+    }
   }
 
   if (studentsInfo) {
@@ -3268,10 +3279,10 @@ socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport })
   if (currentMode === "notebook") {
     const studentId = nickname || studentNameMap[socketId] || socketId;
     notebookStudents[studentId] = { latestImageData: dataUrl };
-    renderNotebookTiles();
+    updateNotebookTile(studentId);
     updateNotebookInfo();
   }
-  renderTiles();
+  updateStudentTilePreview(socketId);
 });
 
 
@@ -4222,21 +4233,44 @@ function renderTiles() {
 
     tile.addEventListener("click", () => {
       if (!currentClassCode) return;
+      const currentInfo = latestThumbnails[socketId] || info;
 
       // Whiteboard monitoring uses structured snapshots/actions only. The
       // high-resolution request is an image path and is unnecessary here.
-      if ((info.mode || latestModeByStudent[socketId]) !== "whiteboard") {
+      if ((currentInfo.mode || latestModeByStudent[socketId]) !== "whiteboard") {
         socket.emit("request-highres", {
           classCode: currentClassCode,
           studentSocketId: socketId
         });
       }
 
-      startMonitoringStudent(socketId, info.nickname);
+      startMonitoringStudent(socketId, currentInfo.nickname);
     });
 
     tileGrid.appendChild(tile);
   });
+  updateStudentModalNavigation();
+}
+
+function updateStudentTilePreview(socketId) {
+  if (!tileGrid || !socketId) return;
+  const info = latestThumbnails[socketId];
+  if (!info) return;
+  const tile = Array.from(tileGrid.children).find(
+    (element) => element?.dataset?.studentSocketId === socketId
+  );
+  if (!tile) {
+    renderTiles();
+    return;
+  }
+
+  const img = tile.querySelector("img");
+  if (img) {
+    if (img.src !== info.dataUrl) img.src = info.dataUrl;
+    img.alt = `${info.nickname} さんの画面プレビュー`;
+  }
+  const meta = tile.querySelector(".meta");
+  if (meta) meta.textContent = info.nickname;
   updateStudentModalNavigation();
 }
 
@@ -4853,7 +4887,7 @@ socket.on("studentImageUpdated", ({ studentId, imageData, classCode }) => {
   } else {
     notebookStudents[studentId].latestImageData = imageData;
   }
-  renderNotebookTiles();
+  updateNotebookTile(studentId);
   updateNotebookInfo();
 });
 
@@ -4932,6 +4966,55 @@ function renderNotebookTiles() {
 
     notebookStudentGrid.appendChild(tile);
   });
+}
+
+function updateNotebookTile(studentId) {
+  if (!notebookStudentGrid || !studentId) return;
+  const student = notebookStudents[studentId];
+  if (!student) return;
+  const tile = Array.from(notebookStudentGrid.children).find(
+    (element) => element?.dataset?.studentId === studentId
+  );
+  if (!tile) {
+    renderNotebookTiles();
+    return;
+  }
+
+  const hasImage = !!student.latestImageData;
+  const statusSpan = tile.querySelector(".student-tile-header span:last-child");
+  if (statusSpan) statusSpan.textContent = hasImage ? "画像受信中" : "画像未受信";
+  const canvas = tile.querySelector("canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!hasImage) {
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("画像なし", 8, 20);
+    return;
+  }
+
+  const expectedImageData = student.latestImageData;
+  const img = new Image();
+  img.onload = () => {
+    if (
+      !tile.isConnected ||
+      notebookStudents[studentId]?.latestImageData !== expectedImageData
+    ) return;
+    const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+    const width = img.width * scale;
+    const height = img.height * scale;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(
+      img,
+      (canvas.width - width) / 2,
+      (canvas.height - height) / 2,
+      width,
+      height
+    );
+  };
+  img.src = expectedImageData;
 }
 
 /** ★ 追加: 生徒モーダル内の「下（画像）＋上（描画）」を合成して返す */
