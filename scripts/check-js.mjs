@@ -469,6 +469,30 @@ if (selectionChangeStart < 0 || selectionChangeEnd <= selectionChangeStart) {
     ok = false;
   }
 }
+const multiSelectionContracts = [
+  "_getSelectedItemCount()",
+  "_addObjectToSelection(obj)",
+  "this._retainObjectMultiSelection(hitObj)",
+  "this._retainStrokeMultiSelection(hitStroke)",
+  "ox1 <= ex && ox2 >= sx && oy1 <= ey && oy2 >= sy",
+  "minX <= ex && maxX >= sx && minY <= ey && maxY >= sy",
+];
+const missingMultiSelectionContracts = multiSelectionContracts.filter(
+  contract => !whiteboardSource.includes(contract)
+);
+if (missingMultiSelectionContracts.length > 0) {
+  console.error(
+    `Whiteboard multi-selection contracts are missing: ${missingMultiSelectionContracts.join(", ")}`
+  );
+  ok = false;
+}
+if (
+  !boardUiSource.includes("multi-select=20260901a") ||
+  (teacherSource.match(/multi-select=20260901a/g) || []).length < 2
+) {
+  console.error("Whiteboard multi-selection changes must be cache-busted on every direct import path.");
+  ok = false;
+}
 const notebookCaptureStart = studentSource.indexOf("// カメラ開始 / 再開始");
 const notebookCaptureEnd = studentSource.indexOf("// 教員からのフィードバック画像受信");
 const notebookCaptureSource = studentSource.slice(notebookCaptureStart, notebookCaptureEnd);

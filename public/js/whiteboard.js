@@ -3284,6 +3284,59 @@ export class Whiteboard {
     return true;
   }
 
+  _getSelectedItemCount() {
+    return (this.multiSelectedObjects?.length || 0) +
+      (this.multiSelectedStrokes?.length || 0);
+  }
+
+  _addObjectToSelection(obj) {
+    if (!obj) return;
+    const objects = obj.groupId
+      ? this.objects.filter(candidate => candidate.groupId === obj.groupId)
+      : [obj];
+    const strokes = obj.groupId
+      ? this.strokes.filter(candidate => candidate.groupId === obj.groupId)
+      : [];
+
+    objects.forEach(candidate => {
+      if (!this.multiSelectedObjects.includes(candidate)) {
+        this.multiSelectedObjects.push(candidate);
+      }
+    });
+    strokes.forEach(candidate => {
+      if (!this.multiSelectedStrokes.includes(candidate)) {
+        this.multiSelectedStrokes.push(candidate);
+      }
+    });
+
+    this.selectedObj = obj;
+    this.selectedStroke = this.multiSelectedStrokes[0] || null;
+    this.selectedTableCell = null;
+    this.selectedTableRange = null;
+    this._fireSelectionChange();
+  }
+
+  _retainObjectMultiSelection(obj) {
+    if (!obj || !this.multiSelectedObjects.includes(obj) || this._getSelectedItemCount() <= 1) {
+      return false;
+    }
+    this.selectedObj = obj;
+    this.selectedStroke = this.multiSelectedStrokes[0] || null;
+    this.selectedTableCell = null;
+    this.selectedTableRange = null;
+    this._fireSelectionChange();
+    return true;
+  }
+
+  _retainStrokeMultiSelection(stroke) {
+    if (!stroke || !this.multiSelectedStrokes.includes(stroke) || this._getSelectedItemCount() <= 1) {
+      return false;
+    }
+    this.selectedStroke = stroke;
+    this._fireSelectionChange();
+    return true;
+  }
+
   _hitTestResizeHandle(sx, sy) {
     for (const h of this.handleRects) {
       if (
@@ -4128,6 +4181,7 @@ export class Whiteboard {
         const hitObj = this._hitTestObject(wx, wy);
         if (hitObj) {
           if (
+            !e.shiftKey &&
             hitObj.kind === "youtube" &&
             this._isYouTubePlayButtonHit(hitObj, wx, wy)
           ) {
@@ -4143,6 +4197,19 @@ export class Whiteboard {
               this.selectedObj === hitObj &&
               this.multiSelectedObjects.length === 1 &&
               this.multiSelectedObjects[0] === hitObj;
+            const retainedMultiSelection = !wasTableSelected &&
+              this._retainObjectMultiSelection(hitObj);
+            if (e.shiftKey && !wasTableSelected && !retainedMultiSelection) {
+              this._addObjectToSelection(hitObj);
+              this._startSelectionDrag(wx, wy);
+              this.render();
+              return;
+            }
+            if (retainedMultiSelection) {
+              this._startSelectionDrag(wx, wy);
+              this.render();
+              return;
+            }
             if (e.touches) {
               const now = Date.now();
               this.pendingTableTouchTap = {
@@ -4183,12 +4250,9 @@ export class Whiteboard {
           }
           this.lastTableTap = null;
           if (e.shiftKey) {
-            if (!this.multiSelectedObjects.includes(hitObj)) {
-              this.multiSelectedObjects.push(hitObj);
-            }
-            if (hitObj.kind === "text" || hitObj.kind === "link") {
-              this.selectedObj = hitObj;
-            }
+            this._addObjectToSelection(hitObj);
+          } else if (this._retainObjectMultiSelection(hitObj)) {
+            // Keep the whole selection so dragging any selected item moves all of it.
           } else {
             if (hitObj.groupId) {
               const gid = hitObj.groupId;
@@ -4215,6 +4279,8 @@ export class Whiteboard {
         if (hitStroke) {
           if (e.shiftKey) {
             this._setSelectedStroke(hitStroke, true);
+          } else if (this._retainStrokeMultiSelection(hitStroke)) {
+            // Keep the whole selection so dragging any selected stroke moves all of it.
           } else {
             if (hitStroke.groupId) {
               const gid = hitStroke.groupId;
@@ -4792,6 +4858,8 @@ export class Whiteboard {
       }
 
       if (this.isDraggingObj || this.isResizingObj) {
+        const changedObjectsForAction = [];
+        let changedStrokesForAction = false;
 
         if (this.isResizingObj && this.selectedObj?.kind === "youtube") {
           this._normalizeYouTubeObject(this.selectedObj);
@@ -4893,6 +4961,8 @@ export class Whiteboard {
               });
               // ★ 追加：移動・変形があったので未保存フラグを立てる
               this._markDirty();
+              changedObjectsForAction.push(...changedObjects.map(entry => entry.obj));
+              changedStrokesForAction = changedStrokes.length > 0;
             }
           }
           // ② リサイズ（単一オブジェクト・ドラッグ開始時に x,y,width,height を持っている場合）
@@ -4931,18 +5001,29 @@ export class Whiteboard {
 
               // ★ 追加：リサイズでも未保存フラグを立てる
               this._markDirty();
+              changedObjectsForAction.push(obj);
             }
           }
         }
         // ★ ここまで：履歴記録 ------------------
 
-        // オブジェクトが動いたときは modify を送る
-        if (this.onAction && this.selectedObj) {
-          this.onAction({ type: "modify", object: this.selectedObj });
+        // 回転・3D奥行き調整など、専用 dragStart を使う単体リサイズも同期する。
+        if (
+          this.isResizingObj &&
+          this.selectedObj &&
+          changedObjectsForAction.length === 0 &&
+          !changedStrokesForAction
+        ) {
+          changedObjectsForAction.push(this.selectedObj);
         }
-        // ★ 追加：ストロークだけ動かした場合などは、全体再描画のきっかけを送る
-        else if (this.onAction && this.multiSelectedStrokes && this.multiSelectedStrokes.length > 0) {
-          this.onAction({ type: "refresh" });
+
+        if (this.onAction) {
+          changedObjectsForAction.forEach(object => {
+            this.onAction({ type: "modify", object });
+          });
+          if (changedStrokesForAction) {
+            this.onAction({ type: "refresh" });
+          }
         }
 
         this.isDraggingObj = false;
@@ -4977,7 +5058,7 @@ export class Whiteboard {
           const oy2 = y + height;
 
           const intersect =
-            ox1 < ex && ox2 > sx && oy1 < ey && oy2 > sy;
+            ox1 <= ex && ox2 >= sx && oy1 <= ey && oy2 >= sy;
 
           if (intersect) {
             selectedObjects.push(o);
@@ -4995,7 +5076,7 @@ export class Whiteboard {
             if (p.y > maxY) maxY = p.y;
           }
           const intersect =
-            minX < ex && maxX > sx && minY < ey && maxY > sy;
+            minX <= ex && maxX >= sx && minY <= ey && maxY >= sy;
           if (intersect) {
             selectedStrokes.push(st);
           }
@@ -5018,10 +5099,6 @@ export class Whiteboard {
         this.selectionBoxEnd = null;
         this.render();
       }
-      if (this.isDraggingObj && this.multiSelectedStrokes.length && this.onAction) {
-        this.onAction({ type: "refresh" });
-      }
-
       if (e.type === "touchend" && this.pendingTableTouchTap) {
         const tap = this.pendingTableTouchTap;
         this.pendingTableTouchTap = null;
