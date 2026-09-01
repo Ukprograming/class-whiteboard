@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901";
 
 const QUESTION_LABELS = { text: "自由記述", single_choice: "1つ選択", multiple_choice: "複数選択可" };
 
@@ -31,6 +31,10 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   const doneBtn = document.getElementById("studentFormDoneBtn");
   const historyList = document.getElementById("studentFormHistoryList");
   const historyDetail = document.getElementById("studentFormHistoryDetail");
+  const imageBackdrop = document.getElementById("studentFormImageBackdrop");
+  const imageDialogTitle = document.getElementById("studentFormImageTitle");
+  const imageFull = document.getElementById("studentFormImageFull");
+  const imageCloseBtn = document.getElementById("studentFormImageCloseBtn");
 
   if (!chip || !backdrop || !formApi.enabled) return { refreshActiveRun: async () => {} };
 
@@ -76,11 +80,59 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   function setVisible(visible) {
     backdrop.classList.toggle("hidden", !visible);
     minimized = !visible;
+    if (!visible) closeQuestionImageViewer();
     if (visible) {
       onOpen?.();
       if (!activeRun && currentView === "active") selectView("history");
       else selectView(currentView);
     }
+  }
+
+  function closeQuestionImageViewer() {
+    imageBackdrop?.classList.add("hidden");
+    if (imageFull) imageFull.removeAttribute("src");
+  }
+
+  function openQuestionImageViewer(question, imageUrl) {
+    if (!imageBackdrop || !imageFull || !imageUrl) return;
+    imageDialogTitle.textContent = question.prompt || "設問画像";
+    imageFull.src = imageUrl;
+    imageFull.alt = `${question.prompt || "設問"}の拡大画像`;
+    imageBackdrop.classList.remove("hidden");
+    requestAnimationFrame(() => imageCloseBtn?.focus());
+  }
+
+  function appendQuestionImage(card, question) {
+    const imagePath = String(question.image_path || question.imagePath || "").trim();
+    if (!imagePath) return;
+    const figure = document.createElement("figure");
+    figure.className = "student-form-question-image";
+    const loading = document.createElement("div");
+    loading.className = "student-form-question-image-status";
+    loading.textContent = "画像を読み込んでいます…";
+    const image = document.createElement("img");
+    image.alt = `${question.prompt || "設問"}の画像`;
+    image.hidden = true;
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "form-secondary-btn student-form-image-expand";
+    expand.textContent = "画像を拡大表示";
+    expand.disabled = true;
+    figure.append(loading, image, expand);
+    card.appendChild(figure);
+    void formApi.getQuestionImageUrl(imagePath).then((url) => {
+      if (!figure.isConnected || String(question.image_path || question.imagePath || "").trim() !== imagePath) return;
+      image.src = url;
+      image.hidden = false;
+      loading.remove();
+      expand.disabled = false;
+      expand.addEventListener("click", () => openQuestionImageViewer(question, url));
+      image.addEventListener("dblclick", () => openQuestionImageViewer(question, url));
+    }).catch((error) => {
+      console.error("Failed to load student form image", error);
+      loading.textContent = "設問画像を読み込めませんでした。";
+      loading.classList.add("is-error");
+    });
   }
 
   function clearActiveRun({ switchToHistory = false } = {}) {
@@ -120,6 +172,7 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
       meta.className = "student-form-question-meta";
       meta.textContent = `${QUESTION_LABELS[question.question_type] || "回答"}${question.required ? " ・ 必須" : ""}`;
       card.append(heading, meta);
+      appendQuestionImage(card, question);
 
       if (question.question_type === "text") {
         const textarea = document.createElement("textarea");
@@ -275,12 +328,14 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
         const label = document.createElement("p");
         label.className = "student-form-question-meta";
         label.textContent = QUESTION_LABELS[question.question_type] || "回答";
+        card.append(questionText, label);
+        appendQuestionImage(card, question);
         const answer = document.createElement("div");
         answer.className = "student-form-history-answer-value";
         const response = responseMap.get(question.id);
         answer.textContent = answerTextForHistory(question, response);
         answer.classList.toggle("is-unanswered", !response);
-        card.append(questionText, label, answer);
+        card.appendChild(answer);
         historyDetail.appendChild(card);
       });
       historyDetail.classList.remove("hidden");
@@ -353,6 +408,15 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   doneBtn?.addEventListener("click", () => setVisible(false));
   activeTab?.addEventListener("click", () => selectView("active"));
   historyTab?.addEventListener("click", () => selectView("history"));
+  imageCloseBtn?.addEventListener("click", closeQuestionImageViewer);
+  imageBackdrop?.addEventListener("click", (event) => {
+    if (event.target === imageBackdrop) closeQuestionImageViewer();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && imageBackdrop && !imageBackdrop.classList.contains("hidden")) {
+      closeQuestionImageViewer();
+    }
+  });
 
   socket?.on("teacher-form-opened", (payload = {}) => {
     const classCode = String(getClassCode?.() || "").trim().toUpperCase();

@@ -152,6 +152,7 @@ export class Whiteboard {
     this.isResizingTableCells = false;
     this.tableCellResizeStart = null;
     this.lastTableTap = null;
+    this.pendingTableTouchTap = null;
 
     // ボックス選択（ドラッグで四角を描いて複数選択）
     this.isBoxSelecting = false;
@@ -248,6 +249,7 @@ export class Whiteboard {
     this.tableCellSelectionObject = null;
     this.isResizingTableCells = false;
     this.tableCellResizeStart = null;
+    this.pendingTableTouchTap = null;
     this._onAction = null;
     this.onSelectionChange = null;
     this.onToolChange = null;
@@ -3825,6 +3827,8 @@ export class Whiteboard {
 
       if (e.touches && e.touches.length >= 2) {
         if (this.isResizingTableCells) this._finishTableCellResize();
+        this.pendingTableTouchTap = null;
+        this.lastTableTap = null;
         const rect = canvas.getBoundingClientRect();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
@@ -4135,19 +4139,24 @@ export class Whiteboard {
           }
           if (hitObj.kind === "table") {
             const cell = this._getTableCellAt(hitObj, wx, wy) || { row: 0, col: 0 };
-            const now = Date.now();
-            const isTouchDoubleTap = !!e.touches &&
-              this.lastTableTap?.objectId === hitObj.id &&
-              this.lastTableTap?.row === cell.row &&
-              this.lastTableTap?.col === cell.col &&
-              now - this.lastTableTap.time < 500;
-            this.lastTableTap = { objectId: hitObj.id, ...cell, time: now };
-            if (isTouchDoubleTap) {
-              this._setTableCellSelection(hitObj, cell);
-              this._openTableCellEditor(hitObj, cell.row, cell.col);
-              this.onRequestToolSettings?.("table");
+            if (e.touches) {
+              const now = Date.now();
+              this.pendingTableTouchTap = {
+                object: hitObj,
+                objectId: hitObj.id,
+                ...cell,
+                startWx: wx,
+                startWy: wy,
+                moved: false,
+                isDoubleTap:
+                  this.lastTableTap?.objectId === hitObj.id &&
+                  this.lastTableTap?.row === cell.row &&
+                  this.lastTableTap?.col === cell.col &&
+                  now - this.lastTableTap.time < 500
+              };
+            } else {
+              this.pendingTableTouchTap = null;
               this.lastTableTap = null;
-              return;
             }
             const currentRange = this.selectedObj === hitObj
               ? this.getSelectedTableCellRange()
@@ -4266,6 +4275,21 @@ export class Whiteboard {
           canvas.style.cursor = tableResizeHit.axis === "column" ? "col-resize" : "row-resize";
         } else {
           canvas.style.cursor = isHandleHovered ? "pointer" : "";
+        }
+      }
+
+      if (e.touches?.length === 1 && this.pendingTableTouchTap) {
+        const { wx, wy } = getPos(e);
+        const threshold = 8 / Math.max(0.2, this.scale || 1);
+        if (
+          Math.hypot(
+            wx - this.pendingTableTouchTap.startWx,
+            wy - this.pendingTableTouchTap.startWy
+          ) > threshold
+        ) {
+          this.pendingTableTouchTap.moved = true;
+          // A drag must never prime the next gesture as a double tap.
+          this.lastTableTap = null;
         }
       }
 
@@ -4994,6 +5018,29 @@ export class Whiteboard {
         this.onAction({ type: "refresh" });
       }
 
+      if (e.type === "touchend" && this.pendingTableTouchTap) {
+        const tap = this.pendingTableTouchTap;
+        this.pendingTableTouchTap = null;
+        if (tap.moved) {
+          this.lastTableTap = null;
+        } else if (tap.isDoubleTap) {
+          this.lastTableTap = null;
+          this._setTableCellSelection(tap.object, { row: tap.row, col: tap.col });
+          this._openTableCellEditor(tap.object, tap.row, tap.col);
+          this.onRequestToolSettings?.("table");
+        } else {
+          this.lastTableTap = {
+            objectId: tap.objectId,
+            row: tap.row,
+            col: tap.col,
+            time: Date.now()
+          };
+        }
+      } else if (e.type === "touchcancel") {
+        this.pendingTableTouchTap = null;
+        this.lastTableTap = null;
+      }
+
     };
 
     const dbl = e => {
@@ -5036,6 +5083,7 @@ export class Whiteboard {
     this._listen(canvas, "touchstart", down, { passive: false });
     this._listen(canvas, "touchmove", move, { passive: false });
     this._listen(canvas, "touchend", up);
+    this._listen(canvas, "touchcancel", up);
 
     const wheel = e => {
       e.preventDefault();

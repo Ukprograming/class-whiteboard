@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260828a&forms=20260830b&youtube=20260831b";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901a&forms=20260830b&youtube=20260831b";
 import {
   assignmentApi,
   authApi,
@@ -9,7 +9,7 @@ import {
   supabaseEnabled,
 } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
-import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831";
 
 // 共通ホワイトボード UI 初期化

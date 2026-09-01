@@ -1,5 +1,15 @@
 import { supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
 
+const STORAGE_BUCKET = String(window.CLASS_WHITEBOARD_CONFIG?.storageBucket || "class-whiteboard").trim();
+const MAX_FORM_IMAGE_BYTES = 8 * 1024 * 1024;
+const FORM_IMAGE_EXTENSIONS = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+  ["image/gif", "gif"],
+]);
+const questionImageUrlCache = new Map();
+
 function assertFormsEnabled() {
   if (!supabaseEnabled || !supabase) {
     throw new Error("フォーム機能にはSupabase接続が必要です。");
@@ -18,6 +28,22 @@ function normalizeQuestions(questions = []) {
       options: Array.isArray(question.options) ? question.options : [],
     }));
 }
+
+function normalizeQuestionImagePath(value) {
+  const path = String(value || "").trim();
+  return /^teachers\/[0-9a-f-]{36}\/forms\/[0-9a-f-]{36}\.(?:jpg|png|webp|gif)$/i.test(path)
+    ? path
+    : "";
+}
+
+function revokeQuestionImageUrls() {
+  questionImageUrlCache.forEach((promise) => {
+    void promise.then((url) => URL.revokeObjectURL(url)).catch(() => {});
+  });
+  questionImageUrlCache.clear();
+}
+
+window.addEventListener("pagehide", revokeQuestionImageUrls, { once: true });
 
 function normalizeTemplate(template) {
   if (!template) return null;
@@ -83,7 +109,11 @@ export const formApi = {
           question_type,
           prompt,
           required,
-          options
+          options,
+          image_path,
+          image_mime_type,
+          image_width,
+          image_height
         )
       `)
       .eq("archived", false)
@@ -102,6 +132,10 @@ export const formApi = {
         id: String(option.id || "").trim(),
         label: String(option.label || "").trim(),
       })),
+      imagePath: normalizeQuestionImagePath(question.imagePath || question.image_path) || null,
+      imageMimeType: String(question.imageMimeType || question.image_mime_type || "").trim() || null,
+      imageWidth: Number(question.imageWidth || question.image_width) || null,
+      imageHeight: Number(question.imageHeight || question.image_height) || null,
     }));
     const { data, error } = await supabase.rpc("save_form_template", {
       p_template_id: id || null,
@@ -110,6 +144,61 @@ export const formApi = {
     });
     if (error) throw error;
     return data;
+  },
+
+  async uploadQuestionImage(file, { width, height } = {}) {
+    assertFormsEnabled();
+    const mimeType = String(file?.type || "").toLowerCase();
+    const extension = FORM_IMAGE_EXTENSIONS.get(mimeType);
+    if (!file || !extension) throw new Error("画像はJPEG・PNG・WebP・GIF形式を選択してください。");
+    if (!file.size || file.size > MAX_FORM_IMAGE_BYTES) throw new Error("画像は8MB以下にしてください。");
+    const imageWidth = Number(width);
+    const imageHeight = Number(height);
+    if (!Number.isInteger(imageWidth) || !Number.isInteger(imageHeight)
+      || imageWidth < 1 || imageHeight < 1 || imageWidth > 12000 || imageHeight > 12000) {
+      throw new Error("画像の縦横サイズを確認できませんでした。別の画像を選択してください。");
+    }
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error(userError?.message || "教員ログインが必要です。");
+    const imagePath = `teachers/${userData.user.id}/forms/${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(imagePath, file, {
+      contentType: mimeType,
+      cacheControl: "31536000",
+      upsert: false,
+    });
+    if (error) throw error;
+    return { imagePath, imageMimeType: mimeType, imageWidth, imageHeight };
+  },
+
+  async removeQuestionImages(paths = []) {
+    assertFormsEnabled();
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error(userError?.message || "教員ログインが必要です。");
+    const prefix = `teachers/${userData.user.id}/forms/`;
+    const safePaths = Array.from(new Set(paths.map(normalizeQuestionImagePath)))
+      .filter((path) => path.startsWith(prefix));
+    if (!safePaths.length) return;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(safePaths);
+    if (error) throw error;
+  },
+
+  async getQuestionImageUrl(path) {
+    assertFormsEnabled();
+    const imagePath = normalizeQuestionImagePath(path);
+    if (!imagePath) throw new Error("設問画像の保存先が不正です。");
+    if (!questionImageUrlCache.has(imagePath)) {
+      questionImageUrlCache.set(imagePath, (async () => {
+        const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(imagePath);
+        if (error) throw error;
+        return URL.createObjectURL(data);
+      })());
+    }
+    try {
+      return await questionImageUrlCache.get(imagePath);
+    } catch (error) {
+      questionImageUrlCache.delete(imagePath);
+      throw error;
+    }
   },
 
   async deleteTemplate(templateId) {
@@ -165,7 +254,11 @@ export const formApi = {
           question_type,
           prompt,
           required,
-          options
+          options,
+          image_path,
+          image_mime_type,
+          image_width,
+          image_height
         )
       `)
       .eq("class_id", klass.id)
@@ -197,7 +290,11 @@ export const formApi = {
           question_type,
           prompt,
           required,
-          options
+          options,
+          image_path,
+          image_mime_type,
+          image_width,
+          image_height
         )
       `)
       .eq("id", runId)

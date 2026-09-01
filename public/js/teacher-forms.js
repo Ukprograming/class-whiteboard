@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
 import {
   buildResponseTableModel,
@@ -12,6 +12,9 @@ const QUESTION_LABELS = {
   single_choice: "単一選択",
   multiple_choice: "複数選択",
 };
+
+const MAX_FORM_IMAGE_BYTES = 8 * 1024 * 1024;
+const FORM_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 function localId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -38,6 +41,13 @@ function newQuestion(questionType = "text") {
     questionType,
     prompt: "",
     required: true,
+    imagePath: "",
+    imageMimeType: "",
+    imageWidth: 0,
+    imageHeight: 0,
+    imageFile: null,
+    imagePreviewUrl: "",
+    imagePreviewOwned: false,
     options: isChoice
       ? [
           { id: localId("option"), label: "選択肢1" },
@@ -54,6 +64,13 @@ function normalizeEditorQuestion(question) {
     questionType,
     prompt: question.prompt || "",
     required: question.required !== false,
+    imagePath: question.imagePath || question.image_path || "",
+    imageMimeType: question.imageMimeType || question.image_mime_type || "",
+    imageWidth: Number(question.imageWidth || question.image_width) || 0,
+    imageHeight: Number(question.imageHeight || question.image_height) || 0,
+    imageFile: null,
+    imagePreviewUrl: "",
+    imagePreviewOwned: false,
     options: questionType === "text"
       ? []
       : (question.options || []).map((option) => ({
@@ -61,6 +78,47 @@ function normalizeEditorQuestion(question) {
           label: String(option.label || ""),
         })),
   };
+}
+
+function releaseOwnedQuestionPreview(question) {
+  if (question?.imagePreviewOwned && question.imagePreviewUrl) {
+    URL.revokeObjectURL(question.imagePreviewUrl);
+  }
+  if (question) {
+    question.imagePreviewUrl = "";
+    question.imagePreviewOwned = false;
+  }
+}
+
+function inspectQuestionImage(file) {
+  return new Promise((resolve, reject) => {
+    const mimeType = String(file?.type || "").toLowerCase();
+    if (!file || !FORM_IMAGE_TYPES.has(mimeType)) {
+      reject(new Error("画像はJPEG・PNG・WebP・GIF形式を選択してください。"));
+      return;
+    }
+    if (!file.size || file.size > MAX_FORM_IMAGE_BYTES) {
+      reject(new Error("画像は8MB以下にしてください。"));
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const width = Number(image.naturalWidth) || 0;
+      const height = Number(image.naturalHeight) || 0;
+      if (width < 1 || height < 1 || width > 12000 || height > 12000) {
+        URL.revokeObjectURL(previewUrl);
+        reject(new Error("画像の縦横は1〜12000pxの範囲にしてください。"));
+        return;
+      }
+      resolve({ file, previewUrl, mimeType, width, height });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(previewUrl);
+      reject(new Error("画像を読み込めませんでした。別の画像を選択してください。"));
+    };
+    image.src = previewUrl;
+  });
 }
 
 function createEmptyMessage(message) {
@@ -243,6 +301,9 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       exportExcel.textContent = "Excel出力";
       exportExcel.addEventListener("click", () => {
         exportFormQuestionsXlsx({ title: template.title, questions: template.questions });
+        if (template.questions.some((question) => question.image_path || question.imagePath)) {
+          setStatus("設問画像はExcelには含まれません。問題文と選択肢を出力しました。");
+        }
       });
 
       const remove = document.createElement("button");
@@ -705,7 +766,100 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     }
   }
 
+  function releaseEditorQuestionPreviews() {
+    editorQuestions.forEach(releaseOwnedQuestionPreview);
+  }
+
+  function fillQuestionImagePreview(preview, question, url) {
+    preview.innerHTML = "";
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = `${question.prompt || "設問"}の画像`;
+    preview.appendChild(image);
+  }
+
+  function buildQuestionImageEditor(question, index) {
+    const editor = document.createElement("div");
+    editor.className = "form-question-image-editor";
+    const preview = document.createElement("div");
+    preview.className = "form-question-image-preview";
+    const hasImage = !!(question.imageFile || question.imagePath || question.imagePreviewUrl);
+    preview.classList.toggle("hidden", !hasImage);
+    if (question.imagePreviewUrl) {
+      fillQuestionImagePreview(preview, question, question.imagePreviewUrl);
+    } else if (question.imagePath) {
+      const loading = document.createElement("span");
+      loading.textContent = "画像を読み込んでいます…";
+      preview.appendChild(loading);
+      const expectedPath = question.imagePath;
+      void formApi.getQuestionImageUrl(expectedPath).then((url) => {
+        if (!editorQuestions.includes(question) || question.imagePath !== expectedPath) return;
+        question.imagePreviewUrl = url;
+        question.imagePreviewOwned = false;
+        fillQuestionImagePreview(preview, question, url);
+      }).catch((error) => {
+        console.error("Failed to load form question image", error);
+        if (editorQuestions.includes(question) && question.imagePath === expectedPath) {
+          preview.textContent = "画像を読み込めませんでした。";
+        }
+      });
+    }
+
+    const controls = document.createElement("div");
+    controls.className = "form-question-image-controls";
+    const picker = document.createElement("label");
+    picker.className = "form-secondary-btn form-question-image-picker";
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-rounded";
+    icon.textContent = "image";
+    const pickerText = document.createTextNode(hasImage ? "画像を変更" : "画像を追加");
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg,image/png,image/webp,image/gif";
+    input.dataset.questionField = "image";
+    input.setAttribute("aria-label", `${index + 1}問目の画像を選択`);
+    picker.append(icon, pickerText, input);
+    controls.appendChild(picker);
+    if (hasImage) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "form-secondary-btn";
+      remove.dataset.imageAction = "remove";
+      remove.textContent = "画像を削除";
+      controls.appendChild(remove);
+    }
+    const help = document.createElement("small");
+    help.textContent = "JPEG・PNG・WebP・GIF（8MBまで）";
+    controls.appendChild(help);
+    editor.append(preview, controls);
+    return editor;
+  }
+
+  async function setEditorQuestionImage(question, file) {
+    try {
+      setEditorStatus("画像を確認しています…");
+      const inspected = await inspectQuestionImage(file);
+      if (!editorQuestions.includes(question)) {
+        URL.revokeObjectURL(inspected.previewUrl);
+        return;
+      }
+      releaseOwnedQuestionPreview(question);
+      question.imagePath = "";
+      question.imageMimeType = inspected.mimeType;
+      question.imageWidth = inspected.width;
+      question.imageHeight = inspected.height;
+      question.imageFile = inspected.file;
+      question.imagePreviewUrl = inspected.previewUrl;
+      question.imagePreviewOwned = true;
+      setEditorStatus("画像を追加しました。保存するとアップロードされます。");
+      renderQuestionEditor();
+    } catch (error) {
+      setEditorStatus(error?.message || "画像を追加できませんでした。", true);
+    }
+  }
+
   function openEditor(template = null, { imported = false } = {}) {
+    releaseEditorQuestionPreviews();
     editorTemplateId = template?.id || null;
     editorHeading.textContent = template?.id
       ? "フォームを編集"
@@ -739,7 +893,9 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     try {
       const title = validateEditor();
       exportFormQuestionsXlsx({ title, questions: editorQuestions });
-      setEditorStatus("現在の設問をExcelファイルに出力しました。");
+      setEditorStatus(editorQuestions.some((question) => question.imagePath || question.imageFile)
+        ? "問題文と選択肢を出力しました。設問画像はExcelには含まれません。"
+        : "現在の設問をExcelファイルに出力しました。");
     } catch (error) {
       setEditorStatus(error?.message || "Excelファイルを出力できませんでした。", true);
     }
@@ -747,6 +903,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
 
   function closeEditor() {
     editorBackdrop.classList.add("hidden");
+    releaseEditorQuestionPreviews();
     editorTemplateId = null;
     editorQuestions = [];
   }
@@ -820,6 +977,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       requiredLabel.append(required, document.createTextNode("必須回答"));
 
       card.append(head, fields, requiredLabel);
+      card.appendChild(buildQuestionImageEditor(question, index));
       if (question.questionType !== "text") {
         card.appendChild(buildOptionsEditor(question));
       }
@@ -894,9 +1052,24 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   }
 
   async function saveEditor() {
+    const uploadedPaths = [];
     try {
       const title = validateEditor();
       editorSaveBtn.disabled = true;
+      const imagesToUpload = editorQuestions.filter((question) => question.imageFile);
+      for (let index = 0; index < imagesToUpload.length; index += 1) {
+        const question = imagesToUpload[index];
+        setEditorStatus(`画像をアップロードしています…（${index + 1}/${imagesToUpload.length}）`);
+        const uploaded = await formApi.uploadQuestionImage(question.imageFile, {
+          width: question.imageWidth,
+          height: question.imageHeight,
+        });
+        uploadedPaths.push(uploaded.imagePath);
+        question.imagePath = uploaded.imagePath;
+        question.imageMimeType = uploaded.imageMimeType;
+        question.imageWidth = uploaded.imageWidth;
+        question.imageHeight = uploaded.imageHeight;
+      }
       setEditorStatus("保存中…");
       await formApi.saveTemplate({ id: editorTemplateId, title, questions: editorQuestions });
       await refreshTemplates();
@@ -905,6 +1078,16 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       setStatus("フォームを保存しました。");
     } catch (error) {
       console.error("Failed to save form template", error);
+      if (uploadedPaths.length) {
+        try {
+          await formApi.removeQuestionImages(uploadedPaths);
+        } catch (cleanupError) {
+          console.warn("Failed to clean up unsaved form images", cleanupError);
+        }
+        editorQuestions.forEach((question) => {
+          if (uploadedPaths.includes(question.imagePath)) question.imagePath = "";
+        });
+      }
       setEditorStatus(error?.message || "フォームを保存できませんでした。", true);
     } finally {
       editorSaveBtn.disabled = false;
@@ -1164,6 +1347,11 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   questionEditorList?.addEventListener("change", (event) => {
     const question = findEditorQuestion(event.target);
     if (!question) return;
+    if (event.target.dataset.questionField === "image") {
+      const file = event.target.files?.[0];
+      if (file) void setEditorQuestionImage(question, file);
+      return;
+    }
     if (event.target.dataset.questionField === "required") question.required = event.target.checked;
     if (event.target.dataset.questionField === "questionType") {
       question.questionType = event.target.value;
@@ -1182,6 +1370,18 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   questionEditorList?.addEventListener("click", (event) => {
     const question = findEditorQuestion(event.target);
     if (!question) return;
+    const imageAction = event.target.closest("[data-image-action]")?.dataset.imageAction;
+    if (imageAction === "remove") {
+      releaseOwnedQuestionPreview(question);
+      question.imagePath = "";
+      question.imageMimeType = "";
+      question.imageWidth = 0;
+      question.imageHeight = 0;
+      question.imageFile = null;
+      setEditorStatus("設問画像を削除しました。保存すると反映されます。");
+      renderQuestionEditor();
+      return;
+    }
     const questionAction = event.target.closest("[data-question-action]")?.dataset.questionAction;
     const index = editorQuestions.indexOf(question);
     if (questionAction === "up" && index > 0) {
@@ -1193,6 +1393,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       renderQuestionEditor();
     }
     if (questionAction === "remove" && editorQuestions.length > 1) {
+      releaseOwnedQuestionPreview(question);
       editorQuestions.splice(index, 1);
       renderQuestionEditor();
     }
