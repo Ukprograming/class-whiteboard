@@ -474,6 +474,13 @@ const multiSelectionContracts = [
   "_addObjectToSelection(obj)",
   "this._retainObjectMultiSelection(hitObj)",
   "this._retainStrokeMultiSelection(hitStroke)",
+  "_getMultiSelectionBounds()",
+  "_startMultiSelectionResize(handle)",
+  "_updateMultiSelectionResize(wx, wy, keepAspect = false)",
+  "_drawMultiSelectionResizeHandles(ctx, bounds)",
+  'mode: "multi-selection-resize"',
+  "obj.width !== entry.width",
+  "width: entry.width != null ? entry.width : obj.width",
   "ox1 <= ex && ox2 >= sx && oy1 <= ey && oy2 >= sy",
   "minX <= ex && maxX >= sx && minY <= ey && maxY >= sy",
 ];
@@ -487,8 +494,8 @@ if (missingMultiSelectionContracts.length > 0) {
   ok = false;
 }
 if (
-  !boardUiSource.includes("multi-select=20260901a") ||
-  (teacherSource.match(/multi-select=20260901a/g) || []).length < 2
+  !boardUiSource.includes("multi-select=20260901b") ||
+  (teacherSource.match(/multi-select=20260901b/g) || []).length < 2
 ) {
   console.error("Whiteboard multi-selection changes must be cache-busted on every direct import path.");
   ok = false;

@@ -3262,6 +3262,8 @@ export class Whiteboard {
         obj,
         x: obj.x,
         y: obj.y,
+        width: obj.width,
+        height: obj.height,
         points: obj.points ? obj.points.map(point => ({ x: point.x, y: point.y })) : null
       }));
     const strokes = (this.multiSelectedStrokes || [])
@@ -3281,6 +3283,133 @@ export class Whiteboard {
 
     this.isDraggingObj = true;
     this.dragStart = { wx, wy, objects, strokes };
+    return true;
+  }
+
+  _getMultiSelectionBounds() {
+    const objects = (this.multiSelectedObjects || []).filter(obj => !obj.locked);
+    const strokes = (this.multiSelectedStrokes || []).filter(stroke => !stroke.locked);
+    if (objects.length + strokes.length < 2) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    objects.forEach(obj => {
+      const bounds = this._normalizeRect(obj);
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    });
+    strokes.forEach(stroke => {
+      const bounds = this._getStrokeBounds(stroke);
+      if (!bounds) return;
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    });
+
+    if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+    const minSpan = Math.max(1 / this.scale, 0.01);
+    if (maxX - minX < minSpan) maxX = minX + minSpan;
+    if (maxY - minY < minSpan) maxY = minY + minSpan;
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      objects,
+      strokes
+    };
+  }
+
+  _startMultiSelectionResize(handle) {
+    const bounds = this._getMultiSelectionBounds();
+    if (!bounds || !["nw", "ne", "se", "sw"].includes(handle)) return false;
+
+    let anchorX = bounds.x;
+    let anchorY = bounds.y;
+    if (handle === "nw") {
+      anchorX = bounds.x + bounds.width;
+      anchorY = bounds.y + bounds.height;
+    } else if (handle === "ne") {
+      anchorX = bounds.x;
+      anchorY = bounds.y + bounds.height;
+    } else if (handle === "sw") {
+      anchorX = bounds.x + bounds.width;
+      anchorY = bounds.y;
+    }
+
+    this.dragStart = {
+      mode: "multi-selection-resize",
+      handle,
+      bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+      anchorX,
+      anchorY,
+      objects: bounds.objects.map(obj => ({
+        obj,
+        x: obj.x,
+        y: obj.y,
+        width: obj.width,
+        height: obj.height,
+        points: obj.points ? obj.points.map(point => ({ x: point.x, y: point.y })) : null
+      })),
+      strokes: bounds.strokes.map(stroke => ({
+        stroke,
+        points: stroke.points.map(point => ({ x: point.x, y: point.y })),
+        width: Number(stroke.width) || 1
+      }))
+    };
+    return true;
+  }
+
+  _updateMultiSelectionResize(wx, wy, keepAspect = false) {
+    const start = this.dragStart;
+    if (start?.mode !== "multi-selection-resize") return false;
+
+    const minSpan = Math.max(8 / this.scale, 0.01);
+    let width = Math.max(minSpan, Math.abs(wx - start.anchorX));
+    let height = Math.max(minSpan, Math.abs(wy - start.anchorY));
+    if (keepAspect && start.bounds.width > 0 && start.bounds.height > 0) {
+      const scaleX = width / start.bounds.width;
+      const scaleY = height / start.bounds.height;
+      if (scaleX >= scaleY) {
+        height = Math.max(minSpan, start.bounds.height * scaleX);
+      } else {
+        width = Math.max(minSpan, start.bounds.width * scaleY);
+      }
+    }
+
+    const left = start.handle.includes("w") ? start.anchorX - width : start.anchorX;
+    const top = start.handle.includes("n") ? start.anchorY - height : start.anchorY;
+    const scaleX = width / start.bounds.width;
+    const scaleY = height / start.bounds.height;
+
+    start.objects.forEach(entry => {
+      entry.obj.x = left + (entry.x - start.bounds.x) * scaleX;
+      entry.obj.y = top + (entry.y - start.bounds.y) * scaleY;
+      entry.obj.width = entry.width * scaleX;
+      entry.obj.height = entry.height * scaleY;
+      if (entry.points && entry.obj.points) {
+        entry.obj.points = entry.points.map(point => ({
+          x: left + (point.x - start.bounds.x) * scaleX,
+          y: top + (point.y - start.bounds.y) * scaleY
+        }));
+      }
+    });
+    start.strokes.forEach(entry => {
+      entry.stroke.points = entry.points.map(point => ({
+        x: left + (point.x - start.bounds.x) * scaleX,
+        y: top + (point.y - start.bounds.y) * scaleY
+      }));
+      entry.stroke.width = Math.max(
+        0.1,
+        entry.width * Math.sqrt(Math.abs(scaleX * scaleY))
+      );
+    });
     return true;
   }
 
@@ -4024,6 +4153,15 @@ export class Whiteboard {
           return;
         }
 
+        if (this._getSelectedItemCount() > 1) {
+          const handle = this._hitTestResizeHandle(sx, sy);
+          if (handle && this._startMultiSelectionResize(handle)) {
+            this.isResizingObj = true;
+            this.resizeHandle = handle;
+            return;
+          }
+        }
+
         const selectedStroke = this._getSingleSelectedStroke();
         if (selectedStroke && !selectedStroke.locked) {
           const handle = this._hitTestResizeHandle(sx, sy);
@@ -4559,6 +4697,12 @@ export class Whiteboard {
           e.preventDefault();
           const { wx, wy } = getPos(e);
 
+          if (this.dragStart.mode === "multi-selection-resize") {
+            this._updateMultiSelectionResize(wx, wy, e.shiftKey);
+            this.render();
+            return;
+          }
+
           if (
             this.dragStart.mode === "stroke-rotate" &&
             this.dragStart.strokes?.length === 1
@@ -4880,6 +5024,8 @@ export class Whiteboard {
                 const moved =
                   obj.x !== entry.x ||
                   obj.y !== entry.y ||
+                  (entry.width != null && obj.width !== entry.width) ||
+                  (entry.height != null && obj.height !== entry.height) ||
                   (entry.points && obj.points && obj.points.some((p, i) => {
                     const bp = entry.points[i];
                     return !bp || p.x !== bp.x || p.y !== bp.y;
@@ -4891,10 +5037,8 @@ export class Whiteboard {
                     before: {
                       x: entry.x,
                       y: entry.y,
-                      // width/height は移動では変わらないので不要だが、
-                      // 将来の拡張を考えて一応含めておく
-                      width: obj.width,
-                      height: obj.height,
+                      width: entry.width != null ? entry.width : obj.width,
+                      height: entry.height != null ? entry.height : obj.height,
                       points: entry.points
                         ? entry.points.map(p => ({ x: p.x, y: p.y }))
                         : null
@@ -6584,22 +6728,70 @@ export class Whiteboard {
     }
 
     // ---- リサイズハンドルの描画 ----
-    // 選択ツールで、単一オブジェクトが選択されているときだけ表示
-    if (
-      this.tool === "select" &&
-      this.multiSelectedObjects &&
-      this.multiSelectedObjects.length === 1 &&
-      this.selectedObj
-    ) {
-      this._drawResizeHandles(ctx, this.selectedObj);
-      if (this.selectedObj.kind === "table") {
-        this._drawTableControls(ctx, this.selectedObj);
+    const multiSelectionBounds = this.tool === "select"
+      ? this._getMultiSelectionBounds()
+      : null;
+    if (multiSelectionBounds) {
+      this._drawMultiSelectionResizeHandles(ctx, multiSelectionBounds);
+    } else {
+      // 単体選択ではオブジェクト固有の回転・奥行きハンドルも表示する。
+      if (
+        this.tool === "select" &&
+        this.multiSelectedObjects &&
+        this.multiSelectedObjects.length === 1 &&
+        this.selectedObj
+      ) {
+        this._drawResizeHandles(ctx, this.selectedObj);
+        if (this.selectedObj.kind === "table") {
+          this._drawTableControls(ctx, this.selectedObj);
+        }
+      }
+      const selectedStroke = this._getSingleSelectedStroke();
+      if (this.tool === "select" && selectedStroke) {
+        this._drawStrokeResizeHandles(ctx, selectedStroke);
       }
     }
-    const selectedStroke = this._getSingleSelectedStroke();
-    if (this.tool === "select" && selectedStroke) {
-      this._drawStrokeResizeHandles(ctx, selectedStroke);
-    }
+  }
+
+
+  _drawMultiSelectionResizeHandles(ctx, bounds) {
+    if (!bounds) return;
+    const { x, y, width, height } = bounds;
+    const handleSizePx = 10;
+    const dpr = this.dpr || window.devicePixelRatio || 1;
+    const sizeWorld = handleSizePx / (this.scale * dpr);
+    const halfWorld = sizeWorld / 2;
+    const corners = [
+      { name: "nw", wx: x, wy: y },
+      { name: "ne", wx: x + width, wy: y },
+      { name: "se", wx: x + width, wy: y + height },
+      { name: "sw", wx: x, wy: y + height }
+    ];
+
+    ctx.save();
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 1.5 / this.scale;
+    ctx.setLineDash([6 / this.scale, 3 / this.scale]);
+    ctx.strokeRect(x, y, width, height);
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    corners.forEach(corner => {
+      const screen = this._worldToScreen(corner.wx, corner.wy);
+      this.handleRects.push({
+        name: corner.name,
+        x: screen.x - handleSizePx / 2,
+        y: screen.y - handleSizePx / 2,
+        size: handleSizePx
+      });
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 1.5 / this.scale;
+      ctx.fillRect(corner.wx - halfWorld, corner.wy - halfWorld, sizeWorld, sizeWorld);
+      ctx.strokeRect(corner.wx - halfWorld, corner.wy - halfWorld, sizeWorld, sizeWorld);
+      ctx.restore();
+    });
   }
 
 
