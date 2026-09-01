@@ -378,6 +378,30 @@ const passwordVisibilitySource = readFileSync("public/js/password-visibility.js"
 const youtubeUtilsSource = readFileSync("public/js/youtube-utils.mjs", "utf8");
 const styleSource = readFileSync("public/style.css", "utf8");
 const serverSource = readFileSync("server.js", "utf8");
+const cameraToolContracts = [
+  [teacherHtmlSource, 'id="cameraCaptureBtn"'],
+  [studentHtmlSource, 'id="cameraCaptureBtn"'],
+  [teacherHtmlSource, 'id="cameraCaptureVideo" autoplay muted playsinline'],
+  [studentHtmlSource, 'id="cameraCaptureInsertBtn"'],
+  [boardUiSource, "navigator.mediaDevices.getUserMedia({"],
+  [boardUiSource, 'facingMode: { ideal: "environment" }'],
+  [boardUiSource, "captureCanvas.toBlob(resolve, \"image/jpeg\", 0.9)"],
+  [boardUiSource, "await wb.pasteImageBlob(cameraCapturedBlob)"],
+  [boardUiSource, "cameraCaptureStream.getTracks().forEach(track => track.stop())"],
+  [boardUiSource, "/iPad|iPhone|iPod/i.test(userAgent)"],
+  [boardUiSource, "画像をコピーし、ホワイトボード上に貼り付けてください"],
+  [styleSource, ".camera-capture-backdrop"],
+  [styleSource, ".camera-capture-stage video"],
+  [teacherHtmlSource, "camera-tool=20260901"],
+  [studentHtmlSource, "camera-tool=20260901"],
+];
+const missingCameraToolContracts = cameraToolContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingCameraToolContracts.length > 0) {
+  console.error(`Whiteboard camera tool contracts missing: ${missingCameraToolContracts.join(", ")}`);
+  ok = false;
+}
 const youtubeEmbedContracts = [
   [youtubeUtilsSource, 'const YOUTUBE_HOSTS = new Set(['],
   [youtubeUtilsSource, 'https://www.youtube-nocookie.com/embed/'],

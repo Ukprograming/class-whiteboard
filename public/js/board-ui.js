@@ -3,7 +3,7 @@
 
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260901";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -83,6 +83,197 @@ export function initBoardUI() {
   const lockBtn = document.getElementById("lockBtn");
   const deleteBtn = document.getElementById("deleteBtn");
   const zoomLevelLabel = document.getElementById("zoomLevel");
+
+  // ========= カメラ撮影 =========
+  const cameraCaptureBtn = document.getElementById("cameraCaptureBtn");
+  const cameraCaptureBackdrop = document.getElementById("cameraCaptureBackdrop");
+  const cameraCaptureCloseBtn = document.getElementById("cameraCaptureCloseBtn");
+  const cameraCaptureVideo = document.getElementById("cameraCaptureVideo");
+  const cameraCapturePreview = document.getElementById("cameraCapturePreview");
+  const cameraCaptureMessage = document.getElementById("cameraCaptureMessage");
+  const cameraCaptureRetakeBtn = document.getElementById("cameraCaptureRetakeBtn");
+  const cameraCaptureShutterBtn = document.getElementById("cameraCaptureShutterBtn");
+  const cameraCaptureInsertBtn = document.getElementById("cameraCaptureInsertBtn");
+  let cameraCaptureStream = null;
+  let cameraCapturedBlob = null;
+  let cameraPreviewUrl = "";
+  let cameraRequestPending = false;
+
+  function isIOSDevice() {
+    const userAgent = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    return /iPad|iPhone|iPod/i.test(userAgent)
+      || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function setCameraMessage(message, isError = false) {
+    if (!cameraCaptureMessage) return;
+    cameraCaptureMessage.textContent = message;
+    cameraCaptureMessage.classList.toggle("is-error", isError);
+  }
+
+  function stopCameraCaptureStream() {
+    if (cameraCaptureStream) {
+      cameraCaptureStream.getTracks().forEach(track => track.stop());
+      cameraCaptureStream = null;
+    }
+    if (cameraCaptureVideo) cameraCaptureVideo.srcObject = null;
+  }
+
+  function clearCameraPreview() {
+    cameraCapturedBlob = null;
+    if (cameraPreviewUrl) {
+      URL.revokeObjectURL(cameraPreviewUrl);
+      cameraPreviewUrl = "";
+    }
+    cameraCapturePreview?.removeAttribute("src");
+    cameraCapturePreview?.classList.add("hidden");
+    cameraCaptureVideo?.classList.remove("hidden");
+    cameraCaptureRetakeBtn?.classList.add("hidden");
+    cameraCaptureShutterBtn?.classList.remove("hidden");
+    if (cameraCaptureInsertBtn) cameraCaptureInsertBtn.disabled = true;
+  }
+
+  function closeCameraCapture() {
+    stopCameraCaptureStream();
+    clearCameraPreview();
+    cameraCaptureBackdrop?.classList.add("hidden");
+    document.body.classList.remove("camera-capture-open");
+    setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
+    cameraCaptureBtn?.focus();
+  }
+
+  function cameraErrorMessage(error) {
+    if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+      return "カメラの使用が許可されませんでした。ブラウザの設定でカメラを許可してから、もう一度お試しください。";
+    }
+    if (error?.name === "NotFoundError" || error?.name === "OverconstrainedError") {
+      return "利用できるカメラが見つかりませんでした。端末のカメラ設定を確認してください。";
+    }
+    if (error?.name === "NotReadableError") {
+      return "カメラを起動できませんでした。他のアプリでカメラを使用していないか確認してください。";
+    }
+    return "カメラの起動に失敗しました。接続とブラウザの設定を確認してください。";
+  }
+
+  async function openCameraCapture() {
+    if (cameraRequestPending) return;
+    if (isIOSDevice()) {
+      window.alert("iPhone・iPadでは、写真アプリなどで画像をコピーし、ホワイトボード上に貼り付けてください。");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      window.alert("このブラウザではカメラを利用できません。画像をコピーして、ホワイトボード上に貼り付けてください。");
+      return;
+    }
+
+    cameraRequestPending = true;
+    cameraCaptureBtn.disabled = true;
+    cameraCaptureBtn.setAttribute("aria-busy", "true");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+      cameraCaptureStream = stream;
+      clearCameraPreview();
+      cameraCaptureVideo.srcObject = stream;
+      cameraCaptureBackdrop.classList.remove("hidden");
+      document.body.classList.add("camera-capture-open");
+      setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
+      const playback = cameraCaptureVideo.play();
+      if (playback?.catch) {
+        void playback.catch(error => {
+          console.warn("Camera preview playback did not start automatically.", error);
+        });
+      }
+      cameraCaptureShutterBtn?.focus();
+    } catch (error) {
+      console.error("Failed to start whiteboard camera", error);
+      stopCameraCaptureStream();
+      window.alert(cameraErrorMessage(error));
+    } finally {
+      cameraRequestPending = false;
+      cameraCaptureBtn.disabled = false;
+      cameraCaptureBtn.removeAttribute("aria-busy");
+    }
+  }
+
+  async function captureCameraFrame() {
+    const sourceWidth = cameraCaptureVideo?.videoWidth || 0;
+    const sourceHeight = cameraCaptureVideo?.videoHeight || 0;
+    if (!sourceWidth || !sourceHeight) {
+      setCameraMessage("カメラ映像を準備しています。少し待ってから、もう一度撮影してください。", true);
+      return;
+    }
+
+    const maxEdge = 2048;
+    const outputScale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+    const captureCanvas = document.createElement("canvas");
+    captureCanvas.width = Math.max(1, Math.round(sourceWidth * outputScale));
+    captureCanvas.height = Math.max(1, Math.round(sourceHeight * outputScale));
+    const captureContext = captureCanvas.getContext("2d");
+    if (!captureContext) {
+      setCameraMessage("撮影画像を作成できませんでした。もう一度お試しください。", true);
+      return;
+    }
+    captureContext.imageSmoothingEnabled = true;
+    captureContext.imageSmoothingQuality = "high";
+    captureContext.drawImage(cameraCaptureVideo, 0, 0, captureCanvas.width, captureCanvas.height);
+    const blob = await new Promise(resolve => captureCanvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) {
+      setCameraMessage("撮影画像を作成できませんでした。もう一度お試しください。", true);
+      return;
+    }
+
+    clearCameraPreview();
+    cameraCapturedBlob = blob;
+    cameraPreviewUrl = URL.createObjectURL(blob);
+    cameraCapturePreview.src = cameraPreviewUrl;
+    cameraCapturePreview.classList.remove("hidden");
+    cameraCaptureVideo.classList.add("hidden");
+    cameraCaptureRetakeBtn?.classList.remove("hidden");
+    cameraCaptureShutterBtn?.classList.add("hidden");
+    cameraCaptureInsertBtn.disabled = false;
+    setCameraMessage("撮影した画像を確認し、よければホワイトボードに挿入してください。");
+    cameraCaptureInsertBtn.focus();
+  }
+
+  function retakeCameraFrame() {
+    clearCameraPreview();
+    setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
+    cameraCaptureShutterBtn?.focus();
+  }
+
+  async function insertCameraFrame() {
+    if (!cameraCapturedBlob || !wb.pasteImageBlob) return;
+    cameraCaptureInsertBtn.disabled = true;
+    setCameraMessage("ホワイトボードに画像を挿入しています…");
+    try {
+      await wb.pasteImageBlob(cameraCapturedBlob);
+      closeCameraCapture();
+    } catch (error) {
+      console.error("Failed to insert camera image", error);
+      cameraCaptureInsertBtn.disabled = false;
+      setCameraMessage("画像を挿入できませんでした。もう一度お試しください。", true);
+    }
+  }
+
+  cameraCaptureBtn?.addEventListener("click", () => void openCameraCapture());
+  cameraCaptureCloseBtn?.addEventListener("click", closeCameraCapture);
+  cameraCaptureShutterBtn?.addEventListener("click", () => void captureCameraFrame());
+  cameraCaptureRetakeBtn?.addEventListener("click", retakeCameraFrame);
+  cameraCaptureInsertBtn?.addEventListener("click", () => void insertCameraFrame());
+  cameraCaptureBackdrop?.addEventListener("click", event => {
+    if (event.target === cameraCaptureBackdrop) closeCameraCapture();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && cameraCaptureBackdrop && !cameraCaptureBackdrop.classList.contains("hidden")) {
+      event.preventDefault();
+      closeCameraCapture();
+    }
+  });
+  window.addEventListener("pagehide", stopCameraCaptureStream);
 
   // ✅ Whiteboardの実スケールからズーム表示を更新
   function updateZoomLabelFromWB() {
