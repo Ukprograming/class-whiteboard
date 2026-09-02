@@ -1,9 +1,9 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&youtube=20260831b&camera-tool=20260902b";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825&youtube=20260831b&multi-select=20260901b";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825&youtube=20260831b&multi-select=20260901b&edit-selection=20260902";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260901a&forms=20260830b&youtube=20260831b&camera-tool=20260902b";
-import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260901a&youtube=20260831b&multi-select=20260901b";
+import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260901a&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902";
+import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260901a&youtube=20260831b&multi-select=20260901b&edit-selection=20260902";
 import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
 import {
   canAcceptTeacherBoardSnapshot,

@@ -4003,8 +4003,15 @@ export class Whiteboard {
     const down = e => {
       e.preventDefault();
 
+      const wasEditingObject = !!this.editingObj;
       if (this.editingObj || this.editingTableCell) {
         this._commitTextEditor();
+      }
+      // Existing text and sticky-note objects temporarily activate their
+      // matching creation tool while their editor is open.  The click that
+      // closes that editor must behave as selection, not place a new object.
+      if (wasEditingObject) {
+        this.setTool("select");
       }
 
       if (e.touches && e.touches.length >= 2) {

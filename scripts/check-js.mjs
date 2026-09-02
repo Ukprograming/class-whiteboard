@@ -814,6 +814,8 @@ if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
 const interactionContracts = [
   [whiteboardSource, 'canvas.style.cursor = isHandleHovered ? "pointer" : ""'],
   [whiteboardSource, "this._activateToolForObject(hit)"],
+  [whiteboardSource, "const wasEditingObject = !!this.editingObj"],
+  [whiteboardSource, 'if (wasEditingObject) {\n        this.setTool("select");'],
   [boardUiSource, "wb.onToolChange = tool =>"],
   [teacherHtmlSource, 'id="studentModalPreviousBtn"'],
   [teacherHtmlSource, 'id="studentModalNextBtn"'],
@@ -825,6 +827,20 @@ const missingInteractionContracts = interactionContracts
   .map(([, contract]) => contract);
 if (missingInteractionContracts.length > 0) {
   console.error(`Whiteboard interaction contracts missing: ${missingInteractionContracts.join(", ")}`);
+  ok = false;
+}
+const editSelectionCacheKey = "edit-selection=20260902";
+const editSelectionVersionedSources = [
+  [boardUiSource, 1],
+  [studentSource, 1],
+  [teacherSource, 4],
+  [studentHtmlSource, 1],
+  [teacherHtmlSource, 1],
+];
+if (editSelectionVersionedSources.some(([source, minimum]) =>
+  (source.match(/edit-selection=20260902/g) || []).length < minimum
+)) {
+  console.error("Whiteboard edit-selection changes must be cache-busted on every direct import path.");
   ok = false;
 }
 
