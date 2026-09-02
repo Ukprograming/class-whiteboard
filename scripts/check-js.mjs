@@ -430,8 +430,10 @@ const cameraToolContracts = [
   [boardUiSource, 'facingMode: { ideal: "environment" }'],
   [boardUiSource, 'deviceId: { exact: deviceId }'],
   [boardUiSource, "navigator.mediaDevices.enumerateDevices()"],
-  [boardUiSource, "calculateCoverCrop("],
-  [cameraUtilsSource, "export function calculateCoverCrop("],
+  [boardUiSource, "calculateCameraStageSize("],
+  [cameraUtilsSource, "export function calculateCameraStageSize("],
+  [boardUiSource, "maxEdge / Math.max(sourceWidth, sourceHeight)"],
+  [boardUiSource, "cameraCaptureStage.style.aspectRatio = `${sourceWidth} / ${sourceHeight}`"],
   [boardUiSource, "captureCanvas.toBlob(resolve, \"image/jpeg\", 0.9)"],
   [boardUiSource, "await wb.pasteImageBlob(cameraCapturedBlob)"],
   [boardUiSource, "stream?.getTracks?.().forEach(track => track.stop())"],
@@ -439,9 +441,9 @@ const cameraToolContracts = [
   [boardUiSource, "画像をコピーし、ホワイトボード上に貼り付けてください"],
   [styleSource, ".camera-capture-backdrop"],
   [styleSource, ".camera-capture-stage video"],
-  [styleSource, "object-fit: cover"],
-  [teacherHtmlSource, "camera-tool=20260902"],
-  [studentHtmlSource, "camera-tool=20260902"],
+  [styleSource, "object-fit: contain"],
+  [teacherHtmlSource, "camera-tool=20260902b"],
+  [studentHtmlSource, "camera-tool=20260902b"],
 ];
 const missingCameraToolContracts = cameraToolContracts
   .filter(([source, contract]) => !source.includes(contract))

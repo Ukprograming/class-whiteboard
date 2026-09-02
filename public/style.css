@@ -411,6 +411,7 @@ body.camera-capture-open {
   width: 100%;
   aspect-ratio: 4 / 3;
   max-height: min(58vh, 560px);
+  margin-inline: auto;
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -430,7 +431,7 @@ body.camera-capture-open {
 }
 
 .camera-capture-stage video {
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .camera-capture-stage img {

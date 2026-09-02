@@ -2,9 +2,9 @@
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b";
-import { calculateCoverCrop } from "./camera-utils.mjs?v=camera-frame-20260902";
+import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -90,6 +90,7 @@ export function initBoardUI() {
   const cameraCaptureBackdrop = document.getElementById("cameraCaptureBackdrop");
   const cameraCaptureCloseBtn = document.getElementById("cameraCaptureCloseBtn");
   const cameraCaptureDeviceSelect = document.getElementById("cameraCaptureDeviceSelect");
+  const cameraCaptureStage = document.querySelector("#cameraCaptureBackdrop .camera-capture-stage");
   const cameraCaptureVideo = document.getElementById("cameraCaptureVideo");
   const cameraCapturePreview = document.getElementById("cameraCapturePreview");
   const cameraCaptureMessage = document.getElementById("cameraCaptureMessage");
@@ -183,6 +184,34 @@ export function initBoardUI() {
     }
   }
 
+  function fitCameraCaptureStage() {
+    const sourceWidth = cameraCaptureVideo?.videoWidth || 0;
+    const sourceHeight = cameraCaptureVideo?.videoHeight || 0;
+    const dialog = cameraCaptureStage?.closest(".camera-capture-dialog");
+    if (!sourceWidth || !sourceHeight || !cameraCaptureStage || !dialog || !dialog.clientWidth) return;
+
+    const dialogStyle = getComputedStyle(dialog);
+    const stageStyle = getComputedStyle(cameraCaptureStage);
+    const horizontalPadding = (parseFloat(dialogStyle.paddingLeft) || 0)
+      + (parseFloat(dialogStyle.paddingRight) || 0);
+    const borderWidth = (parseFloat(stageStyle.borderLeftWidth) || 0)
+      + (parseFloat(stageStyle.borderRightWidth) || 0);
+    const borderHeight = (parseFloat(stageStyle.borderTopWidth) || 0)
+      + (parseFloat(stageStyle.borderBottomWidth) || 0);
+    const maxOuterWidth = Math.max(1, dialog.clientWidth - horizontalPadding);
+    const viewportHeightRatio = window.matchMedia("(max-width: 640px)").matches ? 0.52 : 0.58;
+    const maxOuterHeight = Math.min(window.innerHeight * viewportHeightRatio, 560);
+    const frame = calculateCameraStageSize(
+      sourceWidth,
+      sourceHeight,
+      Math.max(1, maxOuterWidth - borderWidth),
+      Math.max(1, maxOuterHeight - borderHeight)
+    );
+    cameraCaptureStage.style.width = `${frame.width + borderWidth}px`;
+    cameraCaptureStage.style.height = `${frame.height + borderHeight}px`;
+    cameraCaptureStage.style.aspectRatio = `${sourceWidth} / ${sourceHeight}`;
+  }
+
   async function startCameraCaptureStream(deviceId, requestId) {
     const video = deviceId
       ? { deviceId: { exact: deviceId } }
@@ -199,6 +228,7 @@ export function initBoardUI() {
     cameraActiveDeviceId = track?.getSettings?.().deviceId || deviceId || "";
     cameraCaptureVideo.srcObject = nextStream;
     playCameraPreview();
+    requestAnimationFrame(fitCameraCaptureStage);
     if (previousStream && previousStream !== nextStream) stopMediaStream(previousStream);
     return nextStream;
   }
@@ -272,6 +302,7 @@ export function initBoardUI() {
       clearCameraPreview();
       cameraCaptureBackdrop.classList.remove("hidden");
       document.body.classList.add("camera-capture-open");
+      requestAnimationFrame(fitCameraCaptureStage);
       setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
       await refreshCameraDeviceOptions(cameraActiveDeviceId);
       cameraCaptureShutterBtn?.focus();
@@ -324,23 +355,11 @@ export function initBoardUI() {
       return;
     }
 
-    const viewportWidth = cameraCaptureVideo.clientWidth
-      || cameraCaptureVideo.parentElement?.clientWidth
-      || sourceWidth;
-    const viewportHeight = cameraCaptureVideo.clientHeight
-      || cameraCaptureVideo.parentElement?.clientHeight
-      || sourceHeight;
-    const visibleSource = calculateCoverCrop(
-      sourceWidth,
-      sourceHeight,
-      viewportWidth,
-      viewportHeight
-    );
     const maxEdge = 2048;
-    const outputScale = Math.min(1, maxEdge / Math.max(visibleSource.width, visibleSource.height));
+    const outputScale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
     const captureCanvas = document.createElement("canvas");
-    captureCanvas.width = Math.max(1, Math.round(visibleSource.width * outputScale));
-    captureCanvas.height = Math.max(1, Math.round(visibleSource.height * outputScale));
+    captureCanvas.width = Math.max(1, Math.round(sourceWidth * outputScale));
+    captureCanvas.height = Math.max(1, Math.round(sourceHeight * outputScale));
     const captureContext = captureCanvas.getContext("2d");
     if (!captureContext) {
       setCameraMessage("撮影画像を作成できませんでした。もう一度お試しください。", true);
@@ -350,10 +369,10 @@ export function initBoardUI() {
     captureContext.imageSmoothingQuality = "high";
     captureContext.drawImage(
       cameraCaptureVideo,
-      visibleSource.x,
-      visibleSource.y,
-      visibleSource.width,
-      visibleSource.height,
+      0,
+      0,
+      sourceWidth,
+      sourceHeight,
       0,
       0,
       captureCanvas.width,
@@ -401,6 +420,7 @@ export function initBoardUI() {
   cameraCaptureBtn?.addEventListener("click", () => void openCameraCapture());
   cameraCaptureCloseBtn?.addEventListener("click", closeCameraCapture);
   cameraCaptureDeviceSelect?.addEventListener("change", () => void switchCameraCaptureDevice());
+  cameraCaptureVideo?.addEventListener("loadedmetadata", fitCameraCaptureStage);
   cameraCaptureShutterBtn?.addEventListener("click", () => void captureCameraFrame());
   cameraCaptureRetakeBtn?.addEventListener("click", retakeCameraFrame);
   cameraCaptureInsertBtn?.addEventListener("click", () => void insertCameraFrame());
@@ -422,6 +442,7 @@ export function initBoardUI() {
     cameraRequestId += 1;
     stopCameraCaptureStream();
   });
+  window.addEventListener("resize", fitCameraCaptureStage);
 
   // ✅ Whiteboardの実スケールからズーム表示を更新
   function updateZoomLabelFromWB() {

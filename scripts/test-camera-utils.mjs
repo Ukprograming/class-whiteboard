@@ -1,28 +1,28 @@
 import assert from "node:assert/strict";
-import { calculateCoverCrop } from "../public/js/camera-utils.mjs";
+import { calculateCameraStageSize } from "../public/js/camera-utils.mjs";
 
 assert.deepEqual(
-  calculateCoverCrop(1920, 1080, 640, 480),
-  { x: 240, y: 0, width: 1440, height: 1080 },
-  "16:9 camera frames should crop equally on the left and right in a 4:3 preview"
+  calculateCameraStageSize(1920, 1080, 716, 443),
+  { width: 716, height: 402.75, aspectRatio: 16 / 9 },
+  "a 16:9 camera frame should keep its complete aspect ratio within the modal"
 );
 
 assert.deepEqual(
-  calculateCoverCrop(1080, 1920, 640, 480),
-  { x: 0, y: 555, width: 1080, height: 810 },
-  "portrait camera frames should crop equally on the top and bottom in a 4:3 preview"
+  calculateCameraStageSize(1080, 1920, 716, 443),
+  { width: 249.1875, height: 443, aspectRatio: 9 / 16 },
+  "a portrait camera frame should become narrower instead of being cropped"
 );
 
 assert.deepEqual(
-  calculateCoverCrop(1280, 720, 1280, 720),
-  { x: 0, y: 0, width: 1280, height: 720 },
-  "matching aspect ratios should use the complete frame"
+  calculateCameraStageSize(1280, 960, 640, 480),
+  { width: 640, height: 480, aspectRatio: 4 / 3 },
+  "matching aspect ratios should fill the available stage"
 );
 
 assert.throws(
-  () => calculateCoverCrop(1920, 1080, 0, 480),
+  () => calculateCameraStageSize(1920, 1080, 0, 480),
   RangeError,
-  "invalid preview dimensions should fail clearly"
+  "invalid stage dimensions should fail clearly"
 );
 
-console.log("Camera preview crop utilities passed.");
+console.log("Camera stage sizing utilities passed.");
