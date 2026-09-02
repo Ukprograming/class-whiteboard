@@ -13,6 +13,7 @@ const commonJsFiles = [
 ];
 const moduleFiles = [
   "public/js/board-ui.js",
+  "public/js/camera-utils.mjs",
   "public/js/assignment-utils.mjs",
   "public/js/form-api.js",
   "public/js/form-excel.js",
@@ -414,6 +415,7 @@ if (teacherAnnouncementEventsSource.includes('"student-view-start-targeted"')) {
   ok = false;
 }
 const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
+const cameraUtilsSource = readFileSync("public/js/camera-utils.mjs", "utf8");
 const youtubeUtilsSource = readFileSync("public/js/youtube-utils.mjs", "utf8");
 const styleSource = readFileSync("public/style.css", "utf8");
 const serverSource = readFileSync("server.js", "utf8");
@@ -421,18 +423,25 @@ const cameraToolContracts = [
   [teacherHtmlSource, 'id="cameraCaptureBtn"'],
   [studentHtmlSource, 'id="cameraCaptureBtn"'],
   [teacherHtmlSource, 'id="cameraCaptureVideo" autoplay muted playsinline'],
+  [teacherHtmlSource, 'id="cameraCaptureDeviceSelect"'],
+  [studentHtmlSource, 'id="cameraCaptureDeviceSelect"'],
   [studentHtmlSource, 'id="cameraCaptureInsertBtn"'],
   [boardUiSource, "navigator.mediaDevices.getUserMedia({"],
   [boardUiSource, 'facingMode: { ideal: "environment" }'],
+  [boardUiSource, 'deviceId: { exact: deviceId }'],
+  [boardUiSource, "navigator.mediaDevices.enumerateDevices()"],
+  [boardUiSource, "calculateCoverCrop("],
+  [cameraUtilsSource, "export function calculateCoverCrop("],
   [boardUiSource, "captureCanvas.toBlob(resolve, \"image/jpeg\", 0.9)"],
   [boardUiSource, "await wb.pasteImageBlob(cameraCapturedBlob)"],
-  [boardUiSource, "cameraCaptureStream.getTracks().forEach(track => track.stop())"],
+  [boardUiSource, "stream?.getTracks?.().forEach(track => track.stop())"],
   [boardUiSource, "/iPad|iPhone|iPod/i.test(userAgent)"],
   [boardUiSource, "画像をコピーし、ホワイトボード上に貼り付けてください"],
   [styleSource, ".camera-capture-backdrop"],
   [styleSource, ".camera-capture-stage video"],
-  [teacherHtmlSource, "camera-tool=20260901"],
-  [studentHtmlSource, "camera-tool=20260901"],
+  [styleSource, "object-fit: cover"],
+  [teacherHtmlSource, "camera-tool=20260902"],
+  [studentHtmlSource, "camera-tool=20260902"],
 ];
 const missingCameraToolContracts = cameraToolContracts
   .filter(([source, contract]) => !source.includes(contract))
