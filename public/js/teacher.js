@@ -4,7 +4,7 @@ import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260901a&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902";
 import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260901a&youtube=20260831b&multi-select=20260901b&edit-selection=20260902";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -14,7 +14,7 @@ import {
   saveTeacherClassHints,
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
-import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b";
 import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901";
 import {
@@ -1982,6 +1982,8 @@ function renderAssignmentCheckList(assignments, classId) {
   }
 
   for (const assignment of assignments) {
+    const card = document.createElement("article");
+    card.className = "assignment-check-row";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "assignment-check-item";
@@ -1996,9 +1998,60 @@ function renderAssignmentCheckList(assignments, classId) {
     progress.textContent = `${assignment.submittedCount} / ${assignment.recipientCount} 提出`;
     button.append(details, progress);
     button.addEventListener("click", () => void startAssignmentReview(assignment, classId));
-    assignmentCheckList.appendChild(button);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "assignment-history-delete";
+    remove.title = "この課題履歴を削除";
+    remove.setAttribute("aria-label", `${assignment.title}の課題履歴を削除`);
+    const removeIcon = document.createElement("span");
+    removeIcon.className = "material-symbols-rounded";
+    removeIcon.textContent = "delete";
+    const removeLabel = document.createElement("span");
+    removeLabel.textContent = "削除";
+    remove.append(removeIcon, removeLabel);
+    remove.addEventListener("click", () => void deleteAssignmentHistory(assignment, classId, remove, assignments));
+    card.append(button, remove);
+    assignmentCheckList.appendChild(card);
   }
   replaceMaterialIcons(assignmentCheckList);
+}
+
+async function deleteAssignmentHistory(assignment, classId, button, assignments) {
+  if (!window.confirm(
+    `課題「${assignment.title}」を完全に削除しますか？\n生徒全員の課題ボード・提出内容と関連ファイルも削除されます。この操作は元に戻せません。`
+  )) return;
+
+  try {
+    button.disabled = true;
+    if (assignmentCheckStatus) {
+      assignmentCheckStatus.textContent = "課題履歴と生徒側のデータを削除しています…";
+      assignmentCheckStatus.classList.remove("error");
+    }
+    await managementApi.deleteTeacherHistory({
+      historyKind: "assignment",
+      historyId: assignment.id,
+    });
+    renderAssignmentCheckList(assignments.filter((item) => item.id !== assignment.id), classId);
+    if (assignmentCheckStatus) {
+      assignmentCheckStatus.textContent = "課題履歴を削除しました。生徒側の課題一覧にも反映されます。";
+    }
+    try {
+      await socket.emit("teacher-history-deleted", {
+        classCode: currentClassCode,
+        historyKind: "assignment",
+        historyId: assignment.id,
+      });
+    } catch (notificationError) {
+      console.warn("Assignment deletion notification could not be broadcast", notificationError);
+    }
+  } catch (error) {
+    console.error("Failed to delete assignment history", error);
+    if (assignmentCheckStatus) {
+      assignmentCheckStatus.textContent = `課題履歴を削除できませんでした: ${error?.message || error}`;
+      assignmentCheckStatus.classList.add("error");
+    }
+    button.disabled = false;
+  }
 }
 
 async function openAssignmentCheckDialog() {
@@ -2016,7 +2069,10 @@ async function openAssignmentCheckDialog() {
   }
   setAssignmentCheckDialogOpen(true);
   if (assignmentCheckList) assignmentCheckList.innerHTML = "";
-  if (assignmentCheckStatus) assignmentCheckStatus.textContent = "課題一覧を読み込んでいます…";
+  if (assignmentCheckStatus) {
+    assignmentCheckStatus.textContent = "課題一覧を読み込んでいます…";
+    assignmentCheckStatus.classList.remove("error");
+  }
   try {
     const selectedClass = await getCurrentTeacherClass();
     if (!selectedClass) throw new Error("現在のクラスを教師アカウントから確認できませんでした。");

@@ -1,4 +1,4 @@
-import { supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830";
+import { managementApi, supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&history-delete=20260904";
 
 const STORAGE_BUCKET = String(window.CLASS_WHITEBOARD_CONFIG?.storageBucket || "class-whiteboard").trim();
 const MAX_FORM_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -231,6 +231,14 @@ export const formApi = {
       .maybeSingle();
     if (error) throw error;
     return data;
+  },
+
+  async deleteRunHistory(runId) {
+    assertFormsEnabled();
+    return managementApi.deleteTeacherHistory({
+      historyKind: "form",
+      historyId: runId,
+    });
   },
 
   async getActiveRun(classCode) {

@@ -25,6 +25,7 @@ const TEACHER_REALTIME_EVENTS = new Set([
   "student-view-stop",
   "teacher-form-opened",
   "teacher-form-closed",
+  "teacher-history-deleted",
   "teacher-chat-to-student",
   "request-highres",
   "start-monitoring",
@@ -40,6 +41,7 @@ const TEACHER_ANNOUNCEMENT_EVENTS = new Set([
   "student-view-stop",
   "teacher-form-opened",
   "teacher-form-closed",
+  "teacher-history-deleted",
 ]);
 const TEACHER_STUDENT_EVENTS = new Set(
   Array.from(TEACHER_REALTIME_EVENTS).filter(
@@ -75,6 +77,7 @@ const RELIABLE_CONTROL_EVENTS = new Set([
   "student-view-stop",
   "teacher-form-opened",
   "teacher-form-closed",
+  "teacher-history-deleted",
   "teacher-chat-to-student",
   "request-highres",
   "start-monitoring",
@@ -1365,6 +1368,9 @@ export const managementApi = {
   },
   copyBoardToClass(payload) {
     return callFunction("copy-board-to-class", payload);
+  },
+  deleteTeacherHistory(payload) {
+    return callFunction("delete-teacher-history", payload);
   },
 };
 

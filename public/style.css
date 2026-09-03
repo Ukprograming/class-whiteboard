@@ -510,6 +510,14 @@ body.camera-capture-open {
   gap: 9px;
 }
 
+.assignment-check-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .assignment-check-item,
 .student-assignment-item {
   width: 100%;
@@ -530,6 +538,38 @@ body.camera-capture-open {
 .student-assignment-item:hover {
   border-color: #65aecd;
   background: #f3fafc;
+}
+
+.assignment-history-delete {
+  align-self: center;
+  min-width: 72px;
+  min-height: 44px;
+  border: 1px solid #e3aaa5;
+  border-radius: 12px;
+  background: #fff7f6;
+  color: #a92f29;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.assignment-history-delete:hover:not(:disabled) {
+  border-color: #cf6259;
+  background: #ffefed;
+}
+
+.assignment-history-delete:focus-visible {
+  outline: 3px solid rgba(207, 98, 89, 0.22);
+  outline-offset: 2px;
+}
+
+.assignment-history-delete:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .assignment-check-item strong,
@@ -2770,6 +2810,7 @@ body.camera-capture-open {
 
 .form-card-actions button[data-action="delete"] {
   margin-left: auto;
+  min-height: 44px;
   color: #a92f29;
 }
 

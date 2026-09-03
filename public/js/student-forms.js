@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904";
 
 const QUESTION_LABELS = { text: "自由記述", single_choice: "1つ選択", multiple_choice: "複数選択可" };
 
@@ -429,6 +429,18 @@ export function initStudentForms({ socket, getClassCode, onOpen } = {}) {
   socket?.on("teacher-form-closed", (payload = {}) => {
     if (!activeRun || payload.runId !== activeRun.id) return;
     clearActiveRun({ switchToHistory: true });
+    void refreshHistory();
+  });
+  socket?.on("teacher-history-deleted", (payload = {}) => {
+    const classCode = String(getClassCode?.() || "").trim().toUpperCase();
+    const payloadClassCode = String(payload.classCode || "").trim().toUpperCase();
+    if (payload.historyKind !== "form" || !classCode || payloadClassCode !== classCode) return;
+    closeQuestionImageViewer();
+    if (activeRun?.id === payload.historyId) clearActiveRun({ switchToHistory: true });
+    if (selectedHistoryRunId === payload.historyId) {
+      selectedHistoryRunId = "";
+      historyDetail.classList.add("hidden");
+    }
     void refreshHistory();
   });
   socket?.on("join-success", () => void refreshActiveRun({ openIfNew: true }));

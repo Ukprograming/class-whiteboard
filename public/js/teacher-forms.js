@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
 import {
   buildResponseTableModel,
@@ -345,7 +345,13 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
       view.type = "button";
       view.textContent = "結果を見る";
       view.addEventListener("click", () => void showHistoryRun(run.id));
-      actions.appendChild(view);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.dataset.action = "delete";
+      remove.textContent = "履歴を削除";
+      remove.setAttribute("aria-label", `${run.title}のフォーム履歴を削除`);
+      remove.addEventListener("click", () => void deleteRunHistory(run, remove));
+      actions.append(view, remove);
       card.append(title, meta, actions);
       historyList.appendChild(card);
     });
@@ -1174,6 +1180,53 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     } catch (error) {
       console.error("Failed to delete form template", error);
       setStatus(error?.message || "フォームを削除できませんでした。", true);
+    }
+  }
+
+  async function deleteRunHistory(run, button) {
+    const activeWarning = run.status === "open"
+      ? "\n現在の回答受付も終了し、生徒は回答できなくなります。"
+      : "";
+    if (!window.confirm(
+      `フォーム履歴「${run.title}」を完全に削除しますか？${activeWarning}\n生徒の回答履歴・設問データと、ほかで使われていない画像も削除されます。この操作は元に戻せません。`
+    )) return;
+
+    try {
+      button.disabled = true;
+      setStatus("フォーム履歴と関連データを削除しています…");
+      await formApi.deleteRunHistory(run.id);
+      const classCode = getClassCode?.();
+      if (activeRun?.id === run.id) {
+        activeRunRefreshToken += 1;
+        stopResponseSubscription();
+        activeRun = null;
+        activeResponses = [];
+        activeRoster = [];
+        liveStudentNamesVisible = false;
+        presentedStudentNamesVisible = false;
+        liveResultView = "aggregate";
+        presentedResultView = "aggregate";
+        liveTableColumnWidths = {};
+        presentedTableColumnWidths = {};
+        resultsBackdrop?.classList.add("hidden");
+        renderLiveResults();
+      }
+      history = history.filter((item) => item.id !== run.id);
+      renderHistory();
+      setStatus("フォーム履歴を削除しました。生徒側の履歴にも反映されます。");
+      try {
+        await socket?.emit("teacher-history-deleted", {
+          classCode,
+          historyKind: "form",
+          historyId: run.id,
+        });
+      } catch (notificationError) {
+        console.warn("Form deletion notification could not be broadcast", notificationError);
+      }
+    } catch (error) {
+      console.error("Failed to delete form history", error);
+      setStatus(error?.message || "フォーム履歴を削除できませんでした。", true);
+      button.disabled = false;
     }
   }
 

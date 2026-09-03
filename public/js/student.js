@@ -7,9 +7,9 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824";
-import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b";
 
 // 共通ホワイトボード UI 初期化
@@ -353,6 +353,11 @@ studentAssignmentChip?.addEventListener("click", () => {
   setStudentAssignmentPanelOpen(!studentAssignmentPanelOpen);
 });
 studentAssignmentCloseBtn?.addEventListener("click", () => setStudentAssignmentPanelOpen(false));
+socket.on("teacher-history-deleted", (payload = {}) => {
+  const payloadClassCode = String(payload.classCode || "").trim().toUpperCase();
+  if (payload.historyKind !== "assignment" || payloadClassCode !== String(currentClassCode || "").toUpperCase()) return;
+  void refreshPendingStudentAssignments();
+});
 
 let captureTimerId = null;
 let initialThumbnailTimerId = null;

@@ -805,6 +805,18 @@ const assignmentMigrationSource = readFileSync(
   "supabase/migrations/20260831090000_add_assignment_distribution_workflow.sql",
   "utf8"
 );
+const historyDeletionMigrationSource = readFileSync(
+  "supabase/migrations/20260903233050_add_teacher_history_deletion.sql",
+  "utf8"
+);
+const historyDeletionFunctionSource = readFileSync(
+  "supabase/functions/delete-teacher-history/index.ts",
+  "utf8"
+);
+const historyDeletionGrantMigrationSource = readFileSync(
+  "supabase/migrations/20260903233338_grant_history_deletion_service_role_tables.sql",
+  "utf8"
+);
 if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
     !whiteboardSource.includes('this._newEntityId("object")')) {
   console.error("Whiteboard entities must use collision-resistant IDs.");
@@ -967,6 +979,18 @@ const assignmentContracts = [
   [assignmentMigrationSource, "distribution_kind in ('material', 'assignment')"],
   [assignmentMigrationSource, "board_files_mark_assignment_submitted"],
   [assignmentMigrationSource, "alter publication supabase_realtime add table public.board_files"],
+  [teacherSource, "managementApi.deleteTeacherHistory("],
+  [studentSource, 'socket.on("teacher-history-deleted"'],
+  [realtimeApiSource, 'deleteTeacherHistory(payload)'],
+  [historyDeletionFunctionSource, "collectAssignmentStoragePaths"],
+  [historyDeletionFunctionSource, '.storage.from(STORAGE_BUCKET).remove'],
+  [historyDeletionFunctionSource, 'admin.rpc(\n      "delete_teacher_history_records"'],
+  [historyDeletionMigrationSource, "delete from public.board_files bf"],
+  [historyDeletionMigrationSource, "delete from public.board_distributions"],
+  [historyDeletionMigrationSource, "delete from public.form_runs"],
+  [historyDeletionMigrationSource, "to service_role"],
+  [historyDeletionGrantMigrationSource, "grant select on table"],
+  [historyDeletionGrantMigrationSource, "grant delete on table public.form_runs to service_role"],
 ];
 const missingAssignmentContracts = assignmentContracts
   .filter(([source, contract]) => !source.includes(contract))

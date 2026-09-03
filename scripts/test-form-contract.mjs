@@ -17,6 +17,9 @@ const [
   historyMigration,
   formExcel,
   imageMigration,
+  historyDeletionMigration,
+  historyDeletionGrantMigration,
+  historyDeletionFunction,
 ] = await Promise.all([
   read("supabase/migrations/20260830062951_add_class_forms.sql"),
   read("public/teacher.html"),
@@ -30,6 +33,9 @@ const [
   read("supabase/migrations/20260831045725_allow_students_to_review_form_history.sql"),
   read("public/js/form-excel.js"),
   read("supabase/migrations/20260901043918_add_form_question_images.sql"),
+  read("supabase/migrations/20260903233050_add_teacher_history_deletion.sql"),
+  read("supabase/migrations/20260903233338_grant_history_deletion_service_role_tables.sql"),
+  read("supabase/functions/delete-teacher-history/index.ts"),
 ]);
 
 const tables = [
@@ -109,6 +115,8 @@ assert.match(teacherForms, /formApi\.uploadQuestionImage/);
 assert.match(teacherForms, /input\.dataset\.questionField = "image"/);
 assert.match(teacherForms, /画像を追加/);
 assert.match(teacherForms, /formApi\.getQuestionImageUrl/);
+assert.match(teacherForms, /formApi\.deleteRunHistory/);
+assert.match(teacherForms, /生徒の回答履歴・設問データ/);
 assert.match(studentForms, /socket\?\.on\("teacher-form-opened"/);
 assert.match(studentForms, /formApi\.submitResponse/);
 assert.match(studentForms, /formApi\.listMyRunHistory/);
@@ -116,6 +124,7 @@ assert.match(studentForms, /自分の回答を見る/);
 assert.match(studentForms, /appendQuestionImage/);
 assert.match(studentForms, /formApi\.getQuestionImageUrl/);
 assert.match(studentForms, /画像を拡大表示/);
+assert.match(studentForms, /socket\?\.on\("teacher-history-deleted"/);
 assert.match(formApi, /onConflict: "run_question_id,student_id"/);
 assert.match(formApi, /async getRoster\(classCode\)/);
 assert.match(formApi, /\.order\("created_at", \{ ascending: true \}\)/);
@@ -124,6 +133,7 @@ assert.match(formApi, /async uploadQuestionImage/);
 assert.match(formApi, /\.upload\(imagePath, file, \{/);
 assert.match(formApi, /upsert: false/);
 assert.match(formApi, /\.download\(imagePath\)/);
+assert.match(formApi, /deleteTeacherHistory/);
 assert.match(historyMigration, /form_runs_student_select_class/);
 assert.match(historyMigration, /form_run_questions_student_select_class/);
 assert.doesNotMatch(historyMigration, /form_responses_student_select_class/);
@@ -163,8 +173,22 @@ assert.match(styles, /\.student-form-question-image img/);
 assert.match(styles, /\.student-form-image-backdrop/);
 assert.match(teacherHtml, /form-images=20260901/);
 assert.match(studentHtml, /form-images=20260901/);
+assert.match(teacherHtml, /history-delete=20260904/);
+assert.match(studentHtml, /history-delete=20260904/);
 
-for (const eventName of ["teacher-form-opened", "teacher-form-closed"]) {
+assert.match(historyDeletionMigration, /create or replace function public\.delete_teacher_history_records/);
+assert.match(historyDeletionMigration, /delete from public\.board_files bf[\s\S]*bf\.distribution_id = bd\.id/);
+assert.match(historyDeletionMigration, /delete from public\.form_runs/);
+assert.match(historyDeletionMigration, /grant execute[\s\S]*to service_role/);
+assert.doesNotMatch(historyDeletionMigration, /security definer/i);
+assert.match(historyDeletionGrantMigration, /grant select on table[\s\S]*public\.form_runs[\s\S]*to service_role/);
+assert.match(historyDeletionGrantMigration, /grant delete on table public\.form_runs to service_role/);
+assert.match(historyDeletionFunction, /collectAssignmentStoragePaths/);
+assert.match(historyDeletionFunction, /collectUnreferencedFormImagePaths/);
+assert.match(historyDeletionFunction, /\.storage\.from\(STORAGE_BUCKET\)\.remove/);
+assert.match(historyDeletionFunction, /delete_teacher_history_records/);
+
+for (const eventName of ["teacher-form-opened", "teacher-form-closed", "teacher-history-deleted"]) {
   assert.ok(realtimeApi.split(`"${eventName}"`).length >= 4, `${eventName} is not wired through all realtime sets`);
 }
 
