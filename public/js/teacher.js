@@ -1,10 +1,8 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&eraser-hit=20260825&youtube=20260831b&multi-select=20260901b&edit-selection=20260902";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904";
 import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { initBoardUI as initBoardUIWithTable } from "./board-ui.js?v=table-tool-20260901a&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902";
-import { Whiteboard as TableWhiteboard } from "./whiteboard.js?v=table-tool-20260901a&youtube=20260831b&multi-select=20260901b&edit-selection=20260902";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -14,7 +12,7 @@ import {
   saveTeacherClassHints,
   setSelectedTeacherClass,
 } from "./teacher-class-storage.js?v=teacher-auth-split-20260712";
-import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b";
 import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901";
 import {
@@ -37,7 +35,7 @@ async function requireSupabaseTeacher() {
 
 await requireSupabaseTeacher();
 
-const teacherBoard = initBoardUIWithTable();
+const teacherBoard = initBoardUI();
 window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
 
 // ★ ここから追加：ブラウザ離脱時の確認ダイアログ
@@ -4108,7 +4106,7 @@ function startMonitoringStudent(studentSocketId, nickname) {
     modalOverlayCanvas.height = h * dpr;
 
     // Whiteboard は「上レイヤー」に紐づける
-    modalBoard = new TableWhiteboard({
+    modalBoard = new Whiteboard({
       canvas: modalOverlayCanvas,
       allowYouTubePlayback: false,
     });

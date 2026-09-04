@@ -378,6 +378,7 @@ const assignmentUtilsSource = readFileSync("public/js/assignment-utils.mjs", "ut
 const studentSource = readFileSync("public/js/student.js", "utf8");
 const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
+const formApiSource = readFileSync("public/js/form-api.js", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentBulkImportSource = readFileSync("public/js/student-bulk-import.js", "utf8");
 const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
@@ -569,7 +570,7 @@ if (missingMultiSelectionContracts.length > 0) {
 }
 if (
   !boardUiSource.includes("multi-select=20260901b") ||
-  (teacherSource.match(/multi-select=20260901b/g) || []).length < 2
+  (teacherSource.match(/multi-select=20260901b/g) || []).length < 1
 ) {
   console.error("Whiteboard multi-selection changes must be cache-busted on every direct import path.");
   ok = false;
@@ -845,7 +846,7 @@ const editSelectionCacheKey = "edit-selection=20260902";
 const editSelectionVersionedSources = [
   [boardUiSource, 1],
   [studentSource, 1],
-  [teacherSource, 4],
+  [teacherSource, 2],
   [studentHtmlSource, 1],
   [teacherHtmlSource, 1],
 ];
@@ -853,6 +854,19 @@ if (editSelectionVersionedSources.some(([source, minimum]) =>
   (source.match(/edit-selection=20260902/g) || []).length < minimum
 )) {
   console.error("Whiteboard edit-selection changes must be cache-busted on every direct import path.");
+  ok = false;
+}
+
+const sharedSupabaseImport = "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904";
+if (![teacherSource, studentSource, formApiSource].every(source => source.includes(sharedSupabaseImport))) {
+  console.error("Authenticated pages must share one versioned Supabase client module URL.");
+  ok = false;
+}
+if (
+  (teacherSource.match(/from "\.\/board-ui\.js/g) || []).length !== 1 ||
+  (teacherSource.match(/from "\.\/whiteboard\.js/g) || []).length !== 1
+) {
+  console.error("Teacher page must load one board UI module and one direct Whiteboard module.");
   ok = false;
 }
 
