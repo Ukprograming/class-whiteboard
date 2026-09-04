@@ -34,14 +34,17 @@ const FILLABLE_SHAPE_KINDS = new Set(
 );
 
 export class Whiteboard {
-  constructor({ canvas, allowYouTubePlayback = true }) {
+  constructor({ canvas, allowYouTubePlayback = true, allowVideoPlayback = true }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this._eventDisposers = [];
     this._destroyed = false;
     this.allowYouTubePlayback = allowYouTubePlayback !== false;
+    this.allowVideoPlayback = allowVideoPlayback !== false;
     this.activeYouTubePlayer = null;
     this.youtubePlayerLayer = null;
+    this.activeVideoPlayer = null;
+    this.videoPlayerLayer = null;
 
     // 手書き専用レイヤー
     this.strokeCanvas = document.createElement("canvas");
@@ -66,8 +69,8 @@ export class Whiteboard {
     this.strokes = [];
     // ★ 追加：ストローク用のIDカウンタ（削除同期のため）
     this.nextStrokeId = 1;
-    // ベクターオブジェクト（テキスト / 付箋 / 図形 / 表 / 画像 / リンク / スタンプ）
-    // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'link'|'stamp'|'line'|'arrow'|'double-arrow'|'triangle'|'tri-prism'|'rect-prism'|'cylinder',
+    // ベクターオブジェクト（テキスト / 付箋 / 図形 / 表 / 画像 / 動画 / リンク / スタンプ）
+    // object: { id, kind:'text'|'sticky'|'rect'|'ellipse'|'image'|'video'|'link'|'stamp'|'line'|'arrow'|'double-arrow'|'triangle'|'tri-prism'|'rect-prism'|'cylinder',
     //           x,y,width,height,stroke,strokeWidth,fill,points?,depth?, groupId?, locked? }
     this.objects = [];
     this.nextObjectId = 1;
@@ -171,6 +174,7 @@ export class Whiteboard {
     this.editingObj = null; // 編集中の text オブジェクト
     this.editingTableCell = null;
     this.youtubePlayerLayer = this._createYouTubePlayerLayer();
+    this.videoPlayerLayer = this._createVideoPlayerLayer();
 
     // ★ 追加：テキストのデフォルトスタイル
     this.textDefaults = {
@@ -275,6 +279,9 @@ export class Whiteboard {
     this.closeYouTubePlayer();
     this.youtubePlayerLayer?.remove();
     this.youtubePlayerLayer = null;
+    this.closeVideoPlayer();
+    this.videoPlayerLayer?.remove();
+    this.videoPlayerLayer = null;
     this._releaseAssetObjectUrls();
   }
 
@@ -300,9 +307,9 @@ export class Whiteboard {
         objectUrls.add(backgroundUrl);
       }
       for (const object of pageData.objects || []) {
-        const objectUrl = object?.imageObjectUrl;
-        if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
-          objectUrls.add(objectUrl);
+        const mediaUrl = object?.imageObjectUrl || object?.videoObjectUrl;
+        if (typeof mediaUrl === "string" && mediaUrl.startsWith("blob:")) {
+          objectUrls.add(mediaUrl);
         }
       }
     }
@@ -336,9 +343,9 @@ export class Whiteboard {
         this._assetObjectUrls.add(backgroundUrl);
       }
       for (const object of pageData.objects || []) {
-        const objectUrl = object?.imageObjectUrl;
-        if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
-          this._assetObjectUrls.add(objectUrl);
+        const mediaUrl = object?.imageObjectUrl || object?.videoObjectUrl;
+        if (typeof mediaUrl === "string" && mediaUrl.startsWith("blob:")) {
+          this._assetObjectUrls.add(mediaUrl);
         }
       }
     }
@@ -354,7 +361,7 @@ export class Whiteboard {
         pageData.background.assetKey = this._newAssetKey();
       }
       for (const object of pageData.objects || []) {
-        if (object?.kind === "image" && !object.assetKey) {
+        if ((object?.kind === "image" || object?.kind === "video") && !object.assetKey) {
           object.assetKey = this._newAssetKey();
         }
       }
@@ -369,8 +376,11 @@ export class Whiteboard {
     record.assetSizeBytes = reference.assetSizeBytes || record.assetSizeBytes || 0;
     if (reference.imageWidth) record.imageWidth = reference.imageWidth;
     if (reference.imageHeight) record.imageHeight = reference.imageHeight;
+    if (reference.videoWidth) record.videoWidth = reference.videoWidth;
+    if (reference.videoHeight) record.videoHeight = reference.videoHeight;
     delete record[embeddedField];
     if (reference.imageObjectUrl) record.imageObjectUrl = reference.imageObjectUrl;
+    if (reference.videoObjectUrl) record.videoObjectUrl = reference.videoObjectUrl;
     if (reference.objectUrl) record.objectUrl = reference.objectUrl;
   }
 
@@ -383,7 +393,7 @@ export class Whiteboard {
     if (!map.size) return;
 
     for (const reference of map.values()) {
-      const objectUrl = reference.imageObjectUrl || reference.objectUrl;
+      const objectUrl = reference.imageObjectUrl || reference.videoObjectUrl || reference.objectUrl;
       if (typeof objectUrl === "string" && objectUrl.startsWith("blob:")) {
         this._assetObjectUrls.add(objectUrl);
       }
@@ -392,8 +402,11 @@ export class Whiteboard {
     this._syncActivePage();
 
     for (const object of this.objects || []) {
-      if (object?.kind !== "image") continue;
-      this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+      if (object?.kind === "image") {
+        this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+      } else if (object?.kind === "video") {
+        this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "videoDataUrl");
+      }
     }
     if (this.backgroundAsset?.assetKey) {
       const reference = map.get(this.backgroundAsset.assetKey);
@@ -406,8 +419,11 @@ export class Whiteboard {
       const pageData = page?.boardData;
       if (!pageData) continue;
       for (const object of pageData.objects || []) {
-        if (object?.kind !== "image") continue;
-        this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+        if (object?.kind === "image") {
+          this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "imageDataUrl");
+        } else if (object?.kind === "video") {
+          this._applyAssetReferenceToRecord(object, map.get(object.assetKey), "videoDataUrl");
+        }
       }
       const background = pageData.background;
       if (background?.assetKey) {
@@ -681,6 +697,7 @@ export class Whiteboard {
         if (obj.kind === "timer") Object.assign(obj, normalizeTimerFields(obj));
         if (obj.kind === "table") this._normalizeTableObject(obj);
         if (obj.kind === "youtube") this._normalizeYouTubeObject(obj);
+        if (obj.kind === "video") this._normalizeVideoObject(obj);
         const existingIndex = this.objects.findIndex(o => o.id === obj.id);
         if (existingIndex >= 0) {
           this.objects[existingIndex] = obj;
@@ -701,6 +718,13 @@ export class Whiteboard {
         if (obj.kind === "youtube") this._normalizeYouTubeObject(obj);
         const idx = this.objects.findIndex(o => o.id === obj.id);
         if (idx >= 0) {
+          if (obj.kind === "video") {
+            const current = this.objects[idx];
+            if (current?.assetKey && current.assetKey === obj.assetKey && current.videoObjectUrl) {
+              obj.videoObjectUrl = current.videoObjectUrl;
+            }
+            this._normalizeVideoObject(obj);
+          }
           const previousState = this.objects[idx]?.timerState;
           this.objects[idx] = obj;
           if (obj.kind === "timer") {
@@ -2058,7 +2082,7 @@ export class Whiteboard {
   copySelection() {
     if (!this.selectedObj) return;
     const kind = this.selectedObj.kind;
-    if (["image"].includes(kind)) return;
+    if (["image", "video"].includes(kind)) return;
     this.clipboard = JSON.parse(JSON.stringify(this.selectedObj));
   }
 
@@ -2128,6 +2152,10 @@ export class Whiteboard {
 
     this.render();
     if (this.onAction) {
+      if (deletedObjects.some(entry => entry.object?.kind === "video")) {
+        this.onAction({ type: "refresh" });
+        return;
+      }
       deletedObjects.forEach(entry => {
         if (entry.object?.kind === "youtube" && entry.object.id != null) {
           this.onAction({ type: "delete", objectId: entry.object.id });
@@ -2271,6 +2299,7 @@ export class Whiteboard {
       return false;
     }
 
+    this.closeVideoPlayer();
     this.closeYouTubePlayer();
 
     const shell = document.createElement("div");
@@ -2334,6 +2363,142 @@ export class Whiteboard {
     active.shell.style.width = `${widthPx}px`;
     active.shell.style.height = `${heightPx}px`;
     active.shell.classList.toggle("youtube-player-shell--controls-below", screen.y < 54);
+  }
+
+  _createVideoPlayerLayer() {
+    const container = this.canvas.parentElement;
+    if (!container) return null;
+    if (window.getComputedStyle(container).position === "static") {
+      container.style.position = "relative";
+    }
+    const layer = document.createElement("div");
+    layer.className = "video-player-layer";
+    layer.setAttribute("aria-live", "polite");
+    container.appendChild(layer);
+    return layer;
+  }
+
+  _normalizeVideoObject(obj) {
+    if (!obj || obj.kind !== "video") return obj;
+    const rect = this._normalizeRect(obj);
+    const aspect = Number(obj.videoWidth) > 0 && Number(obj.videoHeight) > 0
+      ? Number(obj.videoWidth) / Number(obj.videoHeight)
+      : 16 / 9;
+    obj.x = rect.x;
+    obj.y = rect.y;
+    obj.width = Math.max(240, rect.width || 560);
+    obj.height = Math.max(135, rect.height || obj.width / aspect);
+    obj.rotation = 0;
+    obj.fileName = String(obj.fileName || "動画").slice(0, 160);
+    obj.assetKey = obj.assetKey || this._newAssetKey();
+    obj.assetPath = obj.assetPath || null;
+    obj.assetMimeType = String(obj.assetMimeType || "video/mp4");
+    obj.assetSizeBytes = Math.max(0, Number(obj.assetSizeBytes) || 0);
+    obj.videoWidth = Math.max(0, Number(obj.videoWidth) || 0);
+    obj.videoHeight = Math.max(0, Number(obj.videoHeight) || 0);
+    obj.videoObjectUrl = String(obj.videoObjectUrl || obj.videoDataUrl || "");
+    return obj;
+  }
+
+  _isVideoPlayButtonHit(obj, wx, wy) {
+    if (!this.allowVideoPlayback || obj?.kind !== "video") return false;
+    const { x, y, width, height } = this._normalizeRect(obj);
+    const radius = Math.max(28, Math.min(width, height) * 0.16);
+    const dx = wx - (x + width / 2);
+    const dy = wy - (y + height / 2);
+    return dx * dx + dy * dy <= radius * radius;
+  }
+
+  activateVideoPlayer(obj) {
+    if (!this.allowVideoPlayback || obj?.kind !== "video") return false;
+    if (!this.objects.some(candidate => candidate.id === obj.id)) return false;
+    this._normalizeVideoObject(obj);
+    if (!obj.videoObjectUrl || !this.videoPlayerLayer) {
+      window.alert?.("動画データを読み込めませんでした。保存後にもう一度開いてください。");
+      return false;
+    }
+
+    const { width, height } = this._normalizeRect(obj);
+    if (width * this.scale < 240 || height * this.scale < 135) {
+      window.alert?.("動画を再生するには、240×135px以上に表示されるまで拡大してください。");
+      return false;
+    }
+
+    this.closeYouTubePlayer();
+    this.closeVideoPlayer();
+
+    const shell = document.createElement("div");
+    shell.className = "video-player-shell";
+    shell.dataset.videoObjectId = String(obj.id);
+
+    const video = document.createElement("video");
+    video.className = "video-player-media";
+    video.src = obj.videoObjectUrl;
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.setAttribute("controlslist", "nodownload");
+    video.setAttribute("aria-label", `${obj.fileName || "動画"}の動画プレーヤー`);
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "video-player-close";
+    closeButton.textContent = "編集に戻る";
+    closeButton.title = "動画を閉じて、移動・サイズ変更に戻る";
+    closeButton.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeVideoPlayer();
+      this.render();
+    });
+
+    const handleVideoError = () => {
+      this.closeVideoPlayer();
+      this.render();
+      window.alert?.("この動画をブラウザで再生できませんでした。MP4またはWebM形式をお試しください。");
+    };
+    video.addEventListener("error", handleVideoError, { once: true });
+
+    shell.append(video, closeButton);
+    this.videoPlayerLayer.appendChild(shell);
+    this.activeVideoPlayer = { objectId: obj.id, shell, video, handleVideoError };
+    this._syncVideoPlayerOverlay();
+    return true;
+  }
+
+  closeVideoPlayer() {
+    if (!this.activeVideoPlayer) return;
+    this.activeVideoPlayer.video?.removeEventListener?.("error", this.activeVideoPlayer.handleVideoError);
+    this.activeVideoPlayer.video?.pause?.();
+    this.activeVideoPlayer.video?.removeAttribute("src");
+    this.activeVideoPlayer.video?.load?.();
+    this.activeVideoPlayer.shell?.remove();
+    this.activeVideoPlayer = null;
+  }
+
+  _syncVideoPlayerOverlay() {
+    const active = this.activeVideoPlayer;
+    if (!active) return;
+    const obj = this.objects.find(candidate => candidate.id === active.objectId);
+    if (!obj || obj.kind !== "video" || !this.allowVideoPlayback) {
+      this.closeVideoPlayer();
+      return;
+    }
+
+    const { x, y, width, height } = this._normalizeRect(obj);
+    const screen = this._worldToScreen(x, y);
+    const widthPx = width * this.scale;
+    const heightPx = height * this.scale;
+    if (widthPx < 240 || heightPx < 135) {
+      this.closeVideoPlayer();
+      return;
+    }
+
+    active.shell.style.left = `${screen.x}px`;
+    active.shell.style.top = `${screen.y}px`;
+    active.shell.style.width = `${widthPx}px`;
+    active.shell.style.height = `${heightPx}px`;
+    active.shell.classList.toggle("video-player-shell--controls-below", screen.y < 54);
   }
 
   pastePlainText(text) {
@@ -2492,6 +2657,75 @@ export class Whiteboard {
       this.render();
     } finally {
       URL.revokeObjectURL(url);
+    }
+  }
+
+  async pasteVideoBlob(blob, { fileName = "" } = {}) {
+    if (!blob) return null;
+    const mimeType = String(blob.type || "").toLowerCase();
+    const probe = document.createElement("video");
+    if (mimeType && probe.canPlayType && !probe.canPlayType(mimeType)) {
+      throw new Error("この動画形式はブラウザで再生できません。MP4またはWebM形式をお試しください。");
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const metadata = await new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+        video.addEventListener("loadedmetadata", () => {
+          resolve({
+            width: Math.max(1, video.videoWidth || 16),
+            height: Math.max(1, video.videoHeight || 9),
+          });
+        }, { once: true });
+        video.addEventListener("error", () => {
+          reject(new Error("動画を読み込めませんでした。MP4またはWebM形式をお試しください。"));
+        }, { once: true });
+        video.src = objectUrl;
+      });
+
+      const rect = this.canvas.getBoundingClientRect();
+      const { x: wx, y: wy } = this._screenToWorld(rect.width / 2, rect.height / 2);
+      const visibleWorldWidth = Math.max(240, (rect.width - 96) / this.scale);
+      const visibleWorldHeight = Math.max(135, (rect.height - 120) / this.scale);
+      const aspect = metadata.width / metadata.height;
+      let width = Math.min(640, visibleWorldWidth);
+      let height = width / aspect;
+      if (height > visibleWorldHeight) {
+        height = visibleWorldHeight;
+        width = height * aspect;
+      }
+
+      const obj = {
+        id: this._newEntityId("object"),
+        kind: "video",
+        x: wx - width / 2,
+        y: wy - height / 2,
+        width,
+        height,
+        rotation: 0,
+        fileName: String(fileName || "動画").slice(0, 160),
+        assetKey: this._newAssetKey(),
+        assetPath: null,
+        assetMimeType: mimeType || "video/mp4",
+        assetSizeBytes: Number(blob.size) || 0,
+        videoWidth: metadata.width,
+        videoHeight: metadata.height,
+        videoObjectUrl: objectUrl,
+      };
+
+      this._normalizeVideoObject(obj);
+      this._assetObjectUrls.add(objectUrl);
+      this._addObject(obj);
+      if (this.onAction) this.onAction({ type: "refresh" });
+      this.render();
+      return obj;
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      throw error;
     }
   }
 
@@ -2692,6 +2926,18 @@ export class Whiteboard {
         base.videoId = o.videoId || "";
         base.url = o.url || "";
         base.startSeconds = Math.max(0, Math.floor(Number(o.startSeconds) || 0));
+      }
+
+      if (o.kind === "video") {
+        this._normalizeVideoObject(o);
+        base.fileName = o.fileName || "動画";
+        base.assetKey = o.assetKey;
+        base.assetPath = o.assetPath || null;
+        base.assetMimeType = o.assetMimeType || "video/mp4";
+        base.assetSizeBytes = o.assetSizeBytes || 0;
+        base.videoWidth = o.videoWidth || 0;
+        base.videoHeight = o.videoHeight || 0;
+        if (o.videoObjectUrl) base.videoObjectUrl = o.videoObjectUrl;
       }
 
       if (o.kind === "stamp") {
@@ -2990,6 +3236,18 @@ export class Whiteboard {
         this._normalizeYouTubeObject(obj);
       }
 
+      if (o.kind === "video") {
+        obj.fileName = o.fileName || "動画";
+        obj.assetKey = o.assetKey || this._newAssetKey();
+        obj.assetPath = o.assetPath || null;
+        obj.assetMimeType = o.assetMimeType || "video/mp4";
+        obj.assetSizeBytes = o.assetSizeBytes || 0;
+        obj.videoWidth = o.videoWidth || 0;
+        obj.videoHeight = o.videoHeight || 0;
+        obj.videoObjectUrl = o.videoObjectUrl || o.videoDataUrl || "";
+        this._normalizeVideoObject(obj);
+      }
+
       if (o.kind === "stamp") {
         obj.stampKey = o.stampKey || "star-yellow";
       }
@@ -3097,7 +3355,7 @@ export class Whiteboard {
   }
 
   _addObject(obj) {
-    if (obj?.kind === "image" && !obj.assetKey) {
+    if ((obj?.kind === "image" || obj?.kind === "video") && !obj.assetKey) {
       obj.assetKey = this._newAssetKey();
     }
     if (this.isTeacherMode) {
@@ -3540,6 +3798,10 @@ export class Whiteboard {
     if (obj.kind === "youtube") {
       this.setTool("select");
       return "youtube";
+    }
+    if (obj.kind === "video") {
+      this.setTool("select");
+      return "video";
     }
     return null;
   }
@@ -4351,6 +4613,17 @@ export class Whiteboard {
             e.preventDefault?.();
             return;
           }
+          if (
+            !e.shiftKey &&
+            hitObj.kind === "video" &&
+            this._isVideoPlayButtonHit(hitObj, wx, wy)
+          ) {
+            this._setSelected(hitObj);
+            this.render();
+            this.activateVideoPlayer(hitObj);
+            e.preventDefault?.();
+            return;
+          }
           if (hitObj.kind === "table") {
             const cell = this._getTableCellAt(hitObj, wx, wy) || { row: 0, col: 0 };
             const wasTableSelected =
@@ -5030,6 +5303,9 @@ export class Whiteboard {
         if (this.isResizingObj && this.selectedObj?.kind === "youtube") {
           this._normalizeYouTubeObject(this.selectedObj);
         }
+        if (this.isResizingObj && this.selectedObj?.kind === "video") {
+          this._normalizeVideoObject(this.selectedObj);
+        }
 
         // ★ ここから：移動／リサイズの履歴を記録する ------------------
         if (this.dragStart) {
@@ -5307,6 +5583,12 @@ export class Whiteboard {
         return;
       }
 
+      if (hit.kind === "video") {
+        this._setSelected(hit);
+        this.activateVideoPlayer(hit);
+        return;
+      }
+
       this._setSelected(hit);
       this._activateToolForObject(hit);
 
@@ -5573,6 +5855,7 @@ export class Whiteboard {
       ctx.drawImage(this.strokeCanvas, 0, 0);
     }
     this._syncYouTubePlayerOverlay();
+    this._syncVideoPlayerOverlay();
   }
 
   _renderStrokes(ctx, strokes) {
@@ -5871,6 +6154,77 @@ export class Whiteboard {
     ctx.fillStyle = "#94a3b8";
     ctx.font = `500 ${Math.max(10, Math.min(13, height * 0.043))}px ui-monospace, monospace`;
     ctx.fillText(`動画ID: ${obj.videoId || "不明"}`, centerX, y + height - Math.max(18, height * 0.075));
+    ctx.restore();
+  }
+
+  _renderVideoCard(ctx, obj, x, y, width, height) {
+    const radius = Math.max(14, Math.min(width, height) * 0.055);
+    const playRadius = Math.max(28, Math.min(width, height) * 0.16);
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+    const inset = Math.max(10, Math.min(width, height) * 0.045);
+
+    ctx.save();
+    ctx.fillStyle = "#102633";
+    ctx.strokeStyle = obj.assetLoadError ? "#f87171" : "#8fc7d8";
+    ctx.lineWidth = 2 / this.scale;
+    ctx.shadowColor = "rgba(15, 23, 42, 0.24)";
+    ctx.shadowBlur = 14 / this.scale;
+    ctx.shadowOffsetY = 5 / this.scale;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, width, height, radius);
+    else ctx.rect(x, y, width, height);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.stroke();
+
+    const headerHeight = Math.max(36, height * 0.18);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x + inset, y + inset, width - inset * 2, headerHeight, radius * 0.55);
+    } else {
+      ctx.rect(x + inset, y + inset, width - inset * 2, headerHeight);
+    }
+    ctx.fill();
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = `700 ${Math.max(14, Math.min(20, height * 0.07))}px system-ui, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("ローカル動画", x + inset * 1.6, y + inset + headerHeight / 2);
+
+    ctx.fillStyle = obj.videoObjectUrl ? "#2f8fbe" : "#64748b";
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, playRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(centerX - playRadius * 0.22, centerY - playRadius * 0.38);
+    ctx.lineTo(centerX - playRadius * 0.22, centerY + playRadius * 0.38);
+    ctx.lineTo(centerX + playRadius * 0.46, centerY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#dbeafe";
+    ctx.font = `600 ${Math.max(11, Math.min(16, height * 0.052))}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    const status = obj.assetLoadError
+      ? "動画を読み込めませんでした"
+      : this.allowVideoPlayback
+        ? "再生ボタンをクリック"
+        : "動画（再生は各端末で操作）";
+    ctx.fillText(status, centerX, y + height - Math.max(40, height * 0.18));
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = `500 ${Math.max(10, Math.min(13, height * 0.043))}px system-ui, sans-serif`;
+    const label = String(obj.fileName || "動画");
+    const maxLabelWidth = Math.max(80, width - inset * 3);
+    let clipped = label;
+    while (clipped.length > 4 && ctx.measureText(clipped).width > maxLabelWidth) {
+      clipped = `${clipped.slice(0, -4)}…`;
+    }
+    ctx.fillText(clipped, centerX, y + height - Math.max(18, height * 0.075));
     ctx.restore();
   }
 
@@ -6576,6 +6930,10 @@ export class Whiteboard {
         this._renderYouTubeCard(ctx, obj, x, y, width, height);
       }
 
+      else if (kind === "video") {
+        this._renderVideoCard(ctx, obj, x, y, width, height);
+      }
+
 
       else if (kind === "text" || kind === "sticky" || kind === "link") {
         ctx.save();
@@ -7015,7 +7373,7 @@ export class Whiteboard {
     }
 
     // 表はセルの向きを保つため回転させない。右端・下端には専用の追加ボタンを描く。
-    if (kind === "table" || kind === "youtube") return;
+    if (kind === "table" || kind === "youtube" || kind === "video") return;
 
     // ==== 3) 回転ハンドル（全図形共通・線以外） ====
     //   ※ ここでは「バウンディングボックスの上側」に固定で出します

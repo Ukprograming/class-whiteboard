@@ -1587,11 +1587,13 @@ function collectBoardAssetRecords(boardData) {
   for (const pageData of boardPageDataList(boardData)) {
     for (const object of pageData.objects || []) {
       if (object?.kind === "image") {
-        records.push({ record: object, embeddedField: "imageDataUrl" });
+        records.push({ record: object, embeddedField: "imageDataUrl", objectUrlField: "imageObjectUrl" });
+      } else if (object?.kind === "video") {
+        records.push({ record: object, embeddedField: "videoDataUrl", objectUrlField: "videoObjectUrl" });
       }
     }
     if (pageData.background) {
-      records.push({ record: pageData.background, embeddedField: "dataUrl" });
+      records.push({ record: pageData.background, embeddedField: "dataUrl", objectUrlField: "objectUrl" });
     }
   }
   return records;
@@ -1609,6 +1611,10 @@ function assetExtension(mimeType) {
     case "image/webp": return "webp";
     case "image/gif": return "gif";
     case "image/svg+xml": return "svg";
+    case "video/webm": return "webm";
+    case "video/ogg": return "ogv";
+    case "video/quicktime": return "mov";
+    case "video/mp4": return "mp4";
     case "image/jpeg":
     case "image/jpg":
     default:
@@ -1624,15 +1630,15 @@ function isAllowedBoardAssetPath(path) {
   return /^(teachers|students|shared)\/[0-9a-f-]+\//i.test(String(path || ""));
 }
 
-async function recordToBlob(record, embeddedField) {
+async function recordToBlob(record, embeddedField, objectUrlField) {
   const embedded = record?.[embeddedField];
   if (typeof embedded === "string" && embedded.startsWith("data:")) {
     const response = await fetch(embedded);
-    if (!response.ok) throw new Error("Failed to decode an embedded board image.");
+    if (!response.ok) throw new Error("Failed to decode an embedded board asset.");
     return response.blob();
   }
 
-  const objectUrl = String(record?.imageObjectUrl || record?.objectUrl || "").trim();
+  const objectUrl = String(record?.[objectUrlField] || "").trim();
   if (objectUrl) {
     try {
       const response = await fetch(objectUrl);
@@ -1684,11 +1690,11 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
   const references = [];
 
   for (const entry of collectBoardAssetRecords(boardData)) {
-    const { record, embeddedField } = entry;
+    const { record, embeddedField, objectUrlField } = entry;
     record.assetKey = normalizeAssetKey(record.assetKey);
     const targetPrefix = `${prefix}/`;
     const currentPath = String(record.assetPath || "").trim();
-    const currentObjectUrl = record.imageObjectUrl || record.objectUrl || "";
+    const currentObjectUrl = record[objectUrlField] || "";
 
     if (
       currentPath.startsWith(targetPrefix) &&
@@ -1697,6 +1703,7 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
     ) {
       delete record[embeddedField];
       delete record.imageObjectUrl;
+      delete record.videoObjectUrl;
       delete record.objectUrl;
       references.push({
         assetKey: record.assetKey,
@@ -1705,14 +1712,14 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
         assetSizeBytes: record.assetSizeBytes || 0,
         imageWidth: record.imageWidth || record.width || 0,
         imageHeight: record.imageHeight || record.height || 0,
-        ...(embeddedField === "imageDataUrl"
-          ? { imageObjectUrl: currentObjectUrl || undefined }
-          : { objectUrl: currentObjectUrl || undefined }),
+        [objectUrlField]: currentObjectUrl || undefined,
+        videoWidth: record.videoWidth || 0,
+        videoHeight: record.videoHeight || 0,
       });
       continue;
     }
 
-    const blob = await recordToBlob(record, embeddedField);
+    const blob = await recordToBlob(record, embeddedField, objectUrlField);
     if (!blob) continue;
     const mimeType = blob.type || record.assetMimeType || "image/jpeg";
     const assetPath = `${prefix}/${record.assetKey}.${assetExtension(mimeType)}`;
@@ -1724,6 +1731,7 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
     record.assetSizeBytes = blob.size;
     delete record[embeddedField];
     delete record.imageObjectUrl;
+    delete record.videoObjectUrl;
     delete record.objectUrl;
     references.push({
       assetKey: record.assetKey,
@@ -1732,9 +1740,9 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
       assetSizeBytes: blob.size,
       imageWidth: record.imageWidth || record.width || 0,
       imageHeight: record.imageHeight || record.height || 0,
-      ...(embeddedField === "imageDataUrl"
-        ? { imageObjectUrl: objectUrl }
-        : { objectUrl }),
+      [objectUrlField]: objectUrl,
+      videoWidth: record.videoWidth || 0,
+      videoHeight: record.videoHeight || 0,
     });
   }
 
@@ -1761,13 +1769,12 @@ async function hydrateBoardAssets(boardData) {
     }
   }
 
-  await Promise.all(records.map(async ({ record, embeddedField }) => {
+  await Promise.all(records.map(async ({ record, embeddedField, objectUrlField }) => {
     const path = String(record?.assetPath || "").trim();
     if (!path || record?.[embeddedField] || !downloads.has(path)) return;
     try {
       const objectUrl = await downloads.get(path);
-      if (embeddedField === "imageDataUrl") record.imageObjectUrl = objectUrl;
-      else record.objectUrl = objectUrl;
+      record[objectUrlField] = objectUrl;
       delete record.assetLoadError;
     } catch (error) {
       record.assetLoadError = true;

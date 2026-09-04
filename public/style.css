@@ -766,6 +766,62 @@ body.camera-capture-open {
   bottom: -44px;
 }
 
+.video-player-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.video-player-shell {
+  position: absolute;
+  min-width: 240px;
+  min-height: 135px;
+  border: 0;
+  outline: 2px solid #2f8fbe;
+  border-radius: 14px;
+  background: #000;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.32);
+  pointer-events: auto;
+}
+
+.video-player-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 11px;
+  background: #000;
+  object-fit: contain;
+}
+
+.video-player-close {
+  position: absolute;
+  top: -44px;
+  right: 0;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #9bc8da;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1d668a;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+  font: 700 13px/1 "Segoe UI", "Yu Gothic UI", sans-serif;
+  cursor: pointer;
+}
+
+.video-player-close:hover,
+.video-player-close:focus-visible {
+  border-color: #2f8fbe;
+  background: #e9f6fb;
+  outline: none;
+}
+
+.video-player-shell--controls-below .video-player-close {
+  top: auto;
+  bottom: -44px;
+}
+
 .page-toolbar {
   position: fixed;
   left: 16px;

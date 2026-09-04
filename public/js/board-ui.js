@@ -1,10 +1,10 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -74,6 +74,8 @@ export function initBoardUI() {
   // 生徒画面モーダルにも独立した data-tool ボタンがあるため、
   // 通常ホワイトボードのサイドバーだけを共通 UI の対象にする。
   const toolButtons = document.querySelectorAll("#wbSidebar [data-tool]");
+  const mediaFileBtn = document.getElementById("mediaFileBtn");
+  const mediaInput = document.getElementById("mediaInput");
   const pdfInput = document.getElementById("pdfInput");
   const undoBtn = document.getElementById("undoBtn");
   const clearBtn = document.getElementById("clearBtn");
@@ -1788,6 +1790,34 @@ export function initBoardUI() {
   if (shapeDepthRange && typeof wb.setSelectedShapeDepth === "function") {
     shapeDepthRange.addEventListener("input", () => {
       wb.setSelectedShapeDepth((parseInt(shapeDepthRange.value, 10) || 24) / 100);
+    });
+  }
+
+  // ========= 画像・動画ファイルの挿入 =========
+  if (mediaInput) {
+    mediaFileBtn?.addEventListener("click", () => mediaInput.click());
+    mediaInput.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      mediaFileBtn?.setAttribute("aria-busy", "true");
+      if (mediaFileBtn) mediaFileBtn.disabled = true;
+      try {
+        if (file.type.startsWith("image/")) {
+          await wb.pasteImageBlob(file);
+        } else if (file.type.startsWith("video/")) {
+          await wb.pasteVideoBlob(file, { fileName: file.name });
+        } else {
+          throw new Error("画像または動画ファイルを選択してください。");
+        }
+      } catch (error) {
+        console.error("Media file load error", error);
+        alert(error?.message || "画像・動画の読み込みに失敗しました。");
+      } finally {
+        mediaFileBtn?.removeAttribute("aria-busy");
+        if (mediaFileBtn) mediaFileBtn.disabled = false;
+        mediaInput.value = "";
+      }
     });
   }
 

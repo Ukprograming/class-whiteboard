@@ -453,6 +453,32 @@ if (missingCameraToolContracts.length > 0) {
   console.error(`Whiteboard camera tool contracts missing: ${missingCameraToolContracts.join(", ")}`);
   ok = false;
 }
+const mediaFileContracts = [
+  [teacherHtmlSource, 'id="mediaFileBtn"'],
+  [studentHtmlSource, 'id="mediaFileBtn"'],
+  [teacherHtmlSource, 'id="mediaInput" type="file"'],
+  [studentHtmlSource, 'accept="image/*,video/mp4,video/webm,video/ogg,video/quicktime"'],
+  [boardUiSource, 'mediaFileBtn?.addEventListener("click", () => mediaInput.click())'],
+  [boardUiSource, 'await wb.pasteImageBlob(file)'],
+  [boardUiSource, 'await wb.pasteVideoBlob(file, { fileName: file.name })'],
+  [whiteboardSource, 'kind: "video"'],
+  [whiteboardSource, 'video.controls = true'],
+  [whiteboardSource, 'video.playsInline = true'],
+  [whiteboardSource, 'this.onAction({ type: "refresh" })'],
+  [realtimeApiSource, 'object?.kind === "video"'],
+  [realtimeApiSource, 'case "video/mp4": return "mp4"'],
+  [styleSource, '.video-player-layer'],
+  [styleSource, 'object-fit: contain'],
+  [teacherHtmlSource, 'media-file=20260904'],
+  [studentHtmlSource, 'media-file=20260904'],
+];
+const missingMediaFileContracts = mediaFileContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingMediaFileContracts.length > 0) {
+  console.error(`Whiteboard media file contracts missing: ${missingMediaFileContracts.join(", ")}`);
+  ok = false;
+}
 const youtubeEmbedContracts = [
   [youtubeUtilsSource, 'const YOUTUBE_HOSTS = new Set(['],
   [youtubeUtilsSource, 'https://www.youtube-nocookie.com/embed/'],
@@ -964,6 +990,7 @@ const distributionContracts = [
   [teacherSource, "managementApi.copyBoardToClass({"],
   [studentHtmlSource, "ファイルを開く..."],
   [copyBoardFunctionSource, ".copy(sourcePath, targetPath)"],
+  [copyBoardFunctionSource, '["image", "video"].includes'],
   [copyBoardFunctionSource, "p_distribution_id: distributionId"],
   [distributionMigrationSource, "p_snapshot_path is distinct from"],
   [distributionMigrationSource, "storage_board_teacher_board_reference_read"],
