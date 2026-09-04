@@ -35,6 +35,7 @@ const BOARD_API_BASE = "/api/board";
 const studentSaveBoardBtn = document.getElementById("studentSaveBoardBtn");
 const studentLoadBoardBtn = document.getElementById("studentLoadBoardBtn");
 const studentOverwriteSaveBtn = document.getElementById("studentOverwriteSaveBtn");
+const studentNewBoardBtn = document.getElementById("studentNewBoardBtn");
 
 // ========= socket.io =========
 const socket = createRealtimeBridge();
@@ -169,7 +170,7 @@ function setStudentAssignmentPanelOpen(open) {
   if (studentAssignmentPanelOpen) setChatPanelOpen(false);
 }
 
-function showStudentBoardChangeDecision(message) {
+function showStudentBoardChangeDecision(message, options = {}) {
   return new Promise((resolve) => {
     const backdrop = document.createElement("div");
     backdrop.className = "workflow-dialog-backdrop";
@@ -199,7 +200,7 @@ function showStudentBoardChangeDecision(message) {
     const discardButton = document.createElement("button");
     discardButton.className = "form-secondary-btn";
     discardButton.type = "button";
-    discardButton.textContent = "保存せずに開く";
+    discardButton.textContent = options.discardLabel || "保存せずに開く";
     const saveButton = document.createElement("button");
     saveButton.className = "form-primary-btn";
     saveButton.type = "button";
@@ -465,6 +466,7 @@ let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
 let boardFileSaveInFlight = false;
+let boardDialogAfterSave = null;
 const STUDENT_DRAFT_MARKER_KEY = "classWhiteboard.studentDraftMarker.v1";
 const STUDENT_DRAFT_PAYLOAD_PREFIX = "classWhiteboard.studentDraft.v1:";
 const STUDENT_DRAFT_DB_NAME = "class-whiteboard-student-drafts";
@@ -1089,7 +1091,7 @@ function createBoardDialogIfNeeded() {
   }
 }
 
-function openBoardDialog(mode) {
+function openBoardDialog(mode, options = {}) {
   if (!currentClassCode || !nickname) {
     alert("クラスに参加してから保存・読み込みを行ってください。");
     return;
@@ -1100,6 +1102,9 @@ function openBoardDialog(mode) {
   }
 
   boardDialogMode = mode === "load" ? "load" : "save";
+  boardDialogAfterSave = boardDialogMode === "save" && typeof options.onSaveSuccess === "function"
+    ? options.onSaveSuccess
+    : null;
   createBoardDialogIfNeeded();
 
   const titleEl = document.getElementById("boardDialogTitle");
@@ -1146,6 +1151,7 @@ function openBoardDialog(mode) {
 }
 
 function closeBoardDialog() {
+  boardDialogAfterSave = null;
   if (boardDialogOverlay) {
     boardDialogOverlay.classList.remove("show");
   }
@@ -1543,7 +1549,7 @@ async function studentLoadBoardInternal(folderPath, fileId) {
 
 // ---- モーダル内ボタンのハンドラ ----
 
-function onClickSaveConfirm() {
+async function onClickSaveConfirm() {
   const folderInput = document.getElementById("boardDialogFolderInput");
   const fileNameInput = document.getElementById("boardDialogFileNameInput");
 
@@ -1555,7 +1561,9 @@ function onClickSaveConfirm() {
   const fileName = fileNameInput ? fileNameInput.value.trim() : "";
 
   // ★ 既存ファイルを選んでいれば boardDialogSelectedFileId が入っているので、それを渡す
-  studentSaveBoardInternal(folderPath, fileName, boardDialogSelectedFileId);
+  const afterSave = boardDialogAfterSave;
+  const saved = await studentSaveBoardInternal(folderPath, fileName, boardDialogSelectedFileId);
+  if (saved && afterSave) await afterSave();
 }
 
 
@@ -1605,6 +1613,43 @@ if (studentOverwriteSaveBtn) {
     );
   });
 }
+
+async function resetStudentBoardForNewFile() {
+  whiteboard.newBoard();
+  currentBoardFileId = null;
+  currentBoardFileName = "";
+  hasRestoredStudentDraft = false;
+  await clearStudentDraft();
+}
+
+async function createNewStudentBoard() {
+  document.getElementById("fileMenuDropdown")?.classList.add("hidden");
+
+  if (whiteboard?.isBoardDirty) {
+    const choice = await showStudentBoardChangeDecision(
+      "新しいホワイトボードを作成する前に、現在のホワイトボードを保存しますか？",
+      { discardLabel: "保存せずに新規作成" }
+    );
+    if (choice === "cancel") return;
+    if (choice === "save") {
+      if (!currentBoardFileId || !currentBoardFileName) {
+        openBoardDialog("save", { onSaveSuccess: resetStudentBoardForNewFile });
+        return;
+      }
+      const saved = await studentSaveBoardInternal(
+        lastUsedFolderPath || "",
+        currentBoardFileName,
+        currentBoardFileId,
+        { silent: true }
+      );
+      if (!saved) return;
+    }
+  }
+
+  await resetStudentBoardForNewFile();
+}
+
+studentNewBoardBtn?.addEventListener("click", () => void createNewStudentBoard());
 
 // 新イベント名に対応するステータス更新（生徒側のステータスはツールバーに表示しない）
 socket.on("join-student", payload => {

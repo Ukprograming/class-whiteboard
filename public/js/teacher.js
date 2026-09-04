@@ -468,6 +468,7 @@ let notebookStudents = {}; // { studentId: { latestImageData } }
 // ======== ホワイトボード保存/読み込みダイアログ関連 ========
 const teacherOpenSaveDialogBtn = document.getElementById("teacherOpenSaveDialogBtn");
 const teacherOpenLoadDialogBtn = document.getElementById("teacherOpenLoadDialogBtn");
+const teacherNewBoardBtn = document.getElementById("teacherNewBoardBtn");
 const teacherDistributeBoardBtn = document.getElementById("teacherDistributeBoardBtn");
 const teacherAssignmentCheckBtn = document.getElementById("teacherAssignmentCheckBtn");
 const teacherSharedBoardToggleBtn = document.getElementById("teacherSharedBoardToggleBtn");
@@ -527,6 +528,7 @@ let boardDialogMode = "save";           // "save" or "load"
 let boardDialogSelectedFolder = "";     // 選択中フォルダ
 let boardDialogSelectedFileId = null;   // 選択中ファイルID
 let lastUsedFolderPath = "";            // 直近に使ったフォルダ
+let boardDialogAfterSave = null;
 
 // ★ 追加：どの領域を見ているか（先生 / 生徒○○）
 let boardScopeMode = "teacher";         // "teacher" or "student"
@@ -1121,7 +1123,7 @@ function createBoardDialogIfNeeded() {
   }
 }
 
-function openBoardDialog(mode) {
+function openBoardDialog(mode, options = {}) {
   if (!currentClassCode) {
     alert("先にクラスコードを入力して「開始」してください。");
     return;
@@ -1132,6 +1134,9 @@ function openBoardDialog(mode) {
   }
 
   boardDialogMode = mode === "load" ? "load" : "save";
+  boardDialogAfterSave = boardDialogMode === "save" && typeof options.onSaveSuccess === "function"
+    ? options.onSaveSuccess
+    : null;
   createBoardDialogIfNeeded();
 
   const titleEl = document.getElementById("boardDialogTitle");
@@ -1179,6 +1184,7 @@ function openBoardDialog(mode) {
 }
 
 function closeBoardDialog() {
+  boardDialogAfterSave = null;
   if (boardDialogOverlay) {
     boardDialogOverlay.classList.remove("show");
   }
@@ -1672,7 +1678,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
 
 
 
-function onClickSaveConfirm() {
+async function onClickSaveConfirm() {
   console.log("[BoardDialog] Save button clicked");
 
   const folderInput = document.getElementById("boardDialogFolderInput");
@@ -1682,7 +1688,9 @@ function onClickSaveConfirm() {
   const fileName = fileNameInput ? fileNameInput.value.trim() : "";
 
   // 既存ファイルを選択していれば boardDialogSelectedFileId に入っている
-  teacherSaveBoardInternal(folderPath, fileName, boardDialogSelectedFileId);
+  const afterSave = boardDialogAfterSave;
+  const saved = await teacherSaveBoardInternal(folderPath, fileName, boardDialogSelectedFileId);
+  if (saved && afterSave) await afterSave();
 }
 
 
@@ -1724,7 +1732,7 @@ if (teacherOpenLoadDialogBtn) {
 
 let distributionInFlight = false;
 
-function showBoardChangeSaveDecision(message) {
+function showBoardChangeSaveDecision(message, options = {}) {
   return new Promise((resolve) => {
     const backdrop = document.createElement("div");
     backdrop.className = "workflow-dialog-backdrop";
@@ -1757,7 +1765,7 @@ function showBoardChangeSaveDecision(message) {
     const discardButton = document.createElement("button");
     discardButton.className = "form-secondary-btn";
     discardButton.type = "button";
-    discardButton.textContent = "保存せずに切り替える";
+    discardButton.textContent = options.discardLabel || "保存せずに切り替える";
     const saveButton = document.createElement("button");
     saveButton.className = "form-primary-btn";
     saveButton.type = "button";
@@ -1780,6 +1788,46 @@ function showBoardChangeSaveDecision(message) {
     saveButton.focus();
   });
 }
+
+function resetTeacherBoardForNewFile() {
+  teacherBoard.newBoard();
+  currentBoardFileId = null;
+  currentBoardFileName = "";
+  currentBoardOwnerKind = "teacher";
+}
+
+async function createNewTeacherBoard() {
+  document.getElementById("fileMenuDropdown")?.classList.add("hidden");
+  if (assignmentReviewState) {
+    alert("新しいホワイトボードを作成するには、先に課題チェックを終了してください。");
+    return;
+  }
+
+  if (teacherBoard?.isBoardDirty) {
+    const choice = await showBoardChangeSaveDecision(
+      "新しいホワイトボードを作成する前に、現在のホワイトボードを保存しますか？",
+      { discardLabel: "保存せずに新規作成" }
+    );
+    if (choice === "cancel") return;
+    if (choice === "save") {
+      if (!currentBoardFileId || !currentBoardFileName) {
+        openBoardDialog("save", { onSaveSuccess: resetTeacherBoardForNewFile });
+        return;
+      }
+      const saved = await teacherSaveBoardInternal(
+        lastUsedFolderPath || "",
+        currentBoardFileName,
+        currentBoardFileId,
+        { silent: true }
+      );
+      if (!saved) return;
+    }
+  }
+
+  resetTeacherBoardForNewFile();
+}
+
+teacherNewBoardBtn?.addEventListener("click", () => void createNewTeacherBoard());
 
 async function confirmTeacherBoardChange(message) {
   if (!teacherBoard?.isBoardDirty) return true;

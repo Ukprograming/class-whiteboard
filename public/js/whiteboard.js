@@ -515,6 +515,21 @@ export class Whiteboard {
     };
   }
 
+  newBoard(options = {}) {
+    const { emit = true } = options;
+    const firstPage = {
+      id: "page-1",
+      name: "ページ 1",
+      boardData: this._blankPageData()
+    };
+    this.importBoardData({
+      version: 3,
+      activePageId: firstPage.id,
+      pages: [firstPage]
+    });
+    if (emit && this.onAction) this.onAction({ type: "refresh" });
+  }
+
   _syncActivePage() {
     const page = this.pages.find(item => item.id === this.activePageId);
     if (page) page.boardData = this._exportSinglePageData();
