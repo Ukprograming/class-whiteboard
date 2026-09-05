@@ -436,7 +436,7 @@ export class Whiteboard {
     const waits = [this._backgroundLoadPromise];
     for (const object of this.objects || []) {
       const image = object?.kind === "image" ? object.image : null;
-      if (!image || (image.complete && image.naturalWidth > 0)) continue;
+      if (!image || this._isImageSourceReady(image)) continue;
       waits.push(new Promise(resolve => {
         image.addEventListener("load", resolve, { once: true });
         image.addEventListener("error", resolve, { once: true });
@@ -445,6 +445,14 @@ export class Whiteboard {
     const timeout = new Promise(resolve => setTimeout(resolve, 10000));
     await Promise.race([Promise.allSettled(waits), timeout]);
     this.render();
+  }
+
+  _isImageSourceReady(source) {
+    if (!source) return false;
+    if (typeof source.complete === "boolean") {
+      return source.complete && source.naturalWidth > 0 && source.naturalHeight > 0;
+    }
+    return Number(source.width) > 0 && Number(source.height) > 0;
   }
 
   // ★ グリッド表示切り替え
@@ -6259,9 +6267,7 @@ export class Whiteboard {
 
       else if (
         kind === "image" &&
-        obj.image?.complete &&
-        obj.image.naturalWidth > 0 &&
-        obj.image.naturalHeight > 0
+        this._isImageSourceReady(obj.image)
       ) {
         ctx.save();
 

@@ -754,8 +754,9 @@ if (missingCommunicationIntervalContracts.length > 0) {
 const brokenImageContracts = [
   [whiteboardSource, "const incomingObjectUrls = this._collectAssetObjectUrls(data)"],
   [whiteboardSource, "img.onerror = () => {"],
-  [whiteboardSource, "obj.image?.complete"],
-  [whiteboardSource, "obj.image.naturalWidth > 0"],
+  [whiteboardSource, "_isImageSourceReady(source)"],
+  [whiteboardSource, 'typeof source.complete === "boolean"'],
+  [whiteboardSource, "Number(source.width) > 0 && Number(source.height) > 0"],
   [teacherSource, "delete latestBoardDataByStudent[studentSocketId]"],
   [teacherSource, "requestStudentModalBoardState(studentSocketId)"],
 ];
@@ -764,6 +765,11 @@ const missingBrokenImageContracts = brokenImageContracts
   .map(([, contract]) => contract);
 if (missingBrokenImageContracts.length > 0) {
   console.error(`Broken image recovery contracts missing: ${missingBrokenImageContracts.join(", ")}`);
+  ok = false;
+}
+const imageReadyUsageCount = (whiteboardSource.match(/this\._isImageSourceReady\(/g) || []).length;
+if (imageReadyUsageCount < 2) {
+  console.error("Image readiness must cover both asset waits and object rendering.");
   ok = false;
 }
 
