@@ -3,8 +3,10 @@ import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=
 import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824";
 import {
   deterministicSpreadDelay,
+  isRateLimitError,
+  runWithRateLimitRetry,
   waitForRealtimeSpread,
-} from "./realtime-load-control.js?v=realtime-scale-20260824";
+} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
@@ -94,6 +96,14 @@ const RELIABLE_CONTROL_EVENTS = new Set([
 ]);
 const REALTIME_INITIAL_JOIN_TIMEOUT_MS = 30000;
 const STUDENT_JOIN_SPREAD_WINDOW_MS = 3000;
+// Keep a 30-student mode-change wave below the Free-plan Presence limit (20/s).
+const STUDENT_MODE_PRESENCE_SPREAD_WINDOW_MS = 5000;
+// Password sign-in allows a 30-request burst; a short spread leaves refill margin
+// without adding a long delay to an ordinary single-student login.
+const STUDENT_AUTH_SPREAD_WINDOW_MS = 3000;
+const AUTH_RATE_LIMIT_MAX_ATTEMPTS = 4;
+const AUTH_RATE_LIMIT_RETRY_BASE_MS = 2500;
+const AUTH_RATE_LIMIT_RETRY_SPREAD_WINDOW_MS = 2000;
 const RETRYABLE_REALTIME_JOIN_ERRORS = [
   "MissingPartition",
   "InitializingProjectConnection",
@@ -246,6 +256,8 @@ function createSupabaseRealtimeBridge() {
     studentIdByLoginId: new Map(),
     studentRecordIdBySocketId: new Map(),
     reconnectTimerId: null,
+    modePresenceTimerId: null,
+    modePresenceGeneration: 0,
     ready: null,
     mode: "whiteboard",
     online: false,
@@ -333,7 +345,7 @@ function createSupabaseRealtimeBridge() {
           const nextMode = payload.mode || state.mode;
           const modeChanged = nextMode !== state.mode;
           state.mode = nextMode;
-          if (modeChanged) void trackPresence();
+          if (modeChanged) scheduleModePresenceSync();
         }
         return reliableControlQueue.enqueue(eventName, payload);
       default:
@@ -345,6 +357,23 @@ function createSupabaseRealtimeBridge() {
         }
         return sendRealtimeEvent(eventName, payload);
     }
+  }
+
+  function scheduleModePresenceSync() {
+    if (state.modePresenceTimerId) clearTimeout(state.modePresenceTimerId);
+    const generation = ++state.modePresenceGeneration;
+    const studentKey = state.studentRecordId || state.nickname || socketId;
+    const delayMs = deterministicSpreadDelay(
+      `mode:${state.classCode}:${studentKey}`,
+      STUDENT_MODE_PRESENCE_SPREAD_WINDOW_MS
+    );
+    state.modePresenceTimerId = setTimeout(() => {
+      if (generation !== state.modePresenceGeneration) return;
+      state.modePresenceTimerId = null;
+      void trackPresence().catch((error) => {
+        console.warn("[realtime] failed to synchronize the latest student mode to Presence.", error);
+      });
+    }, delayMs);
   }
 
   async function resolveRealtimeMembership(role, classCode, userId) {
@@ -710,6 +739,9 @@ function createSupabaseRealtimeBridge() {
   }
 
   async function leaveRealtime() {
+    if (state.modePresenceTimerId) clearTimeout(state.modePresenceTimerId);
+    state.modePresenceTimerId = null;
+    state.modePresenceGeneration += 1;
     const channels = [
       state.presenceChannel,
       state.announcementChannel,
@@ -1195,10 +1227,30 @@ async function getSessionOrThrow() {
   return data.session;
 }
 
+async function signInWithPasswordWithRateLimitRetry(credentials, options = {}) {
+  const retryKey = String(options.retryKey || credentials.email || "auth");
+  return runWithRateLimitRetry(
+    () => supabase.auth.signInWithPassword(credentials),
+    {
+      maxAttempts: AUTH_RATE_LIMIT_MAX_ATTEMPTS,
+      getDelayMs: (attempt) =>
+        AUTH_RATE_LIMIT_RETRY_BASE_MS * attempt +
+        deterministicSpreadDelay(
+          `auth-retry:${retryKey}:${attempt}`,
+          AUTH_RATE_LIMIT_RETRY_SPREAD_WINDOW_MS
+        ),
+      onRetry: options.onRateLimitRetry,
+    }
+  );
+}
+
 export const authApi = {
-  async signInTeacher(email, password) {
+  async signInTeacher(email, password, options = {}) {
     assertSupabase();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await signInWithPasswordWithRateLimitRetry(
+      { email, password },
+      { retryKey: `teacher:${email}`, onRateLimitRetry: options.onRateLimitRetry }
+    );
     if (error) throw error;
     return data;
   },
@@ -1213,13 +1265,32 @@ export const authApi = {
     return result;
   },
 
-  async signInStudent({ classCode, studentLoginId, password }) {
+  async signInStudent({
+    classCode,
+    studentLoginId,
+    password,
+    onInitialDelay,
+    onRateLimitRetry,
+  }) {
     assertSupabase();
     const normalizedClassCode = normalizeClassCode(classCode);
     const normalizedStudentLoginId = normalizeStudentLoginId(studentLoginId);
     const email = studentAuthEmail(normalizedClassCode, normalizedStudentLoginId);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const loginKey = `${normalizedClassCode}:${normalizedStudentLoginId}`;
+    const initialDelayMs = deterministicSpreadDelay(
+      `auth:${loginKey}`,
+      STUDENT_AUTH_SPREAD_WINDOW_MS
+    );
+    onInitialDelay?.({ delayMs: initialDelayMs });
+    await waitForRealtimeSpread(initialDelayMs);
+    const { data, error } = await signInWithPasswordWithRateLimitRetry(
+      { email, password },
+      { retryKey: loginKey, onRateLimitRetry }
+    );
     if (error) {
+      if (isRateLimitError(error)) {
+        throw new Error("アクセスが集中しています。少し時間を置いてから、もう一度ログインしてください。");
+      }
       throw new Error("クラスコード、生徒ID、またはパスワードが一致しません。表示名ではなく、先生が設定した生徒IDを入力してください。");
     }
 

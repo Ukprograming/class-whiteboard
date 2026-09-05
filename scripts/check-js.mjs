@@ -182,7 +182,12 @@ try {
     console.error("Realtime load control module was not checked.");
     ok = false;
   } else {
-    const { deterministicSpreadDelay, jitteredInterval } = await import(
+    const {
+      deterministicSpreadDelay,
+      isRateLimitError,
+      jitteredInterval,
+      runWithRateLimitRetry,
+    } = await import(
       pathToFileURL(realtimeLoadControlTempPath).href
     );
     const studentDelays = Array.from(
@@ -239,6 +244,76 @@ try {
         `20-client load model passed: presence=${peakPresenceEvents}/s, ` +
         `channelJoins=${peakChannelJoins}/s, thumbnails=${peakThumbnailEvents}/s.`
       );
+    }
+
+    const countEventsPerSecond = (delays) => {
+      const buckets = new Map();
+      for (const delayMs of delays) {
+        const bucket = Math.floor(delayMs / 1000);
+        buckets.set(bucket, (buckets.get(bucket) || 0) + 1);
+      }
+      return Math.max(...buckets.values());
+    };
+    const modePresenceDelays = Array.from(
+      { length: 30 },
+      (_, index) => deterministicSpreadDelay(`mode:TEST:student-${index + 1}`, 5000)
+    );
+    const authLoginDelays = Array.from(
+      { length: 30 },
+      (_, index) => deterministicSpreadDelay(`auth:TEST:student-${index + 1}`, 3000)
+    );
+    const peakModePresenceEvents = countEventsPerSecond(modePresenceDelays);
+    const peakAuthLoginAttempts = countEventsPerSecond(authLoginDelays);
+    if (
+      peakModePresenceEvents > 20 ||
+      peakAuthLoginAttempts > 20 ||
+      Math.max(...modePresenceDelays) - Math.min(...modePresenceDelays) < 2500 ||
+      Math.max(...authLoginDelays) - Math.min(...authLoginDelays) < 1500
+    ) {
+      console.error(
+        `30-client burst spreading contract failed: ` +
+        `modePresence=${peakModePresenceEvents}/s, auth=${peakAuthLoginAttempts}/s.`
+      );
+      ok = false;
+    } else {
+      console.log(
+        `30-client burst model passed: modePresence=${peakModePresenceEvents}/s, ` +
+        `auth=${peakAuthLoginAttempts}/s.`
+      );
+    }
+
+    const retryWaits = [];
+    const retryNotices = [];
+    let rateLimitedAttempts = 0;
+    const recoveredAuthResult = await runWithRateLimitRetry(async () => {
+      rateLimitedAttempts += 1;
+      return rateLimitedAttempts < 3
+        ? { data: null, error: { status: 429, code: "over_request_rate_limit" } }
+        : { data: { session: "ok" }, error: null };
+    }, {
+      maxAttempts: 4,
+      getDelayMs: (attempt) => attempt * 2500,
+      wait: async (delayMs) => retryWaits.push(delayMs),
+      onRetry: (notice) => retryNotices.push(notice),
+    });
+    let invalidCredentialAttempts = 0;
+    const invalidCredentialResult = await runWithRateLimitRetry(async () => {
+      invalidCredentialAttempts += 1;
+      return { data: null, error: { status: 400, code: "invalid_credentials" } };
+    }, { maxAttempts: 4, wait: async () => {} });
+    if (
+      recoveredAuthResult?.data?.session !== "ok" ||
+      rateLimitedAttempts !== 3 ||
+      JSON.stringify(retryWaits) !== JSON.stringify([2500, 5000]) ||
+      retryNotices.length !== 2 ||
+      invalidCredentialAttempts !== 1 ||
+      invalidCredentialResult?.error?.code !== "invalid_credentials" ||
+      !isRateLimitError({ status: 429 }) ||
+      !isRateLimitError({ code: "over_request_rate_limit" }) ||
+      isRateLimitError({ status: 400, code: "invalid_credentials" })
+    ) {
+      console.error("Auth rate-limit-only retry contract failed.");
+      ok = false;
     }
   }
 
@@ -387,7 +462,14 @@ const studentHtmlSource = readFileSync("public/student.html", "utf8");
 const realtimeScaleFixContracts = [
   [realtimeApiSource, '"student-view-start-targeted"'],
   [realtimeApiSource, "const modeChanged = nextMode !== state.mode"],
-  [realtimeApiSource, "if (modeChanged) void trackPresence()"],
+  [realtimeApiSource, "if (modeChanged) scheduleModePresenceSync()"],
+  [realtimeApiSource, "STUDENT_MODE_PRESENCE_SPREAD_WINDOW_MS = 5000"],
+  [realtimeApiSource, "modePresenceGeneration"],
+  [realtimeApiSource, "AUTH_RATE_LIMIT_MAX_ATTEMPTS = 4"],
+  [realtimeApiSource, "STUDENT_AUTH_SPREAD_WINDOW_MS = 3000"],
+  [realtimeApiSource, "signInWithPasswordWithRateLimitRetry"],
+  [studentSource, "onInitialDelay: ({ delayMs })"],
+  [studentSource, "onRateLimitRetry: ({ delayMs })"],
   [teacherSource, 'socket.emit("student-view-start-targeted"'],
   [teacherSource, 'if (supabaseEnabled)'],
   [teacherSource, 'socket.emit("student-view-start", { classCode: currentClassCode })'],
@@ -883,7 +965,7 @@ if (editSelectionVersionedSources.some(([source, minimum]) =>
   ok = false;
 }
 
-const sharedSupabaseImport = "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904";
+const sharedSupabaseImport = "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905";
 if (![teacherSource, studentSource, formApiSource].every(source => source.includes(sharedSupabaseImport))) {
   console.error("Authenticated pages must share one versioned Supabase client module URL.");
   ok = false;

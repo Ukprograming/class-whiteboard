@@ -1,4 +1,4 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260824&realtime-duplex=20260824";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905";
 import {
   getSelectedTeacherClass,
   getTeacherClassHints,
@@ -73,7 +73,12 @@ if (form && supabaseEnabled) {
     const password = passwordInput?.value || "";
 
     try {
-      await authApi.signInTeacher(email, password);
+      await authApi.signInTeacher(email, password, {
+        onRateLimitRetry: ({ delayMs }) => {
+          const seconds = Math.max(1, Math.ceil(delayMs / 1000));
+          setMessage(`アクセスが集中しています。約${seconds}秒後に自動で再試行します…`);
+        },
+      });
       setSelectedTeacherClass(classSelect?.value);
       // The local Express server keeps the legacy session gate. This marker
       // lets the Supabase path load the page; teacher.js verifies the session.

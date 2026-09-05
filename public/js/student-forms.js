@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905";
 
 const QUESTION_LABELS = { text: "自由記述", single_choice: "1つ選択", multiple_choice: "複数選択可" };
 
