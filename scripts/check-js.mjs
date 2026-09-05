@@ -561,6 +561,25 @@ if (missingMediaFileContracts.length > 0) {
   console.error(`Whiteboard media file contracts missing: ${missingMediaFileContracts.join(", ")}`);
   ok = false;
 }
+const insertAutoSelectCallCount = (boardUiSource.match(/activateSelectionToolAfterInsert\(\);/g) || []).length;
+const insertAutoSelectContracts = [
+  [boardUiSource, "function activateSelectionToolAfterInsert()"],
+  [boardUiSource, 'wb.setTool("select")'],
+  [teacherSource, "insert-auto-select=20260905"],
+  [studentSource, "insert-auto-select=20260905"],
+  [teacherHtmlSource, "insert-auto-select=20260905"],
+  [studentHtmlSource, "insert-auto-select=20260905"],
+];
+const missingInsertAutoSelectContracts = insertAutoSelectContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingInsertAutoSelectContracts.length > 0 || insertAutoSelectCallCount !== 3) {
+  console.error(
+    `Post-insert selection contracts missing: ${missingInsertAutoSelectContracts.join(", ")}; ` +
+    `calls=${insertAutoSelectCallCount}`
+  );
+  ok = false;
+}
 const youtubeEmbedContracts = [
   [youtubeUtilsSource, 'const YOUTUBE_HOSTS = new Set(['],
   [youtubeUtilsSource, 'https://www.youtube-nocookie.com/embed/'],

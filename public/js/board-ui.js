@@ -411,6 +411,7 @@ export function initBoardUI() {
     setCameraMessage("ホワイトボードに画像を挿入しています…");
     try {
       await wb.pasteImageBlob(cameraCapturedBlob);
+      activateSelectionToolAfterInsert();
       closeCameraCapture();
     } catch (error) {
       console.error("Failed to insert camera image", error);
@@ -1016,6 +1017,13 @@ export function initBoardUI() {
         requestAnimationFrame(positionContextMenuForTool);
       }
     }
+  }
+
+  function activateSelectionToolAfterInsert() {
+    wb.setTool("select");
+    // 表の設定表示中は Whiteboard 側がすでに select のため、
+    // ツール変更通知が発生しない場合もツールバーを明示的に同期する。
+    updateToolButtons("select");
   }
 
   // Canvas-side tool changes (for example, double-clicking an existing object)
@@ -1810,6 +1818,7 @@ export function initBoardUI() {
         } else {
           throw new Error("画像または動画ファイルを選択してください。");
         }
+        activateSelectionToolAfterInsert();
       } catch (error) {
         console.error("Media file load error", error);
         alert(error?.message || "画像・動画の読み込みに失敗しました。");
@@ -1827,7 +1836,8 @@ export function initBoardUI() {
       const file = e.target.files[0];
       if (!file) return;
       try {
-        await wb.loadPdfFile(file, { onMultiplePages: choosePdfImportMode });
+        const result = await wb.loadPdfFile(file, { onMultiplePages: choosePdfImportMode });
+        if (!result?.cancelled) activateSelectionToolAfterInsert();
       } catch (err) {
         console.error("PDF load error", err);
         alert("PDF の読み込みに失敗しました。");
