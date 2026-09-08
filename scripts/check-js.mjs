@@ -454,10 +454,25 @@ const studentSource = readFileSync("public/js/student.js", "utf8");
 const appConfigSource = readFileSync("public/js/app-config.js", "utf8");
 const boardUiSource = readFileSync("public/js/board-ui.js", "utf8");
 const formApiSource = readFileSync("public/js/form-api.js", "utf8");
+const styleSource = readFileSync("public/style.css", "utf8");
 const teacherHtmlSource = readFileSync("public/teacher.html", "utf8");
 const studentBulkImportSource = readFileSync("public/js/student-bulk-import.js", "utf8");
 const teacherLoginHtmlSource = readFileSync("public/teacher-login.html", "utf8");
 const studentHtmlSource = readFileSync("public/student.html", "utf8");
+
+const teacherTileScrollContracts = [
+  [styleSource, "grid-auto-rows: max-content;"],
+  [styleSource, "align-content: start;"],
+  [styleSource, "scrollbar-gutter: stable;"],
+  [teacherHtmlSource, "tile-scroll=20260908"],
+];
+const missingTeacherTileScrollContracts = teacherTileScrollContracts
+  .filter(([source, contract]) => !source.includes(contract))
+  .map(([, contract]) => contract);
+if (missingTeacherTileScrollContracts.length > 0) {
+  console.error(`Teacher tile scrolling contracts missing: ${missingTeacherTileScrollContracts.join(", ")}`);
+  ok = false;
+}
 
 const realtimeScaleFixContracts = [
   [realtimeApiSource, '"student-view-start-targeted"'],
@@ -500,7 +515,6 @@ if (teacherAnnouncementEventsSource.includes('"student-view-start-targeted"')) {
 const passwordVisibilitySource = readFileSync("public/js/password-visibility.js", "utf8");
 const cameraUtilsSource = readFileSync("public/js/camera-utils.mjs", "utf8");
 const youtubeUtilsSource = readFileSync("public/js/youtube-utils.mjs", "utf8");
-const styleSource = readFileSync("public/style.css", "utf8");
 const serverSource = readFileSync("server.js", "utf8");
 const cameraToolContracts = [
   [teacherHtmlSource, 'id="cameraCaptureBtn"'],
