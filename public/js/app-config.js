@@ -3,7 +3,7 @@
 // keys, database passwords, access tokens, or invite codes in this file.
 window.CLASS_WHITEBOARD_CONFIG = {
   environment: "staging",
-  teacherSignupEnabled: false,
+  teacherSignupEnabled: true,
   supabaseUrl: "https://jgovtvleosgymlffaxnu.supabase.co",
   supabaseAnonKey: "sb_publishable_6-eIWc7mFGm8Q4TpapjNFw_ddi8t7l4",
   storageBucket: "class-whiteboard",

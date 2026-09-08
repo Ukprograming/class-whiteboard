@@ -42,9 +42,13 @@ Set these as Edge Function secrets:
 
 ```bash
 supabase secrets set TEACHER_INVITE_CODE="change-me"
+supabase secrets set TEACHER_SIGNUP_ENABLED="true"
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY="..."
 supabase secrets set SUPABASE_ANON_KEY="..."
 ```
+
+Keep `TEACHER_SIGNUP_ENABLED` set to `true` only while invited teacher accounts
+are being created. Set it back to `false` after registration is complete.
 
 `SUPABASE_URL` is normally available automatically in hosted Edge Functions, but
 set it explicitly if your local or deployment environment needs it.
