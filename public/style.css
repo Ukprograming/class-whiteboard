@@ -6686,7 +6686,7 @@ body {
   left: 18px;
   top: 164px;
   bottom: auto;
-  width: 58px;
+  width: 64px;
   height: min(472px, calc(100vh - 260px));
   max-height: calc(100vh - 260px);
   border-radius: 12px;
@@ -6704,6 +6704,10 @@ body {
   touch-action: pan-y;
   scrollbar-width: thin;
   scrollbar-color: #9fb4c2 transparent;
+}
+
+.floating-sidebar > .sidebar-content {
+  overflow-x: hidden;
 }
 
 .sidebar-content::-webkit-scrollbar {
