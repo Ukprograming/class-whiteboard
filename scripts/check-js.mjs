@@ -989,6 +989,18 @@ if (missingInteractionContracts.length > 0) {
   console.error(`Whiteboard interaction contracts missing: ${missingInteractionContracts.join(", ")}`);
   ok = false;
 }
+const zoomOutClickHandlerCount = (
+  boardUiSource.match(/zoomOutBtn\.addEventListener\("click"/g) || []
+).length;
+const zoomStepVersionedSources = [teacherSource, studentSource, teacherHtmlSource, studentHtmlSource];
+if (
+  zoomOutClickHandlerCount !== 1 ||
+  boardUiSource.includes("wb.zoomAtCanvasCenter(0.9)") ||
+  !zoomStepVersionedSources.every((source) => source.includes("zoom-step=20260909"))
+) {
+  console.error("Whiteboard zoom buttons must change scale once in 10% steps and be cache-busted.");
+  ok = false;
+}
 const editSelectionCacheKey = "edit-selection=20260902";
 const editSelectionVersionedSources = [
   [boardUiSource, 1],

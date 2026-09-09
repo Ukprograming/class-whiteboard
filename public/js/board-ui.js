@@ -1907,19 +1907,6 @@ export function initBoardUI() {
     });
   }
 
-
-  if (zoomOutBtn) {
-    zoomOutBtn.addEventListener("click", () => {
-      wb.zoomAtCanvasCenter(0.9);
-
-      // UI側のズーム倍率も更新
-      currentZoomScale *= 0.9;
-      if (currentZoomScale < 0.25) currentZoomScale = 0.25; // 下限はお好みで
-      updateZoomLabelFromWB();
-    });
-  }
-
-
   // ========= グループ化 =========
   if (groupBtn) {
     groupBtn.addEventListener("click", () => {
