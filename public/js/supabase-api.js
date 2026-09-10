@@ -1659,7 +1659,7 @@ function collectBoardAssetRecords(boardData) {
     for (const object of pageData.objects || []) {
       if (object?.kind === "image") {
         records.push({ record: object, embeddedField: "imageDataUrl", objectUrlField: "imageObjectUrl" });
-      } else if (object?.kind === "video") {
+      } else if (object?.kind === "video" || object?.kind === "audio") {
         records.push({ record: object, embeddedField: "videoDataUrl", objectUrlField: "videoObjectUrl" });
       }
     }
@@ -1677,11 +1677,21 @@ function normalizeAssetKey(value) {
 }
 
 function assetExtension(mimeType) {
-  switch (String(mimeType || "").toLowerCase()) {
+  switch (String(mimeType || "").toLowerCase().split(";")[0].trim()) {
     case "image/png": return "png";
     case "image/webp": return "webp";
     case "image/gif": return "gif";
     case "image/svg+xml": return "svg";
+    case "audio/mpeg": return "mp3";
+    case "audio/mp4":
+    case "audio/x-m4a": return "m4a";
+    case "audio/wav":
+    case "audio/wave":
+    case "audio/x-wav": return "wav";
+    case "audio/aac": return "aac";
+    case "audio/ogg": return "ogg";
+    case "audio/flac": return "flac";
+    case "audio/webm": return "webm";
     case "video/webm": return "webm";
     case "video/ogg": return "ogv";
     case "video/quicktime": return "mov";

@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904";
@@ -81,7 +81,7 @@ export function initBoardUI() {
   const clearBtn = document.getElementById("clearBtn");
   const zoomInBtn = document.getElementById("zoomInBtn");
   const zoomOutBtn = document.getElementById("zoomOutBtn");
-  const gridToggleBtn = document.getElementById("gridToggleBtn");
+  const backgroundStyleControl = document.getElementById("backgroundStyleControl");
   const groupBtn = document.getElementById("groupBtn");
   const lockBtn = document.getElementById("lockBtn");
   const deleteBtn = document.getElementById("deleteBtn");
@@ -99,6 +99,14 @@ export function initBoardUI() {
   const cameraCaptureRetakeBtn = document.getElementById("cameraCaptureRetakeBtn");
   const cameraCaptureShutterBtn = document.getElementById("cameraCaptureShutterBtn");
   const cameraCaptureInsertBtn = document.getElementById("cameraCaptureInsertBtn");
+  const cameraRecordingPreview = document.getElementById("cameraCaptureRecordingPreview");
+  const cameraModeButtons = [...document.querySelectorAll("[data-camera-mode]")];
+  let cameraMode = "photo";
+  let cameraRecorder = null;
+  let cameraMicrophoneStream = null;
+  let cameraRecordingTimer = null;
+  let cameraRecordingStartedAt = 0;
+  let cameraInsertPending = false;
   let cameraCaptureStream = null;
   let cameraCapturedBlob = null;
   let cameraPreviewUrl = "";
@@ -124,6 +132,13 @@ export function initBoardUI() {
   }
 
   function stopCameraCaptureStream() {
+    const recorder = cameraRecorder;
+    cameraRecorder = null;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    clearInterval(cameraRecordingTimer);
+    cameraRecordingTimer = null;
+    stopMediaStream(cameraMicrophoneStream);
+    cameraMicrophoneStream = null;
     stopMediaStream(cameraCaptureStream);
     cameraCaptureStream = null;
     if (cameraCaptureVideo) cameraCaptureVideo.srcObject = null;
@@ -136,9 +151,22 @@ export function initBoardUI() {
   }
 
   function updateCameraDeviceSelectDisabled() {
+    cameraModeButtons.forEach(button => {
+      button.disabled = cameraRequestPending || !!cameraRecorder || cameraInsertPending;
+      button.setAttribute("aria-pressed", String(button.dataset.cameraMode === cameraMode));
+    });
     if (!cameraCaptureDeviceSelect) return;
-    cameraCaptureDeviceSelect.disabled = cameraRequestPending
+    cameraCaptureDeviceSelect.disabled = cameraRequestPending || !!cameraRecorder || cameraInsertPending
       || cameraCaptureDeviceSelect.options.length < 2;
+  }
+
+  function updateCameraShutter() {
+    if (!cameraCaptureShutterBtn) return;
+    const label = cameraRecorder ? "録画を停止" : cameraMode === "video" ? "録画を開始" : "撮影";
+    cameraCaptureShutterBtn.textContent = label;
+    cameraCaptureShutterBtn.setAttribute("aria-label", label);
+    cameraCaptureShutterBtn.classList.toggle("is-recording", !!cameraRecorder);
+    cameraCaptureShutterBtn.disabled = cameraRequestPending || cameraInsertPending;
   }
 
   async function refreshCameraDeviceOptions(preferredDeviceId = cameraActiveDeviceId) {
@@ -237,6 +265,10 @@ export function initBoardUI() {
 
   function clearCameraPreview() {
     cameraCapturedBlob = null;
+    cameraRecordingPreview?.pause();
+    cameraRecordingPreview?.removeAttribute("src");
+    cameraRecordingPreview?.load();
+    cameraRecordingPreview?.classList.add("hidden");
     if (cameraPreviewUrl) {
       URL.revokeObjectURL(cameraPreviewUrl);
       cameraPreviewUrl = "";
@@ -247,9 +279,11 @@ export function initBoardUI() {
     cameraCaptureRetakeBtn?.classList.add("hidden");
     cameraCaptureShutterBtn?.classList.remove("hidden");
     if (cameraCaptureInsertBtn) cameraCaptureInsertBtn.disabled = true;
+    updateCameraShutter();
   }
 
   function closeCameraCapture() {
+    if (cameraInsertPending) return;
     cameraRequestId += 1;
     cameraRequestPending = false;
     stopCameraCaptureStream();
@@ -258,6 +292,7 @@ export function initBoardUI() {
     document.body.classList.remove("camera-capture-open");
     setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
     cameraCaptureBtn?.focus();
+    updateCameraDeviceSelectDisabled();
   }
 
   function cameraErrorMessage(error) {
@@ -285,6 +320,7 @@ export function initBoardUI() {
     }
 
     cameraRequestPending = true;
+    cameraMode = "photo";
     const requestId = ++cameraRequestId;
     cameraCaptureBtn.disabled = true;
     cameraCaptureBtn.setAttribute("aria-busy", "true");
@@ -317,12 +353,13 @@ export function initBoardUI() {
       cameraCaptureBtn.disabled = false;
       cameraCaptureBtn.removeAttribute("aria-busy");
       updateCameraDeviceSelectDisabled();
+      updateCameraShutter();
     }
   }
 
   async function switchCameraCaptureDevice() {
     const requestedDeviceId = cameraCaptureDeviceSelect?.value || "";
-    if (!requestedDeviceId || requestedDeviceId === cameraActiveDeviceId || cameraRequestPending) return;
+    if (!requestedDeviceId || requestedDeviceId === cameraActiveDeviceId || cameraRequestPending || cameraRecorder || cameraInsertPending) return;
 
     const previousDeviceId = cameraActiveDeviceId;
     const requestId = ++cameraRequestId;
@@ -350,6 +387,12 @@ export function initBoardUI() {
   }
 
   async function captureCameraFrame() {
+    if (cameraRequestPending || cameraInsertPending) return;
+    if (cameraMode === "video") {
+      await recordCameraVideo();
+      return;
+    }
+    const requestId = cameraRequestId;
     const sourceWidth = cameraCaptureVideo?.videoWidth || 0;
     const sourceHeight = cameraCaptureVideo?.videoHeight || 0;
     if (!sourceWidth || !sourceHeight) {
@@ -380,7 +423,14 @@ export function initBoardUI() {
       captureCanvas.width,
       captureCanvas.height
     );
+    cameraRequestPending = true;
+    updateCameraDeviceSelectDisabled();
+    updateCameraShutter();
     const blob = await new Promise(resolve => captureCanvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (requestId !== cameraRequestId) return;
+    cameraRequestPending = false;
+    updateCameraDeviceSelectDisabled();
+    updateCameraShutter();
     if (!blob) {
       setCameraMessage("撮影画像を作成できませんでした。もう一度お試しください。", true);
       return;
@@ -400,25 +450,152 @@ export function initBoardUI() {
   }
 
   function retakeCameraFrame() {
+    if (cameraInsertPending) return;
     clearCameraPreview();
     setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
     cameraCaptureShutterBtn?.focus();
   }
 
   async function insertCameraFrame() {
-    if (!cameraCapturedBlob || !wb.pasteImageBlob) return;
+    if (!cameraCapturedBlob || cameraInsertPending) return;
+    cameraInsertPending = true;
+    updateCameraDeviceSelectDisabled();
+    cameraCaptureRetakeBtn.disabled = true;
     cameraCaptureInsertBtn.disabled = true;
-    setCameraMessage("ホワイトボードに画像を挿入しています…");
+    setCameraMessage("ホワイトボードに挿入しています…");
     try {
-      await wb.pasteImageBlob(cameraCapturedBlob);
+      if (cameraMode === "video") {
+        const extension = cameraCapturedBlob.type.includes("mp4") ? "mp4" : "webm";
+        await wb.pasteVideoBlob(cameraCapturedBlob, { fileName: `カメラ動画.${extension}` });
+      } else {
+        await wb.pasteImageBlob(cameraCapturedBlob);
+      }
       activateSelectionToolAfterInsert();
+      cameraInsertPending = false;
       closeCameraCapture();
     } catch (error) {
       console.error("Failed to insert camera image", error);
       cameraCaptureInsertBtn.disabled = false;
-      setCameraMessage("画像を挿入できませんでした。もう一度お試しください。", true);
+      setCameraMessage("挿入できませんでした。もう一度お試しください。", true);
+    } finally {
+      cameraInsertPending = false;
+      cameraCaptureRetakeBtn.disabled = false;
+      updateCameraDeviceSelectDisabled();
     }
   }
+
+  async function recordCameraVideo() {
+    if (cameraRecorder) {
+      if (cameraRecorder.state !== "inactive") cameraRecorder.stop();
+      cameraCaptureShutterBtn.disabled = true;
+      setCameraMessage("動画を準備しています…");
+      return;
+    }
+    if (!window.MediaRecorder || !cameraCaptureStream) {
+      setCameraMessage("このブラウザでは録画できません。撮影済みの動画をファイル挿入から選択してください。", true);
+      return;
+    }
+    const requestId = cameraRequestId;
+    cameraRequestPending = true;
+    updateCameraDeviceSelectDisabled();
+    updateCameraShutter();
+    setCameraMessage("録画を準備しています。マイクの使用を許可してください。");
+    let microphone = null;
+    try {
+      // Request microphone only after the explicit recording gesture. A denied
+      // microphone still allows a silent video, with a visible recording status.
+      try {
+        microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (error) {
+        console.warn("Recording without microphone", error.name);
+      }
+      if (requestId !== cameraRequestId) {
+        stopMediaStream(microphone);
+        return;
+      }
+      cameraMicrophoneStream = microphone;
+      const stream = new MediaStream([
+        ...cameraCaptureStream.getVideoTracks(),
+        ...(microphone?.getAudioTracks() || []),
+      ]);
+      const mimeType = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+        .find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 2000000,
+      });
+      const chunks = [];
+      let totalBytes = 0;
+      let failed = false;
+      const finishMicrophone = () => {
+        stopMediaStream(microphone);
+        if (cameraMicrophoneStream === microphone) cameraMicrophoneStream = null;
+      };
+      recorder.ondataavailable = event => {
+        if (cameraRecorder !== recorder || !event.data.size) return;
+        chunks.push(event.data);
+        totalBytes += event.data.size;
+        if (totalBytes >= 40 * 1024 * 1024 && recorder.state === "recording") recorder.stop();
+      };
+      recorder.onerror = () => {
+        failed = true;
+        if (recorder.state !== "inactive") recorder.stop();
+      };
+      recorder.onstop = () => {
+        finishMicrophone();
+        if (cameraRecorder !== recorder || requestId !== cameraRequestId) return;
+        cameraRecorder = null;
+        clearInterval(cameraRecordingTimer);
+        cameraRecordingTimer = null;
+        updateCameraDeviceSelectDisabled();
+        updateCameraShutter();
+        if (failed || !totalBytes) {
+          setCameraMessage("録画に失敗しました。もう一度お試しください。", true);
+          return;
+        }
+        clearCameraPreview();
+        cameraCapturedBlob = new Blob(chunks, { type: recorder.mimeType || chunks[0].type });
+        cameraPreviewUrl = URL.createObjectURL(cameraCapturedBlob);
+        cameraRecordingPreview.src = cameraPreviewUrl;
+        cameraRecordingPreview.classList.remove("hidden");
+        cameraCaptureVideo.classList.add("hidden");
+        cameraCaptureShutterBtn.classList.add("hidden");
+        cameraCaptureRetakeBtn.classList.remove("hidden");
+        cameraCaptureInsertBtn.disabled = false;
+        setCameraMessage("動画を再生して確認し、ホワイトボードに挿入してください。");
+        cameraCaptureInsertBtn.focus();
+      };
+      cameraRecorder = recorder;
+      recorder.start(1000);
+      cameraRecordingStartedAt = Date.now();
+      const updateStatus = () => {
+        const seconds = Math.floor((Date.now() - cameraRecordingStartedAt) / 1000);
+        setCameraMessage(`録画中 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}（${microphone ? "音声あり" : "マイクが利用できないため音声なし"}／最大2分・約40MB）`);
+        if (seconds >= 120 && recorder.state === "recording") recorder.stop();
+      };
+      updateStatus();
+      cameraRecordingTimer = setInterval(updateStatus, 500);
+    } catch (error) {
+      stopMediaStream(microphone);
+      cameraMicrophoneStream = null;
+      cameraRecorder = null;
+      setCameraMessage("録画を開始できませんでした。別のブラウザまたは動画ファイル挿入をお試しください。", true);
+    } finally {
+      if (requestId === cameraRequestId) {
+        cameraRequestPending = false;
+        updateCameraDeviceSelectDisabled();
+        updateCameraShutter();
+      }
+    }
+  }
+
+  cameraModeButtons.forEach(button => button.addEventListener("click", () => {
+    if (cameraRequestPending || cameraRecorder || cameraInsertPending) return;
+    if (cameraMode === button.dataset.cameraMode) return;
+    cameraMode = button.dataset.cameraMode;
+    clearCameraPreview();
+    updateCameraDeviceSelectDisabled();
+    setCameraMessage(cameraMode === "video" ? "録画を開始してください。動画は最大2分・約40MBまで撮影できます。" : "画面内に貼り付けたいものを収めて、撮影してください。");
+  }));
 
   cameraCaptureBtn?.addEventListener("click", () => void openCameraCapture());
   cameraCaptureCloseBtn?.addEventListener("click", closeCameraCapture);
@@ -461,20 +638,16 @@ export function initBoardUI() {
   };
 
   function updateGridToggle() {
-    if (!gridToggleBtn) return;
-    const isVisible = !!wb.showGrid;
-    gridToggleBtn.classList.toggle("is-on", isVisible);
-    gridToggleBtn.setAttribute("aria-checked", String(isVisible));
-    gridToggleBtn.title = isVisible ? "グリッドを非表示" : "グリッドを表示";
+    backgroundStyleControl?.querySelectorAll("[data-background-style]").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.backgroundStyle === wb.backgroundStyle));
+    });
   }
 
-  if (gridToggleBtn) {
-    gridToggleBtn.addEventListener("click", () => {
-      wb.setShowGrid(!wb.showGrid);
-      updateGridToggle();
-    });
-    updateGridToggle();
-  }
+  backgroundStyleControl?.querySelectorAll("[data-background-style]").forEach(button => {
+    button.addEventListener("click", () => wb.setBackgroundStyle(button.dataset.backgroundStyle));
+  });
+  wb.onBackgroundStyleChange = updateGridToggle;
+  updateGridToggle();
 
   // 初期表示を反映
   updateZoomLabelFromWB();
@@ -1801,7 +1974,7 @@ export function initBoardUI() {
     });
   }
 
-  // ========= 画像・動画ファイルの挿入 =========
+  // ========= 画像・動画・音声ファイルの挿入 =========
   if (mediaInput) {
     mediaFileBtn?.addEventListener("click", () => mediaInput.click());
     mediaInput.addEventListener("change", async event => {
@@ -1815,13 +1988,15 @@ export function initBoardUI() {
           await wb.pasteImageBlob(file);
         } else if (file.type.startsWith("video/")) {
           await wb.pasteVideoBlob(file, { fileName: file.name });
+        } else if (file.type.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|aac|flac)$/i.test(file.name)) {
+          await wb.pasteAudioBlob(file, { fileName: file.name });
         } else {
-          throw new Error("画像または動画ファイルを選択してください。");
+          throw new Error("画像・動画・音声ファイルを選択してください。");
         }
         activateSelectionToolAfterInsert();
       } catch (error) {
         console.error("Media file load error", error);
-        alert(error?.message || "画像・動画の読み込みに失敗しました。");
+        alert(error?.message || "画像・動画・音声の読み込みに失敗しました。");
       } finally {
         mediaFileBtn?.removeAttribute("aria-busy");
         if (mediaFileBtn) mediaFileBtn.disabled = false;

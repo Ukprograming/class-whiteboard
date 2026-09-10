@@ -27,7 +27,7 @@ function collectAssetRecords(boardData: Record<string, unknown>) {
     const objects = Array.isArray(pageData.objects) ? pageData.objects : [];
     for (const object of objects) {
       if (object && typeof object === "object" &&
-          ["image", "video"].includes(String((object as Record<string, unknown>).kind || ""))) {
+          ["image", "video", "audio"].includes(String((object as Record<string, unknown>).kind || ""))) {
         records.push(object as AssetRecord);
       }
     }
