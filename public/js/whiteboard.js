@@ -4,6 +4,7 @@
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
+import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911";
 import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825";
 import {
   clampTimerSeconds,
@@ -2694,6 +2695,7 @@ export class Whiteboard {
     const isAudio = mediaKind === "audio";
     const mediaLabel = isAudio ? "音声" : "動画";
     if (!blob) return null;
+    assertMediaSize(blob, fileName || mediaLabel);
     const extensionTypes = { mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", ogg: "audio/ogg", aac: "audio/aac", flac: "audio/flac" };
     const mimeType = String(blob.type || (isAudio ? extensionTypes[fileName.split(".").pop().toLowerCase()] : "") || "").toLowerCase();
     if (!blob.type && mimeType) blob = new Blob([blob], { type: mimeType });

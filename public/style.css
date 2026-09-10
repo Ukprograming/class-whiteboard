@@ -296,6 +296,26 @@ body.camera-capture-open {
   overflow: hidden;
 }
 
+.board-upload-status {
+  position: fixed;
+  z-index: 15000;
+  right: 18px;
+  bottom: 140px;
+  width: min(360px, calc(100vw - 36px));
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: 1px solid #c9dfe9;
+  border-radius: 12px;
+  background: #fff;
+  color: #26465a;
+  box-shadow: 0 5px 24px #123b5226;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.board-upload-status p { margin: 0 0 8px; }
+.board-upload-status progress { width: 100%; accent-color: #1575b9; }
+.board-upload-status button { border: 1px solid #c9dfe9; background: #f2f8fc; border-radius: 6px; padding: 5px 12px; color: inherit; cursor: pointer; }
+
 .segmented-control {
   display: inline-flex;
   align-items: center;

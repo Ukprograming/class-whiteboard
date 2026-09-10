@@ -1,4 +1,4 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
 import {
   buildResponseTableModel,

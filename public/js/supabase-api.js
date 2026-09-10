@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
+import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911";
+import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911";
 import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819";
 import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824";
 import {
@@ -1755,7 +1757,37 @@ function isAssetAlreadyStored(error) {
   return /already exists|resource exists|duplicate/i.test(message);
 }
 
-async function uploadImmutableBoardAsset(path, blob, mimeType) {
+async function uploadImmutableBoardAsset(path, blob, mimeType, fileName = "メディア") {
+  if (blob.size > RESUMABLE_UPLOAD_THRESHOLD) {
+    const id = crypto.randomUUID();
+    const notify = detail => window.dispatchEvent(new CustomEvent("board-asset-upload", {
+      detail: { id, fileName, total: blob.size, ...detail },
+    }));
+    notify({ state: "uploading", sent: 0 });
+    try {
+      await uploadResumable({
+        baseUrl: SUPABASE_URL, bucket: STORAGE_BUCKET, path, blob, mimeType,
+        getToken: async () => {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) throw error;
+          return data?.session?.access_token;
+        },
+        onProgress: progress => notify({ state: "uploading", ...progress }),
+      });
+      notify({ state: "complete", sent: blob.size });
+      return;
+    } catch (error) {
+      const status = error?.originalResponse?.getStatus?.();
+      // Concurrent immutable uploads may finish the same path. Only treat an
+      // explicit conflict as success after confirming the completed object.
+      if ((status === 409 || isAssetAlreadyStored(error)) && await storageObjectExists(path).catch(() => false)) {
+        notify({ state: "complete", sent: blob.size });
+        return;
+      }
+      notify({ state: "error" });
+      throw new Error("ファイルを送信できませんでした。ボードは保存されていません。接続を確認して、もう一度保存してください。", { cause: error });
+    }
+  }
   const upload = await supabase.storage
     .from(STORAGE_BUCKET)
     .upload(path, blob, {
@@ -1769,6 +1801,12 @@ async function uploadImmutableBoardAsset(path, blob, mimeType) {
 async function externalizeBoardAssets(boardData, snapshotPath) {
   const prefix = boardAssetPrefix(snapshotPath);
   const references = [];
+  // Fail before any upload when a restored/older board contains oversized media.
+  for (const { record } of collectBoardAssetRecords(boardData)) {
+    if (["video", "audio"].includes(record.kind) && Number(record.assetSizeBytes) > 0) {
+      assertMediaSize({ size: record.assetSizeBytes }, record.fileName || "メディア");
+    }
+  }
 
   for (const entry of collectBoardAssetRecords(boardData)) {
     const { record, embeddedField, objectUrlField } = entry;
@@ -1802,9 +1840,10 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
 
     const blob = await recordToBlob(record, embeddedField, objectUrlField);
     if (!blob) continue;
+    if (["video", "audio"].includes(record.kind)) assertMediaSize(blob, record.fileName || "メディア");
     const mimeType = blob.type || record.assetMimeType || "image/jpeg";
     const assetPath = `${prefix}/${record.assetKey}.${assetExtension(mimeType)}`;
-    await uploadImmutableBoardAsset(assetPath, blob, mimeType);
+    await uploadImmutableBoardAsset(assetPath, blob, mimeType, record.fileName || "メディア");
     const objectUrl = currentObjectUrl || URL.createObjectURL(blob);
 
     record.assetPath = assetPath;

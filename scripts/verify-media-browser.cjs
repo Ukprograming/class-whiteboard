@@ -11,6 +11,8 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, permissions: ['camera', 'microphone'] });
     const page = await context.newPage();
     const errors = [];
+    let expectSizeMessage = false;
+    let sizeMessage = '';
     await page.addInitScript(() => {
       window.pdfjsLib = { GlobalWorkerOptions: {} };
       window.testMediaStreams = [];
@@ -22,7 +24,11 @@ async function main() {
       };
     });
     page.on('pageerror', error => { errors.push(error.message); console.error('PAGE:', error.message); });
-    page.on('dialog', dialog => { errors.push(dialog.message()); void dialog.dismiss(); });
+    page.on('dialog', dialog => {
+      if (expectSizeMessage && dialog.message().includes('45MB以下')) sizeMessage = dialog.message();
+      else errors.push(dialog.message());
+      void dialog.dismiss();
+    });
     await page.route(/^https:\/\//, route => route.abort());
     await page.route(/\/(teacher|student)\.html$/, route => route.fulfill({
       contentType: 'text/html', body: fs.readFileSync(`public/${new URL(route.request().url()).pathname.split('/').pop()}`, 'utf8'),
@@ -58,6 +64,15 @@ async function main() {
     assert(lines.ruled.vertical === 0 && lines.ruled.horizontal > 0);
     assert.deepEqual(lines.blank, { vertical: 0, horizontal: 0 });
     assert.equal(lines.restored, 'ruled');
+    await page.evaluate(() => wb.setTool('pen'));
+    expectSizeMessage = true;
+    await page.locator('#mediaInput').setInputFiles({ name: '大きな動画.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(45_000_001) });
+    await page.waitForFunction(() => !document.querySelector('#mediaFileBtn').disabled);
+    assert(sizeMessage.includes('YouTube'));
+    assert.equal(await page.evaluate(() => wb.objects.length), 0);
+    assert.equal(await page.evaluate(() => wb.tool), 'pen');
+    assert.equal(await page.locator('#mediaInput').inputValue(), '');
+    expectSizeMessage = false;
 
     // A short PCM WAV with valid metadata, independent of network fixtures.
     const samples = 24000, wav = Buffer.alloc(44 + samples * 2);
@@ -159,6 +174,16 @@ async function main() {
       await page.evaluate(() => document.querySelectorAll('.floating-bottom-right,.floating-sidebar').forEach(el => el.classList.remove('hidden')));
       const layout = await page.locator('#backgroundStyleControl').evaluate(el => ({ left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, doc: document.documentElement.scrollWidth }));
       assert(layout.left >= 0 && layout.right <= 375 && layout.doc <= 375, `${screen} overflow: ${JSON.stringify(layout)}`);
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('board-asset-upload', { detail: { id: 'fixture', fileName: '10分動画.mp4', state: 'uploading', sent: 20_000_000, total: 40_000_000 } })));
+      assert((await page.locator('.board-upload-status').innerText()).includes('50%'));
+      const panelRect = await page.locator('.board-upload-status').boundingBox();
+      assert(panelRect.x >= 0 && panelRect.x + panelRect.width <= 375);
+      await page.screenshot({ path: `output/playwright/upload-${screen}-375.png` });
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('board-asset-upload', { detail: { id: 'fixture', state: 'uploading', retrying: true } })));
+      assert((await page.locator('.board-upload-status').innerText()).includes('再試行'));
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('board-asset-upload', { detail: { id: 'fixture', state: 'error' } })));
+      await page.locator('.board-upload-status button').click();
+      assert(await page.locator('.board-upload-status').isHidden());
       await page.screenshot({ path: `output/playwright/background-${screen}-375.png` });
       await page.locator('#cameraCaptureBtn').click();
       await page.waitForFunction(() => document.querySelector('#cameraCaptureVideo').videoWidth > 0);

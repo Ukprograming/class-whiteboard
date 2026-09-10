@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
+import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from '../public/js/media-limits.mjs';
 
 // Exercise actual serialization, download and distribution functions against
 // in-memory Storage. This verifies asset behavior, not production authorization.
@@ -15,8 +16,19 @@ const storage = {
   async remove(paths) { paths.forEach(p => stored.delete(p)); return {}; },
 };
 const client = { storage: { from: () => storage } };
+client.auth = { getSession: async () => ({ data: { session: { access_token: 'fixture-token' } } }) };
+const events = [];
+let resumableCalls = 0;
 const source = readFileSync('public/js/supabase-api.js', 'utf8');
-const api = vm.createContext({ supabase: client, STORAGE_BUCKET: 'class-whiteboard', Blob, URL, fetch, crypto, console });
+const api = vm.createContext({ supabase: client, SUPABASE_URL: 'https://test.supabase.co', STORAGE_BUCKET: 'class-whiteboard', Blob, URL, fetch, crypto, console, assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD,
+  CustomEvent, window: { dispatchEvent: event => events.push(event.detail) },
+  uploadResumable: async options => {
+    resumableCalls++;
+    assert.equal(await options.getToken(), 'fixture-token');
+    options.onProgress({ sent: 6000000, total: options.blob.size, retrying: false });
+    await storage.upload(options.path, options.blob);
+  },
+});
 vm.runInContext(source.slice(source.indexOf('function boardPageDataList('), source.indexOf('export const boardApi =')), api);
 const urls = [];
 const board = { pages: [{ boardData: { backgroundStyle: 'ruled', objects: ['image', 'video', 'audio'].map((kind, index) => {
@@ -26,6 +38,10 @@ const board = { pages: [{ boardData: { backgroundStyle: 'ruled', objects: ['imag
 }) } }] };
 const snapshotPath = 'teachers/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/board.json';
 try {
+  assert.doesNotThrow(() => assertMediaSize({ size: 45_000_000 }, '10分動画.mp4'));
+  assert.throws(() => assertMediaSize({ size: 45_000_001 }, '10分動画.mp4'), /45MB以下/);
+  await assert.rejects(() => api.externalizeBoardAssets({ objects: [{ kind: 'video', assetSizeBytes: 45_000_001 }] }, snapshotPath), /45MB以下/);
+  assert.equal(uploads, 0, 'oversized restored media is rejected before any upload');
   const references = await api.externalizeBoardAssets(board, snapshotPath);
   assert.equal(references.length, 3);
   assert.equal(uploads, 3);
@@ -55,5 +71,13 @@ try {
   foreign.pages[0].boardData.objects = [{ kind: 'audio', assetPath: 'teachers/foreign/private.wav' }];
   stored.set(snapshotPath, new Blob([JSON.stringify(foreign)]));
   await assert.rejects(() => edge.createImmutableDistributionSnapshot(client, snapshotPath, 'other'), /authorized Storage path/);
+  const largeUrl = URL.createObjectURL(new Blob([new Uint8Array(7 * 1024 * 1024)], { type: 'video/mp4' }));
+  urls.push(largeUrl);
+  const large = { objects: [{ kind: 'video', assetKey: 'large', videoObjectUrl: largeUrl }] };
+  await api.externalizeBoardAssets(large, snapshotPath);
+  assert.equal(resumableCalls, 1, 'large media uses resumable upload in the real save pipeline');
+  assert.equal(events[0].state, 'uploading');
+  assert.equal(events.at(-1).state, 'complete');
+  assert(!large.objects[0].videoObjectUrl && large.objects[0].assetPath.endsWith('.mp4'));
   console.log('Media asset save/reload/reuse/distribution and unauthorized-path checks passed.');
 } finally { urls.forEach(url => URL.revokeObjectURL(url)); }
