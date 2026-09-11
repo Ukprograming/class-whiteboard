@@ -23,14 +23,6 @@ export function initBoardUI() {
 
   canvas.whiteboardInstance = wb;
 
-  const wordCountToggle = document.getElementById("wordCountToggle");
-  if (wordCountToggle) {
-    wordCountToggle.checked = false;
-    wordCountToggle.addEventListener("change", () => {
-      wb.setWordCountVisible(wordCountToggle.checked);
-    });
-  }
-
   const pageTabsEl = document.getElementById("pageTabs");
   const pageAddBtn = document.getElementById("pageAddBtn");
   const pageRenameBtn = document.getElementById("pageRenameBtn");
@@ -1271,6 +1263,12 @@ export function initBoardUI() {
             style="min-width:24px;height:24px;border-radius:4px;border:1px solid #d1d5db;background:#ffffff;">右</button>
         </div>
 
+        <label class="word-count-toggle" title="付箋・テキストの文字数／単語数を表示">
+          <span>語数を表示</span>
+          <input id="wordCountToggle" type="checkbox" role="switch" aria-label="文字数・単語数を表示" />
+          <span class="word-count-switch" aria-hidden="true"></span>
+        </label>
+
         <!-- ★ 付箋カラー（テキストバー内） -->
         <div data-text-sticky-colors>
           <button type="button" data-text-sticky-color="#FEF3C7"
@@ -1291,6 +1289,12 @@ export function initBoardUI() {
 
 
     container.appendChild(textStylePanel);
+
+    const wordCountToggle = textStylePanel.querySelector("#wordCountToggle");
+    wordCountToggle.checked = wb.showWordCount;
+    wordCountToggle.addEventListener("change", () => {
+      wb.setWordCountVisible(wordCountToggle.checked);
+    });
 
     const generatedTextColorInput = textStylePanel.querySelector("[data-text-color]");
     if (generatedTextColorInput) {
