@@ -243,6 +243,7 @@ export class Whiteboard {
   destroy() {
     if (this._destroyed) return;
     this._destroyed = true;
+    this._clearTextEditSync();
 
     for (const dispose of this._eventDisposers.splice(0)) {
       dispose();
@@ -2087,6 +2088,7 @@ export class Whiteboard {
         obj.text = before.text;
         if (before.width != null) obj.width = before.width;
         if (before.height != null) obj.height = before.height;
+        this.onAction?.({ type: "modify", object: { ...obj } });
       }
     }
 
@@ -3924,7 +3926,9 @@ export class Whiteboard {
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
+        const wasEditingObject = !!this.editingObj;
         this._commitTextEditor();
+        if (wasEditingObject) this.setTool("select");
       }
     });
 
@@ -3936,6 +3940,7 @@ export class Whiteboard {
 
     this._listen(ta, "input", () => {
       this._updateTextCountLabel();
+      if (this.editingObj) this._updateLiveTextEdit();
       if (!this.editingTableCell) return;
       const { obj, row, col } = this.editingTableCell;
       if (this._autoResizeTableRow(obj, row, { col, text: ta.value })) {
@@ -3948,8 +3953,11 @@ export class Whiteboard {
   }
 
   _openTextEditorForObject(obj) {
+    this._clearTextEditSync();
     this.editingTableCell = null;
     this.editingObj = obj;
+    // Live updates share the model, but one Undo must restore the whole edit.
+    this.textEditBefore = { text: obj.text || "", width: obj.width, height: obj.height };
     const fontSize = obj.fontSize || 16;
     const fontFamily = obj.fontFamily || "system-ui";
     const bold = obj.bold ? "bold" : "normal";
@@ -4086,6 +4094,29 @@ export class Whiteboard {
   }
 
 
+  _clearTextEditSync() {
+    if (this.textEditSyncTimer != null) clearTimeout(this.textEditSyncTimer);
+    this.textEditSyncTimer = null;
+  }
+
+  _updateLiveTextEdit() {
+    const obj = this.editingObj;
+    if (!obj || !this.objects.includes(obj) || obj.text === this.textEditor.value) return;
+    obj.text = this.textEditor.value;
+    this._autoResizeTextObject(obj);
+    this._markDirty();
+    this.render();
+    // Throttle (not debounce): continuous typing still reaches the monitor.
+    // Use the existing ordered action route; do not upload a snapshot per key.
+    if (this.textEditSyncTimer != null) return;
+    const pageId = this.activePageId;
+    this.textEditSyncTimer = setTimeout(() => {
+      this.textEditSyncTimer = null;
+      if (this.editingObj !== obj || this.activePageId !== pageId || !this.objects.includes(obj)) return;
+      this.onAction?.({ type: "modify", object: { ...obj }, pageId });
+    }, 300);
+  }
+
   _commitTextEditor() {
     if (this.editingTableCell) {
       const { obj, row, col, beforeSnapshot } = this.editingTableCell;
@@ -4109,10 +4140,17 @@ export class Whiteboard {
       return;
     }
     if (!this.editingObj) return;
+    this._clearTextEditSync();
     const obj = this.editingObj;
+    if (!this.objects.includes(obj)) {
+      this.editingObj = null;
+      this.textEditBefore = null;
+      this.textEditor.style.display = "none";
+      return;
+    }
 
     // ★ 変更前の状態を保存
-    const before = {
+    const before = this.textEditBefore || {
       text: obj.text || "",
       width: obj.width,
       height: obj.height
@@ -4153,6 +4191,7 @@ export class Whiteboard {
       this.onAction({ type: "modify", object: obj });
     }
     this.editingObj = null;
+    this.textEditBefore = null;
     this.textEditor.style.display = "none";
     this.render();
   }
@@ -4160,6 +4199,18 @@ export class Whiteboard {
 
 
   _cancelTextEditor() {
+    this._clearTextEditSync();
+    if (this.editingObj && this.textEditBefore && this.objects.includes(this.editingObj)) {
+      const obj = this.editingObj;
+      const changed = obj.text !== this.textEditBefore.text ||
+        obj.width !== this.textEditBefore.width || obj.height !== this.textEditBefore.height;
+      Object.assign(obj, this.textEditBefore);
+      if (changed) this._markDirty();
+      // The last sent preview can differ even when typing restored the local
+      // original before Escape, so always flush the restored state.
+      this.onAction?.({ type: "modify", object: { ...obj } });
+    }
+    this.textEditBefore = null;
     if (this.editingTableCell?.beforeSnapshot) {
       this._restoreTableSnapshot(
         this.editingTableCell.obj,
@@ -4219,6 +4270,8 @@ export class Whiteboard {
 
     // ★ 実際に追加して選択＆編集開始
     this._addObject(obj);
+    // Receivers must know this ID before the first text modification arrives.
+    this.onAction?.({ type: "object", object: { ...obj } });
     this.render();
     this._openTextEditorForObject(obj);
 
