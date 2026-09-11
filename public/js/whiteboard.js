@@ -1995,13 +1995,19 @@ export class Whiteboard {
     // ストロークの追加を取り消し
     if (last.kind === "stroke") {
       const idx = this.strokes.indexOf(last.stroke);
-      if (idx >= 0) this.strokes.splice(idx, 1);
+      if (idx >= 0) {
+        this.strokes.splice(idx, 1);
+        this.onAction?.({ type: "delete-stroke", strokeId: last.stroke.id });
+      }
     }
 
     // オブジェクトの追加を取り消し（_addObject で push されるもの）
     else if (last.kind === "object") {
       const idx = this.objects.findIndex(o => o.id === last.id);
-      if (idx >= 0) this.objects.splice(idx, 1);
+      if (idx >= 0) {
+        this.objects.splice(idx, 1);
+        this.onAction?.({ type: "delete", objectId: last.id });
+      }
       if (this.selectedObj && this.selectedObj.id === last.id) {
         this._setSelected(null);
       }
@@ -2013,6 +2019,7 @@ export class Whiteboard {
         typeof last.index === "number" ? last.index : this.objects.length;
       this.objects.splice(index, 0, last.object);
       this._setSelected(last.object);
+      this.onAction?.({ type: "refresh" });
     }
 
     // 複数オブジェクト／ストローク削除の UNDO（deleteSelection 用）
@@ -2044,6 +2051,8 @@ export class Whiteboard {
         ) || this.multiSelectedObjects[0] || null;
       this.selectedStroke = this.multiSelectedStrokes[0] || null;
       this._fireSelectionChange();
+      // Restore media assets and stacking order through the existing snapshot path.
+      this.onAction?.({ type: "refresh" });
     }
 
     // ★ 教員モードの消しゴムによるストローク削除の UNDO
@@ -2051,6 +2060,7 @@ export class Whiteboard {
       const index =
         typeof last.index === "number" ? last.index : this.strokes.length;
       this.strokes.splice(index, 0, last.stroke);
+      this.onAction?.({ type: "refresh" });
     }
 
     // ★ 移動／リサイズ（オブジェクト＋ストローク）の UNDO
@@ -2182,13 +2192,14 @@ export class Whiteboard {
 
     this.render();
     if (this.onAction) {
-      if (deletedObjects.some(entry => (entry.object?.kind === "video" || entry.object?.kind === "audio"))) {
-        this.onAction({ type: "refresh" });
-        return;
-      }
       deletedObjects.forEach(entry => {
-        if (entry.object?.kind === "youtube" && entry.object.id != null) {
+        if (entry.object.id != null) {
           this.onAction({ type: "delete", objectId: entry.object.id });
+        }
+      });
+      deletedStrokes.forEach(entry => {
+        if (entry.stroke.id != null) {
+          this.onAction({ type: "delete-stroke", strokeId: entry.stroke.id });
         }
       });
     }
@@ -3438,8 +3449,8 @@ export class Whiteboard {
       // ★ 追加：変更フラグを立てる
       this._markDirty();
 
-      // ★ 追加：教員モードのときだけ、削除アクションを外へ通知
-      if (this.isTeacherMode && this.onAction && removed && removed.id != null) {
+      // Student and teacher erasers share the same deletion notification.
+      if (this.onAction && removed && removed.id != null) {
         this.onAction({ type: "delete-stroke", strokeId: removed.id });
       }
     }
