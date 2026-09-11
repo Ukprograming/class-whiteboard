@@ -5,6 +5,7 @@
 
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
 import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911";
+import { formatTextCount } from "./text-count.mjs?v=word-count-20260911";
 import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825";
 import {
   clampTimerSeconds,
@@ -197,6 +198,7 @@ export class Whiteboard {
 
     // ★ グリッド表示フラグ
     this.showGrid = true;
+    this.showWordCount = false;
     this.backgroundStyle = "grid";
 
     // ★ 追加：未保存フラグ & コールバック
@@ -277,6 +279,8 @@ export class Whiteboard {
       this.textEditor.remove();
     }
     this.textEditor = null;
+    this.textCountLabel?.remove();
+    this.textCountLabel = null;
     this.editingObj = null;
     this.closeYouTubePlayer();
     this.youtubePlayerLayer?.remove();
@@ -3858,6 +3862,25 @@ export class Whiteboard {
     return null;
   }
 
+  setWordCountVisible(visible) {
+    this.showWordCount = !!visible;
+    this._updateTextCountLabel();
+    this.render();
+  }
+
+  _updateTextCountLabel() {
+    const label = this.textCountLabel;
+    const editor = this.textEditor;
+    if (!label || !editor) return;
+    const visible = this.showWordCount && editor.style.display !== "none"
+      && ["text", "sticky"].includes(this.editingObj?.kind);
+    label.hidden = !visible;
+    if (!visible) return;
+    label.textContent = formatTextCount(editor.value);
+    label.style.left = `${editor.offsetLeft + editor.offsetWidth}px`;
+    label.style.top = `${editor.offsetTop + editor.offsetHeight + 2}px`;
+  }
+
   _createTextEditor() {
     const container = this.canvas.parentElement;
     const ta = document.createElement("textarea");
@@ -3879,8 +3902,15 @@ export class Whiteboard {
 
     container.style.position = container.style.position || "relative";
     container.appendChild(ta);
+    const countLabel = document.createElement("span");
+    countLabel.className = "text-editor-count";
+    countLabel.hidden = true;
+    container.appendChild(countLabel);
+    this.textCountLabel = countLabel;
 
     this._listen(ta, "keydown", e => {
+      // Enter during Japanese IME conversion must not commit the editor.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Escape") {
         e.preventDefault();
         this._cancelTextEditor();
@@ -3905,6 +3935,7 @@ export class Whiteboard {
     });
 
     this._listen(ta, "input", () => {
+      this._updateTextCountLabel();
       if (!this.editingTableCell) return;
       const { obj, row, col } = this.editingTableCell;
       if (this._autoResizeTableRow(obj, row, { col, text: ta.value })) {
@@ -3948,6 +3979,7 @@ export class Whiteboard {
     this.textEditor.style.textAlign = obj.textAlign || "left";
     this.textEditor.style.display = "block";
 
+    this._updateTextCountLabel();
     this.textEditor.focus();
     this.textEditor.select();
   }
@@ -3988,6 +4020,7 @@ export class Whiteboard {
     this.textEditor.style.textAlign = cell.textAlign || "left";
     this.textEditor.value = cell.text || "";
     this.textEditor.style.display = "block";
+    this._updateTextCountLabel();
     this.textEditor.focus();
     this.textEditor.select();
   }
@@ -5805,6 +5838,7 @@ export class Whiteboard {
   }
 
   render() {
+    this._updateTextCountLabel();
     this._refreshRunningTimers();
     this._ensureTimerTicker();
     const w = this.canvas.width;
@@ -7064,6 +7098,7 @@ export class Whiteboard {
         let ty = y + padding;
 
 
+        ctx.save();
         ctx.beginPath();
         ctx.rect(x, y, width, height);
         ctx.clip();
@@ -7113,6 +7148,22 @@ export class Whiteboard {
           ctx.moveTo(ux1, uy);
           ctx.lineTo(ux2, uy);
           ctx.stroke();
+        }
+
+        ctx.restore();
+        if (this.showWordCount && this.editingObj !== obj && (kind === "text" || kind === "sticky")) {
+          const label = formatTextCount(obj.text);
+          ctx.font = "12px system-ui";
+          ctx.textAlign = "right";
+          ctx.textBaseline = "top";
+          // Use the lower-right whitespace; put the badge just below a full
+          // box so enabling this view option never covers or changes content.
+          const countY = ty + 18 <= y + height - 4 ? y + height - 18 : y + height + 3;
+          const countWidth = Math.min(width, ctx.measureText(label).width + 8);
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.fillRect(x + width - countWidth, countY - 1, countWidth, 16);
+          ctx.fillStyle = "#475569";
+          ctx.fillText(label, x + width - 4, countY, Math.max(1, width - 8));
         }
 
         ctx.restore();
