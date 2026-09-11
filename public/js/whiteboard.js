@@ -5850,7 +5850,7 @@ export class Whiteboard {
     );
 
     if (this.showGrid) {
-      const gridStep = 240;
+      const gridStep = this.backgroundStyle === "ruled" ? 80 : 240;
       const invScale = 1 / this.scale;
       const left = -this.offsetX * invScale;
       const top = -this.offsetY * invScale;
