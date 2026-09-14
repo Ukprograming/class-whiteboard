@@ -3,21 +3,21 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
-import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912";
-import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912";
-import { formatTextCount } from "./text-count.mjs?v=word-count-20260911&security-reliability=20260912";
-import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825&security-reliability=20260912";
+import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915";
+import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915";
+import { formatTextCount } from "./text-count.mjs?v=word-count-20260911&security-reliability=20260912&production-fixes=20260915";
+import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825&security-reliability=20260912&production-fixes=20260915";
 import {
   clampTimerSeconds,
   formatTimerSeconds,
   getTimerRemainingSeconds,
   normalizeTimerFields
-} from "./timer-utils.mjs?v=timer-tool-20260826&security-reliability=20260912";
+} from "./timer-utils.mjs?v=timer-tool-20260826&security-reliability=20260912&production-fixes=20260915";
 import {
   buildYouTubeEmbedUrl,
   parseYouTubeUrl
-} from "./youtube-utils.mjs?v=youtube-embed-20260831b&security-reliability=20260912";
-import { normalizeHttpUrl, openHttpUrl } from "./link-url-utils.mjs?v=link-safety-20260912&security-reliability=20260912";
+} from "./youtube-utils.mjs?v=youtube-embed-20260831b&security-reliability=20260912&production-fixes=20260915";
+import { normalizeHttpUrl, openHttpUrl } from "./link-url-utils.mjs?v=link-safety-20260912&security-reliability=20260912&production-fixes=20260915";
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
@@ -1882,7 +1882,7 @@ export class Whiteboard {
 
   async loadPdfFile(file, { layout = "stack", onMultiplePages = null } = {}) {
     const pdfData = new Uint8Array(await file.arrayBuffer());
-    const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+    const loadingTask = pdfjsLib.getDocument({ data: pdfData, isEvalSupported: false });
 
     try {
       const pdf = await loadingTask.promise;
@@ -3197,8 +3197,7 @@ export class Whiteboard {
     this.nextStrokeId = Math.max(this.nextStrokeId || 1, maxStrokeId + 1);
 
     const backgroundSource = data.background?.objectUrl || data.background?.dataUrl || "";
-    if (data.background && backgroundSource) {
-      const bgImg = new Image();
+    if (data.background && (backgroundSource || data.background.assetPath)) {
       this.backgroundAsset = {
         assetKey: data.background.assetKey || this._newAssetKey(),
         assetPath: data.background.assetPath || null,
@@ -3206,18 +3205,25 @@ export class Whiteboard {
         assetSizeBytes: data.background.assetSizeBytes || 0,
         objectUrl: data.background.objectUrl || null,
       };
-      this._backgroundLoadPromise = new Promise(resolve => {
-        bgImg.onload = () => {
-          this.bgCanvas.width = data.background.width || bgImg.width;
-          this.bgCanvas.height = data.background.height || bgImg.height;
-          this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
-          this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
-          this.render();
-          resolve();
-        };
-        bgImg.onerror = () => resolve();
-      });
-      bgImg.src = backgroundSource;
+      this.bgCanvas.width = Math.max(0, Number(data.background.width) || 0);
+      this.bgCanvas.height = Math.max(0, Number(data.background.height) || 0);
+      if (backgroundSource) {
+        const bgImg = new Image();
+        this._backgroundLoadPromise = new Promise(resolve => {
+          bgImg.onload = () => {
+            this.bgCanvas.width = data.background.width || bgImg.width;
+            this.bgCanvas.height = data.background.height || bgImg.height;
+            this.bgCtx.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
+            this.bgCtx.drawImage(bgImg, 0, 0, this.bgCanvas.width, this.bgCanvas.height);
+            this.render();
+            resolve();
+          };
+          bgImg.onerror = () => resolve();
+        });
+        bgImg.src = backgroundSource;
+      } else {
+        this._backgroundLoadPromise = Promise.resolve();
+      }
     } else {
       this.bgCanvas.width = 0;
       this.bgCanvas.height = 0;

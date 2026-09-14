@@ -3,7 +3,7 @@ import {
   downloadBlob,
   parseXlsxSheet,
   safeExcelFilename,
-} from "./xlsx-utils.js?v=form-excel-20260831&security-reliability=20260912";
+} from "./xlsx-utils.js?v=form-excel-20260831&security-reliability=20260912&production-fixes=20260915";
 
 export const FORM_QUESTION_SHEET_NAME = "フォーム設問";
 export const FORM_QUESTION_HEADERS = Object.freeze([

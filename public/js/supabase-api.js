@@ -1,14 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
-import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912";
-import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912";
-import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912";
-import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912";
+import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915";
+import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915";
+import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912&production-fixes=20260915";
+import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912&production-fixes=20260915";
 import {
   deterministicSpreadDelay,
   isRateLimitError,
   runWithRateLimitRetry,
   waitForRealtimeSpread,
-} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912";
+} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
@@ -1882,9 +1882,10 @@ async function externalizeBoardAssets(boardData, snapshotPath, assetPrefix = boa
   return references;
 }
 
-async function hydrateBoardAssets(boardData) {
+async function hydrateBoardAssets(boardData, options = {}) {
   const records = collectBoardAssetRecords(boardData);
   const downloads = new Map();
+  const failedAssetPaths = new Set();
 
   for (const { record, embeddedField } of records) {
     const path = String(record?.assetPath || "").trim();
@@ -1907,15 +1908,24 @@ async function hydrateBoardAssets(boardData) {
       delete record.assetLoadError;
     } catch (error) {
       record.assetLoadError = true;
+      failedAssetPaths.add(path);
       console.warn(`Failed to load board asset: ${path}`, error);
     }
   }));
 
+  if (options.includeFailures) {
+    return { boardData, failedAssetPaths: Array.from(failedAssetPaths) };
+  }
   return boardData;
 }
 
 export const boardApi = {
   enabled: supabaseEnabled,
+
+  async hydrateDraftAssets(boardData) {
+    assertSupabase();
+    return hydrateBoardAssets(boardData, { includeFailures: true });
+  },
 
   async listFolders(payload) {
     assertSupabase();

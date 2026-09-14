@@ -5,5 +5,6 @@ node_modules/
 .env.*
 !.env.example
 supabase/functions/.env
+supabase/.temp/
 
 public/js/app-config.local.js

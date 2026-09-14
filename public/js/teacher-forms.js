@@ -1,11 +1,11 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&security-reliability=20260912";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&security-reliability=20260912&production-fixes=20260915";
 import {
   buildResponseTableModel,
   exportFormQuestionsXlsx,
   exportFormResponsesXlsx,
   parseFormQuestionsWorkbook,
-} from "./form-excel.js?v=form-excel-20260831&security-reliability=20260912";
+} from "./form-excel.js?v=form-excel-20260831&security-reliability=20260912&production-fixes=20260915";
 
 const QUESTION_LABELS = {
   text: "自由記述",

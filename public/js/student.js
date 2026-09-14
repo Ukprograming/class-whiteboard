@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915";
 import {
   assignmentApi,
   authApi,
@@ -7,11 +7,11 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912";
-import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912";
-import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912";
-import { chooseNewestStudentDraft } from "./student-draft-utils.mjs?v=draft-recovery-20260912&security-reliability=20260912";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
+import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915";
+import { chooseNewestStudentDraft } from "./student-draft-utils.mjs?v=draft-recovery-20260912&security-reliability=20260912&production-fixes=20260915";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -662,10 +662,25 @@ async function restoreStudentDraft(classCode, studentId) {
   const draft = chooseNewestStudentDraft([databaseDraft, sessionDraft], draftKey);
   if (!draft) return false;
 
+  let restoredBoardData = draft.boardData;
+  let failedAssetCount = 0;
+  if (supabaseEnabled && typeof boardApi.hydrateDraftAssets === "function") {
+    try {
+      const hydratedDraft = await boardApi.hydrateDraftAssets(draft.boardData);
+      restoredBoardData = hydratedDraft?.boardData || draft.boardData;
+      failedAssetCount = hydratedDraft?.failedAssetPaths?.length || 0;
+    } catch (error) {
+      // Asset hydration is best-effort. Keep restoring the local draft so an
+      // offline request cannot replace unsaved work with the shared board.
+      console.warn("Stored board assets could not be restored.", error);
+      failedAssetCount = 1;
+    }
+  }
+
   if (typeof whiteboard.restoreBoardDraft === "function") {
-    whiteboard.restoreBoardDraft(draft.boardData);
+    whiteboard.restoreBoardDraft(restoredBoardData);
   } else {
-    whiteboard.importBoardData(draft.boardData);
+    whiteboard.importBoardData(restoredBoardData);
   }
   currentBoardFileId = draft.currentBoardFileId || null;
   currentBoardFileName = draft.currentBoardFileName || "";
@@ -673,7 +688,10 @@ async function restoreStudentDraft(classCode, studentId) {
   hasRestoredStudentDraft = true;
   if (statusLabel) {
     const savedAt = draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString() : "直前";
-    statusLabel.textContent = `編集中のボードを復元しました（${savedAt}）: ${classCode} / ${studentId}`;
+    const assetWarning = failedAssetCount
+      ? `（保存済みメディア${failedAssetCount}件を取得できませんでした。通信を確認して再読み込みすると再試行できます）`
+      : "";
+    statusLabel.textContent = `編集中のボードを復元しました（${savedAt}）${assetWarning}: ${classCode} / ${studentId}`;
   }
   return true;
 }

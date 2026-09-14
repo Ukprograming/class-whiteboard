@@ -51,9 +51,73 @@ try {
   assert(objects.every(o => !o.imageObjectUrl && !o.videoObjectUrl));
   await api.externalizeBoardAssets(board, snapshotPath);
   assert.equal(uploads, 3, 'saving again reuses immutable assets');
+  objects[0].imageObjectUrl = 'blob:https://expired.example/stale-image';
   await api.hydrateBoardAssets(board);
+  assert.notEqual(objects[0].imageObjectUrl, 'blob:https://expired.example/stale-image', 'Storage hydration replaces an expired draft URL');
+  assert.equal(await (await fetch(objects[0].imageObjectUrl)).text(), 'image');
   assert.equal(await (await fetch(objects[2].videoObjectUrl)).text(), 'audio');
   urls.push(...objects.map(o => o.imageObjectUrl || o.videoObjectUrl));
+  const failedDraft = {
+    pages: [{
+      boardData: {
+        strokes: [{ id: 17, points: [{ x: 1, y: 2 }] }],
+        objects: [{
+          id: 23,
+          kind: 'image',
+          assetKey: 'missing-image',
+          assetPath: 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/missing.png',
+          imageObjectUrl: 'blob:https://expired.example/missing-image',
+        }],
+      },
+    }],
+  };
+  const failedHydration = await api.hydrateBoardAssets(failedDraft, { includeFailures: true });
+  assert.equal(Array.from(failedHydration.failedAssetPaths).join(','), 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/missing.png');
+  assert.equal(failedHydration.boardData.pages[0].boardData.strokes[0].id, 17, 'failed media does not discard unsaved strokes');
+  assert.equal(failedHydration.boardData.pages[0].boardData.objects[0].id, 23, 'failed media remains in the draft');
+  assert.equal(failedHydration.boardData.pages[0].boardData.objects[0].assetLoadError, true);
+  assert.equal(failedHydration.boardData.pages[0].boardData.objects[0].assetPath, 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/missing.png');
+  const missingBackgroundPath = 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/missing-background.png';
+  const failedBackgroundDraft = {
+    backgroundStyle: 'grid',
+    strokes: [{ id: 31, type: 'pen', color: '#111827', width: 3, points: [{ x: 4, y: 5 }] }],
+    objects: [],
+    background: {
+      assetKey: 'missing-background',
+      assetPath: missingBackgroundPath,
+      assetMimeType: 'image/png',
+      assetSizeBytes: 1234,
+      objectUrl: 'blob:https://expired.example/missing-background',
+      width: 1280,
+      height: 720,
+    },
+  };
+  const failedBackgroundHydration = await api.hydrateBoardAssets(failedBackgroundDraft, { includeFailures: true });
+  assert.equal(Array.from(failedBackgroundHydration.failedAssetPaths).join(','), missingBackgroundPath);
+
+  const whiteboardSource = readFileSync('public/js/whiteboard.js', 'utf8')
+    .replace(/^import\s+[\s\S]*?from\s+"[^"\n]+";\r?\n/gm, '')
+    .replace('export class Whiteboard', 'class Whiteboard');
+  class FailedImage {
+    set src(value) { this.currentSrc = value; this.onerror?.(); }
+  }
+  const whiteboardRuntime = vm.createContext({ console, crypto, Image: FailedImage });
+  vm.runInContext(`${whiteboardSource}\nglobalThis.Whiteboard = Whiteboard;`, whiteboardRuntime);
+  const recoveredBoard = Object.assign(Object.create(whiteboardRuntime.Whiteboard.prototype), {
+    backgroundStyle: 'grid', _hidePagePattern: false, showGrid: true,
+    scale: 1, offsetX: 0, offsetY: 0, nextObjectId: 1, nextStrokeId: 1,
+    penColor: '#111827', penWidth: 3, strokes: [], objects: [], history: [],
+    bgCanvas: { width: 0, height: 0 },
+    bgCtx: { clearRect() {}, drawImage() {} },
+    render() {}, _setSelected() {}, onBackgroundStyleChange() {},
+  });
+  recoveredBoard._importSinglePageData(failedBackgroundHydration.boardData, { preserveDirty: true });
+  recoveredBoard.strokes.push({ id: 32, type: 'pen', color: '#111827', width: 3, points: [{ x: 6, y: 7 }] });
+  const reexportedBackgroundDraft = recoveredBoard._exportSinglePageData();
+  assert.equal(reexportedBackgroundDraft.strokes.length, 2, 'editing after recovery keeps existing and new strokes');
+  assert.equal(reexportedBackgroundDraft.background.assetPath, missingBackgroundPath, 'failed background keeps its Storage path on the next draft save');
+  assert.equal(reexportedBackgroundDraft.background.width, 1280);
+  assert.equal(reexportedBackgroundDraft.background.height, 720);
   const serialized = structuredClone(board);
   serialized.pages[0].boardData.objects.forEach(o => { delete o.imageObjectUrl; delete o.videoObjectUrl; });
   stored.set(snapshotPath, new Blob([JSON.stringify(serialized)]));

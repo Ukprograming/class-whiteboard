@@ -1,7 +1,8 @@
-import { managementApi, supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912";
+import { managementApi, supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
 
 const STORAGE_BUCKET = String(window.CLASS_WHITEBOARD_CONFIG?.storageBucket || "class-whiteboard").trim();
 const MAX_FORM_IMAGE_BYTES = 8 * 1024 * 1024;
+const FORM_RESPONSE_PAGE_SIZE = 500;
 const FORM_IMAGE_EXTENSIONS = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -346,23 +347,56 @@ export const formApi = {
 
   async getResponses(runId) {
     assertFormsEnabled();
-    const { data, error } = await supabase
-      .from("form_responses")
-      .select(`
-        id,
-        run_id,
-        run_question_id,
-        student_id,
-        answer_text,
-        selected_option_ids,
-        submitted_at,
-        updated_at,
-        student:students (display_name, student_login_id)
-      `)
-      .eq("run_id", runId)
-      .order("submitted_at", { ascending: true });
-    if (error) throw error;
-    return data || [];
+    const responses = [];
+    let offset = 0;
+    let expectedCount = null;
+
+    while (expectedCount === null || responses.length < expectedCount) {
+      const { data, error, count } = await supabase
+        .from("form_responses")
+        .select(`
+          id,
+          run_id,
+          run_question_id,
+          student_id,
+          answer_text,
+          selected_option_ids,
+          submitted_at,
+          updated_at,
+          student:students (display_name, student_login_id)
+        `, { count: "exact" })
+        .eq("run_id", runId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + FORM_RESPONSE_PAGE_SIZE - 1);
+      if (error) throw error;
+
+      const page = Array.isArray(data) ? data : [];
+      if (expectedCount === null && Number.isInteger(count) && count >= 0) {
+        expectedCount = count;
+      }
+      if (page.length === 0) {
+        if (expectedCount !== null && responses.length < expectedCount) {
+          throw new Error("回答一覧の取得が途中で終了しました。もう一度お試しください。");
+        }
+        break;
+      }
+      responses.push(...page);
+      offset += page.length;
+    }
+
+    // Page by immutable creation order, but retain the historical response
+    // order for callers after all pages have been collected.
+    responses.sort((a, b) => {
+      const submittedAtA = String(a.submitted_at || "");
+      const submittedAtB = String(b.submitted_at || "");
+      if (submittedAtA < submittedAtB) return -1;
+      if (submittedAtA > submittedAtB) return 1;
+      const idA = String(a.id || "");
+      const idB = String(b.id || "");
+      return idA < idB ? -1 : idA > idB ? 1 : 0;
+    });
+    return responses;
   },
 
   async getRosterCount(classCode) {
