@@ -3,20 +3,21 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
-import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824";
-import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911";
-import { formatTextCount } from "./text-count.mjs?v=word-count-20260911";
-import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825";
+import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912";
+import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912";
+import { formatTextCount } from "./text-count.mjs?v=word-count-20260911&security-reliability=20260912";
+import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825&security-reliability=20260912";
 import {
   clampTimerSeconds,
   formatTimerSeconds,
   getTimerRemainingSeconds,
   normalizeTimerFields
-} from "./timer-utils.mjs?v=timer-tool-20260826";
+} from "./timer-utils.mjs?v=timer-tool-20260826&security-reliability=20260912";
 import {
   buildYouTubeEmbedUrl,
   parseYouTubeUrl
-} from "./youtube-utils.mjs?v=youtube-embed-20260831b";
+} from "./youtube-utils.mjs?v=youtube-embed-20260831b&security-reliability=20260912";
+import { normalizeHttpUrl, openHttpUrl } from "./link-url-utils.mjs?v=link-safety-20260912&security-reliability=20260912";
 
 // 画像保存時の軽量化パラメータ
 const MAX_IMAGE_EXPORT_SIZE = 2048;   // 画像の長辺は最大 2048px に縮小
@@ -2590,9 +2591,10 @@ export class Whiteboard {
   }
 
   pasteLink(url) {
-    if (!url) return;
+    const safeUrl = normalizeHttpUrl(url);
+    if (!safeUrl) return null;
 
-    const youtube = parseYouTubeUrl(url);
+    const youtube = parseYouTubeUrl(safeUrl);
     if (youtube) {
       this.pasteYouTube(youtube);
       return;
@@ -2615,8 +2617,8 @@ export class Whiteboard {
       y: wy - height / 2,
       width,
       height,
-      text: url,
-      url,
+      text: safeUrl,
+      url: safeUrl,
       fontSize: 16,
       fontFamily: "system-ui",
       bold: false
@@ -2624,6 +2626,7 @@ export class Whiteboard {
 
     this._addObject(obj);
     this.render();
+    return obj;
   }
 
   pasteYouTube({ videoId, startSeconds = 0, canonicalUrl = "" } = {}) {
@@ -3295,7 +3298,7 @@ export class Whiteboard {
       obj.strokeWidth = o.strokeWidth != null ? o.strokeWidth : 2;
 
       if (o.kind === "link") {
-        obj.url = o.url || o.text || "";
+        obj.url = normalizeHttpUrl(o.url || o.text || "");
       }
 
       if (o.kind === "youtube") {
@@ -5722,7 +5725,7 @@ export class Whiteboard {
       if (!hit) return;
 
       if (hit.kind === "link" && hit.url) {
-        window.open(hit.url, "_blank");
+        openHttpUrl(hit.url);
         return;
       }
 

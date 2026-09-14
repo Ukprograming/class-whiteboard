@@ -97,12 +97,14 @@ DB・RLSの変更は不要です。無料枠の総保存容量・転送量の上
 
 公開テストの準備と無料枠向けの運用条件は
 [docs/STAGING_DEPLOYMENT.md](docs/STAGING_DEPLOYMENT.md) を参照してください。
+本番のリリース順序、DatabaseとStorageのバックアップ、復元訓練、容量管理は
+[docs/PRODUCTION_OPERATIONS.md](docs/PRODUCTION_OPERATIONS.md) を参照してください。
 
 ## ローカル確認
 
 ```powershell
 npm.cmd ci
-npm.cmd run check
+npm.cmd test
 npm.cmd start
 ```
 

@@ -173,7 +173,11 @@ Deno.serve(async (req) => {
 
     for (const student of students) {
       try {
-        const storageObjectCount = await removeStudentStorage(admin, student.id);
+        const { error: queueError } = await admin.rpc("enqueue_student_storage_cleanup", {
+          p_teacher_id: teacher.id,
+          p_student_id: student.id,
+        });
+        if (queueError) throw queueError;
         const { error: deleteUserError } = await admin.auth.admin.deleteUser(
           student.auth_user_id,
           false,
@@ -192,7 +196,8 @@ Deno.serve(async (req) => {
         deleted.push({
           studentId: student.id,
           displayName: student.display_name,
-          storageObjectCount,
+          storageObjectCount: 0,
+          cleanupQueued: true,
         });
       } catch (error) {
         console.error(`Failed to delete student ${student.id}`, error);

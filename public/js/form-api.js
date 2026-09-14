@@ -1,4 +1,4 @@
-import { managementApi, supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911";
+import { managementApi, supabase, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912";
 
 const STORAGE_BUCKET = String(window.CLASS_WHITEBOARD_CONFIG?.storageBucket || "class-whiteboard").trim();
 const MAX_FORM_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -182,6 +182,18 @@ export const formApi = {
     if (error) throw error;
   },
 
+  async requestQuestionImageCleanup(paths = [], reason = "form_template_update") {
+    assertFormsEnabled();
+    const candidates = Array.from(new Set(paths.map(normalizeQuestionImagePath))).filter(Boolean);
+    if (!candidates.length) return { queued: 0 };
+    const { data, error } = await supabase.functions.invoke("cleanup-form-images", {
+      body: { paths: candidates, reason },
+    });
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.message || "設問画像の整理を予約できませんでした。");
+    return data;
+  },
+
   async getQuestionImageUrl(path) {
     assertFormsEnabled();
     const imagePath = normalizeQuestionImagePath(path);
@@ -201,13 +213,21 @@ export const formApi = {
     }
   },
 
-  async deleteTemplate(templateId) {
+  async deleteTemplate(templateId, imagePaths = []) {
     assertFormsEnabled();
-    const { error } = await supabase
+    const { data: deletedTemplate, error } = await supabase
       .from("form_templates")
       .delete()
-      .eq("id", templateId);
+      .eq("id", templateId)
+      .select("id")
+      .maybeSingle();
     if (error) throw error;
+    if (!deletedTemplate) throw new Error("削除するフォームが見つからないか、削除権限がありません。");
+    try {
+      await this.requestQuestionImageCleanup(imagePaths, "form_template_delete");
+    } catch (cleanupError) {
+      console.warn("Failed to queue deleted template images for cleanup", cleanupError);
+    }
   },
 
   async startRun(templateId, classCode) {

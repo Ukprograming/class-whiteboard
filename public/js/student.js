@@ -1,5 +1,5 @@
 // public/js/student.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912";
 import {
   assignmentApi,
   authApi,
@@ -7,10 +7,11 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911";
-import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905";
-import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912";
+import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912";
+import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912";
+import { chooseNewestStudentDraft } from "./student-draft-utils.mjs?v=draft-recovery-20260912&security-reliability=20260912";
 
 // 共通ホワイトボード UI 初期化
 const whiteboard = initBoardUI();
@@ -509,7 +510,7 @@ function openStudentDraftDatabase() {
 
 async function writeStudentDraftToDatabase(draftKey, draft) {
   const database = await openStudentDraftDatabase();
-  if (!database) return;
+  if (!database) return false;
   await new Promise((resolve, reject) => {
     const transaction = database.transaction(STUDENT_DRAFT_STORE_NAME, "readwrite");
     transaction.objectStore(STUDENT_DRAFT_STORE_NAME).put(draft, draftKey);
@@ -518,6 +519,7 @@ async function writeStudentDraftToDatabase(draftKey, draft) {
     transaction.onabort = () => reject(transaction.error || new Error("Draft save was aborted."));
   });
   database.close();
+  return true;
 }
 
 async function readStudentDraftFromDatabase(draftKey) {
@@ -571,10 +573,12 @@ function persistStudentDraftNow() {
   if (!draft) return Promise.resolve(false);
 
   const storage = getStudentDraftSessionStorage();
+  let sessionDraftSaved = false;
   if (storage) {
     try {
-      storage.setItem(STUDENT_DRAFT_MARKER_KEY, draft.draftKey);
       storage.setItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draft.draftKey}`, JSON.stringify(draft));
+      storage.setItem(STUDENT_DRAFT_MARKER_KEY, draft.draftKey);
+      sessionDraftSaved = true;
     } catch (error) {
       // 大きな画像を含むボードは sessionStorage の上限を超えるため、
       // IndexedDB 側の保存を継続する。
@@ -583,10 +587,10 @@ function persistStudentDraftNow() {
   }
 
   return writeStudentDraftToDatabase(draft.draftKey, draft)
-    .then(() => true)
+    .then((databaseDraftSaved) => databaseDraftSaved || sessionDraftSaved)
     .catch((error) => {
       console.warn("Failed to persist the board draft in IndexedDB.", error);
-      return Boolean(storage);
+      return sessionDraftSaved;
     });
 }
 
@@ -605,10 +609,16 @@ async function clearStudentDraft(draftKey = getStudentDraftKey()) {
     studentDraftSaveTimerId = null;
   }
   const storage = getStudentDraftSessionStorage();
-  if (storage?.getItem(STUDENT_DRAFT_MARKER_KEY) === draftKey) {
-    storage.removeItem(STUDENT_DRAFT_MARKER_KEY);
+  try {
+    if (storage?.getItem(STUDENT_DRAFT_MARKER_KEY) === draftKey) {
+      storage.removeItem(STUDENT_DRAFT_MARKER_KEY);
+    }
+    storage?.removeItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`);
+  } catch (error) {
+    // Storage access can be disabled independently of IndexedDB. Continue
+    // clearing the durable copy so a stale payload is not preferred later.
+    console.warn("Failed to clear the board draft from session storage.", error);
   }
-  storage?.removeItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`);
   try {
     await deleteStudentDraftFromDatabase(draftKey);
   } catch (error) {
@@ -619,25 +629,38 @@ async function clearStudentDraft(draftKey = getStudentDraftKey()) {
 async function restoreStudentDraft(classCode, studentId) {
   const draftKey = getStudentDraftKey(classCode, studentId);
   const storage = getStudentDraftSessionStorage();
-  if (!draftKey || storage?.getItem(STUDENT_DRAFT_MARKER_KEY) !== draftKey) return false;
+  if (!draftKey) return false;
 
-  let draft = null;
-  const rawDraft = storage.getItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`);
+  let sessionDraft = null;
+  let markerMatches = false;
+  let rawDraft = null;
+  try {
+    markerMatches = storage?.getItem(STUDENT_DRAFT_MARKER_KEY) === draftKey;
+    rawDraft = markerMatches
+      ? storage.getItem(`${STUDENT_DRAFT_PAYLOAD_PREFIX}${draftKey}`)
+      : null;
+  } catch (error) {
+    console.warn("Stored board draft could not be read from session storage.", error);
+  }
+  // The marker is tab-scoped and prevents a recycled student login ID from
+  // restoring an older user's IndexedDB draft.
+  if (!markerMatches) return false;
   if (rawDraft) {
     try {
-      draft = JSON.parse(rawDraft);
+      sessionDraft = JSON.parse(rawDraft);
     } catch (error) {
       console.warn("Stored board draft could not be parsed.", error);
     }
   }
-  if (!draft) {
-    try {
-      draft = await readStudentDraftFromDatabase(draftKey);
-    } catch (error) {
-      console.warn("Stored board draft could not be read from IndexedDB.", error);
-    }
+  let databaseDraft = null;
+  try {
+    databaseDraft = await readStudentDraftFromDatabase(draftKey);
+  } catch (error) {
+    console.warn("Stored board draft could not be read from IndexedDB.", error);
   }
-  if (!draft?.boardData || draft.draftKey !== draftKey) return false;
+  // 同時刻なら、タブを閉じても残る IndexedDB 側を優先する。
+  const draft = chooseNewestStudentDraft([databaseDraft, sessionDraft], draftKey);
+  if (!draft) return false;
 
   if (typeof whiteboard.restoreBoardDraft === "function") {
     whiteboard.restoreBoardDraft(draft.boardData);

@@ -169,7 +169,6 @@ Deno.serve(async (req) => {
 
     let classId = "";
     let title = "";
-    let storagePaths = new Set<string>();
     let boardFileCount = 0;
 
     if (historyKind === "assignment") {
@@ -193,7 +192,6 @@ Deno.serve(async (req) => {
       classId = distribution.class_id;
       title = distribution.title;
       boardFileCount = boards.length;
-      storagePaths = await collectAssignmentStoragePaths(admin, historyId, boards);
     } else {
       const { data: run, error: runError } = await admin
         .from("form_runs")
@@ -205,10 +203,8 @@ Deno.serve(async (req) => {
       if (!run) return jsonResponse({ ok: false, message: "フォーム履歴が見つかりません。" }, 404);
       classId = run.class_id;
       title = run.title;
-      storagePaths = await collectUnreferencedFormImagePaths(admin, teacher.id, historyId);
     }
 
-    const deletedStorageObjectCount = await removeStorageObjects(admin, storagePaths);
     const { data: deleteResult, error: deleteError } = await admin.rpc(
       "delete_teacher_history_records",
       {
@@ -229,7 +225,9 @@ Deno.serve(async (req) => {
       classId,
       title,
       deletedBoardFileCount: deleteResult.deletedBoardFileCount || boardFileCount,
-      deletedStorageObjectCount,
+      deletedStorageObjectCount: 0,
+      cleanupQueued: true,
+      cleanupQueuedCount: deleteResult.cleanupQueuedCount || 0,
     });
   } catch (error) {
     console.error("delete-teacher-history failed", error);

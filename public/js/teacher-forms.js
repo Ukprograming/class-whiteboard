@@ -1,11 +1,11 @@
-import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b";
+import { formApi } from "./form-api.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&security-reliability=20260912";
 import {
   buildResponseTableModel,
   exportFormQuestionsXlsx,
   exportFormResponsesXlsx,
   parseFormQuestionsWorkbook,
-} from "./form-excel.js?v=form-excel-20260831";
+} from "./form-excel.js?v=form-excel-20260831&security-reliability=20260912";
 
 const QUESTION_LABELS = {
   text: "自由記述",
@@ -204,6 +204,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   let historyResultState = null;
   let editorTemplateId = null;
   let editorQuestions = [];
+  let editorOriginalImagePaths = [];
 
   function setStatus(message = "", isError = false) {
     if (!statusEl) return;
@@ -874,6 +875,9 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     editorQuestions = template?.questions?.length
       ? template.questions.map(normalizeEditorQuestion)
       : [newQuestion("text")];
+    editorOriginalImagePaths = Array.from(new Set(
+      editorQuestions.map((question) => question.imagePath).filter(Boolean)
+    ));
     setEditorStatus("");
     renderQuestionEditor();
     editorBackdrop.classList.remove("hidden");
@@ -912,6 +916,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
     releaseEditorQuestionPreviews();
     editorTemplateId = null;
     editorQuestions = [];
+    editorOriginalImagePaths = [];
   }
 
   function renderQuestionEditor() {
@@ -1059,6 +1064,7 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
 
   async function saveEditor() {
     const uploadedPaths = [];
+    let saveAttempted = false;
     try {
       const title = validateEditor();
       editorSaveBtn.disabled = true;
@@ -1077,24 +1083,45 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
         question.imageHeight = uploaded.imageHeight;
       }
       setEditorStatus("保存中…");
+      saveAttempted = true;
       await formApi.saveTemplate({ id: editorTemplateId, title, questions: editorQuestions });
-      await refreshTemplates();
+      const retainedPaths = new Set(editorQuestions.map((question) => question.imagePath).filter(Boolean));
+      const supersededPaths = editorOriginalImagePaths.filter((path) => !retainedPaths.has(path));
+      if (supersededPaths.length) {
+        void formApi.requestQuestionImageCleanup(supersededPaths, "form_template_update").catch((cleanupError) => {
+          console.warn("Failed to queue replaced form images for cleanup", cleanupError);
+        });
+      }
       closeEditor();
       selectTab("templates");
-      setStatus("フォームを保存しました。");
+      try {
+        await refreshTemplates();
+        setStatus("フォームを保存しました。");
+      } catch (refreshError) {
+        console.error("Form template saved but list refresh failed", refreshError);
+        setStatus("フォームは保存されましたが、一覧を更新できませんでした。再読み込みしてください。", true);
+      }
     } catch (error) {
       console.error("Failed to save form template", error);
       if (uploadedPaths.length) {
         try {
-          await formApi.removeQuestionImages(uploadedPaths);
+          if (saveAttempted) {
+            await formApi.requestQuestionImageCleanup(uploadedPaths, "form_template_save_uncertain");
+          } else {
+            await formApi.removeQuestionImages(uploadedPaths);
+          }
         } catch (cleanupError) {
           console.warn("Failed to clean up unsaved form images", cleanupError);
         }
-        editorQuestions.forEach((question) => {
-          if (uploadedPaths.includes(question.imagePath)) question.imagePath = "";
-        });
+        if (!saveAttempted) {
+          editorQuestions.forEach((question) => {
+            if (uploadedPaths.includes(question.imagePath)) question.imagePath = "";
+          });
+        }
       }
-      setEditorStatus(error?.message || "フォームを保存できませんでした。", true);
+      setEditorStatus(saveAttempted
+        ? "保存結果を確認できませんでした。画像は保持しています。再読み込みして確認してください。"
+        : error?.message || "フォームを保存できませんでした。", true);
     } finally {
       editorSaveBtn.disabled = false;
     }
@@ -1174,7 +1201,10 @@ export function initTeacherForms({ socket, getClassCode, onOpen } = {}) {
   async function deleteTemplate(template) {
     if (!window.confirm(`保存済みフォーム「${template.title}」を削除しますか？\n過去の実施結果は削除されません。`)) return;
     try {
-      await formApi.deleteTemplate(template.id);
+      const imagePaths = template.questions
+        .map((question) => question.image_path || question.imagePath)
+        .filter(Boolean);
+      await formApi.deleteTemplate(template.id, imagePaths);
       await refreshTemplates();
       setStatus("保存済みフォームを削除しました。");
     } catch (error) {

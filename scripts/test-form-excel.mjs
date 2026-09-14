@@ -19,7 +19,7 @@ try {
   writeFileSync(
     formModulePath,
     readFileSync("public/js/form-excel.js", "utf8")
-      .replace('./xlsx-utils.js?v=form-excel-20260831', "./xlsx-utils.mjs"),
+      .replace(/\.\/xlsx-utils\.js\?v=[^"']+/, "./xlsx-utils.mjs"),
   );
 
   const xlsx = await import(pathToFileURL(xlsxModulePath).href);

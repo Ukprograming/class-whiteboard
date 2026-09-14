@@ -39,6 +39,8 @@ function collectAssetRecords(boardData: Record<string, unknown>) {
 }
 
 function boardAssetPrefix(snapshotPath: string) {
+  const revisionMatch = String(snapshotPath).match(/^(.*)\/revisions\/[0-9a-f-]+\.json$/i);
+  if (revisionMatch) return `${revisionMatch[1]}/assets/`;
   return String(snapshotPath).replace(/\.json$/i, "") + "/assets/";
 }
 
@@ -87,7 +89,7 @@ async function createImmutableDistributionSnapshot(
 
   const allowedSourceAssetPrefix = boardAssetPrefix(sourceSnapshotPath);
   const copiedAssets = new Map<string, string>();
-  const copyJobs: Promise<void>[] = [];
+  const copyPlans: Array<{ sourcePath: string; targetPath: string }> = [];
   for (const [index, record] of collectAssetRecords(boardData).entries()) {
     const sourcePath = String(record.assetPath || "").trim();
     if (!sourcePath) continue;
@@ -105,16 +107,14 @@ async function createImmutableDistributionSnapshot(
     copiedAssets.set(sourcePath, targetPath);
     record.assetPath = targetPath;
     uploadedPaths.push(targetPath);
-    copyJobs.push((async () => {
-      const { error } = await admin.storage
-        .from(STORAGE_BUCKET)
-        .copy(sourcePath, targetPath);
-      if (error) throw error;
-    })());
+    copyPlans.push({ sourcePath, targetPath });
   }
 
   try {
-    const copyResults = await Promise.allSettled(copyJobs);
+    const copyResults = await Promise.allSettled(copyPlans.map(async ({ sourcePath, targetPath }) => {
+      const { error } = await admin.storage.from(STORAGE_BUCKET).copy(sourcePath, targetPath);
+      if (error) throw error;
+    }));
     const failedCopy = copyResults.find(
       (result): result is PromiseRejectedResult => result.status === "rejected"
     );
@@ -207,7 +207,15 @@ Deno.serve(async (req) => {
       .single();
 
     if (copyError || !copyResult) {
-      await removeUploadedObjects(admin, snapshot.uploadedPaths);
+      const { error: queueError } = await admin.from("storage_cleanup_jobs").upsert({
+        bucket_id: STORAGE_BUCKET,
+        object_path: `shared/${distributionId}`,
+        path_kind: "prefix",
+        owner_id: userData.user.id,
+        reason: "incomplete-board-distribution",
+        not_before: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      }, { onConflict: "bucket_id,object_path", ignoreDuplicates: true });
+      if (queueError) console.error("Failed to queue incomplete distribution cleanup", queueError);
       return jsonResponse({
         ok: false,
         message: copyError?.message || "Failed to copy board",

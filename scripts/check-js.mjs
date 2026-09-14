@@ -954,7 +954,7 @@ const distributionMigrationSource = readFileSync(
   "utf8"
 );
 const assignmentMigrationSource = readFileSync(
-  "supabase/migrations/20260831090000_add_assignment_distribution_workflow.sql",
+  "supabase/migrations/20260831230328_add_assignment_distribution_workflow.sql",
   "utf8"
 );
 const historyDeletionMigrationSource = readFileSync(

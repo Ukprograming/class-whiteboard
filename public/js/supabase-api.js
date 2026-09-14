@@ -1,14 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
-import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911";
-import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911";
-import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819";
-import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824";
+import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912";
+import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912";
+import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912";
+import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912";
 import {
   deterministicSpreadDelay,
   isRateLimitError,
   runWithRateLimitRetry,
   waitForRealtimeSpread,
-} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905";
+} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();
@@ -1436,14 +1436,18 @@ export const managementApi = {
   resetStudentPassword(payload) {
     return callFunction("reset-student-password", payload);
   },
-  deleteStudents(payload) {
-    return callFunction("delete-students", payload);
+  async deleteStudents(payload) {
+    const result = await callFunction("delete-students", payload);
+    void callFunction("process-storage-cleanup", { limit: 25 }).catch(() => {});
+    return result;
   },
   copyBoardToClass(payload) {
     return callFunction("copy-board-to-class", payload);
   },
-  deleteTeacherHistory(payload) {
-    return callFunction("delete-teacher-history", payload);
+  async deleteTeacherHistory(payload) {
+    const result = await callFunction("delete-teacher-history", payload);
+    void callFunction("process-storage-cleanup", { limit: 25 }).catch(() => {});
+    return result;
   },
 };
 
@@ -1775,14 +1779,14 @@ async function uploadImmutableBoardAsset(path, blob, mimeType, fileName = "メ�
         onProgress: progress => notify({ state: "uploading", ...progress }),
       });
       notify({ state: "complete", sent: blob.size });
-      return;
+      return true;
     } catch (error) {
       const status = error?.originalResponse?.getStatus?.();
       // Concurrent immutable uploads may finish the same path. Only treat an
       // explicit conflict as success after confirming the completed object.
       if ((status === 409 || isAssetAlreadyStored(error)) && await storageObjectExists(path).catch(() => false)) {
         notify({ state: "complete", sent: blob.size });
-        return;
+        return false;
       }
       notify({ state: "error" });
       throw new Error("ファイルを送信できませんでした。ボードは保存されていません。接続を確認して、もう一度保存してください。", { cause: error });
@@ -1795,11 +1799,15 @@ async function uploadImmutableBoardAsset(path, blob, mimeType, fileName = "メ�
       cacheControl: "31536000",
       upsert: false,
     });
-  if (upload.error && !isAssetAlreadyStored(upload.error)) throw upload.error;
+  if (upload.error) {
+    if (isAssetAlreadyStored(upload.error) && await storageObjectExists(path).catch(() => false)) return false;
+    throw upload.error;
+  }
+  return true;
 }
 
-async function externalizeBoardAssets(boardData, snapshotPath) {
-  const prefix = boardAssetPrefix(snapshotPath);
+async function externalizeBoardAssets(boardData, snapshotPath, assetPrefix = boardAssetPrefix(snapshotPath), uploadedPaths = []) {
+  const prefix = assetPrefix;
   const references = [];
   // Fail before any upload when a restored/older board contains oversized media.
   for (const { record } of collectBoardAssetRecords(boardData)) {
@@ -1843,7 +1851,8 @@ async function externalizeBoardAssets(boardData, snapshotPath) {
     if (["video", "audio"].includes(record.kind)) assertMediaSize(blob, record.fileName || "メディア");
     const mimeType = blob.type || record.assetMimeType || "image/jpeg";
     const assetPath = `${prefix}/${record.assetKey}.${assetExtension(mimeType)}`;
-    await uploadImmutableBoardAsset(assetPath, blob, mimeType, record.fileName || "メディア");
+    const created = await uploadImmutableBoardAsset(assetPath, blob, mimeType, record.fileName || "メディア");
+    if (created) uploadedPaths.push(assetPath);
     const objectUrl = currentObjectUrl || URL.createObjectURL(blob);
 
     record.assetPath = assetPath;
@@ -1955,10 +1964,13 @@ export const boardApi = {
     const fileId = payload.fileId || crypto.randomUUID();
     let existingDistributionId = null;
     let existingAssignmentSubmittedAt = null;
+    let existingSnapshotPath = null;
+    let existingSourceBoardId = null;
+    let existingSharedBoardId = null;
     if (payload.fileId) {
       let metadataQuery = supabase
         .from("board_files")
-        .select("distribution_id, assignment_submitted_at")
+        .select("distribution_id, assignment_submitted_at, snapshot_path, source_board_id, shared_board_id")
         .eq("id", payload.fileId)
         .limit(1);
       metadataQuery = applyOwnerFilter(metadataQuery, owner);
@@ -1966,14 +1978,28 @@ export const boardApi = {
       if (metadataError) throw metadataError;
       existingDistributionId = existingFile?.distribution_id || null;
       existingAssignmentSubmittedAt = existingFile?.assignment_submitted_at || null;
+      existingSnapshotPath = existingFile?.snapshot_path || null;
+      existingSourceBoardId = existingFile?.source_board_id || null;
+      existingSharedBoardId = existingFile?.shared_board_id || null;
     }
     const folderPath = normalizeFolderPath(payload.folderPath);
     const fileName = String(payload.fileName || "").trim();
-    const snapshotPath = owner.ownerKind === "teacher"
-      ? `teachers/${owner.teacherId}/${fileId}.json`
-      : `students/${owner.studentId}/${fileId}.json`;
+    const ownerRoot = owner.ownerKind === "teacher"
+      ? `teachers/${owner.teacherId}/${fileId}`
+      : `students/${owner.studentId}/${fileId}`;
+    const revisionId = crypto.randomUUID();
+    const snapshotPath = `${ownerRoot}/revisions/${revisionId}.json`;
     const boardData = payload.boardData || {};
-    const assetReferences = await externalizeBoardAssets(boardData, snapshotPath);
+    const uploadedPaths = [];
+    let assetReferences;
+    try {
+      assetReferences = await externalizeBoardAssets(boardData, snapshotPath, `${ownerRoot}/assets`, uploadedPaths);
+    } catch (error) {
+      if (uploadedPaths.length) {
+        await supabase.rpc("enqueue_owned_board_cleanup", { p_paths: uploadedPaths }).catch(() => {});
+      }
+      throw error;
+    }
     const boardJson = JSON.stringify(boardData);
     const blob = new Blob([boardJson], { type: "application/json" });
 
@@ -1981,10 +2007,16 @@ export const boardApi = {
       .from(STORAGE_BUCKET)
       .upload(snapshotPath, blob, {
         contentType: "application/json",
-        upsert: true,
+        cacheControl: "31536000",
+        upsert: false,
       });
 
-    if (upload.error) throw upload.error;
+    if (upload.error) {
+      if (uploadedPaths.length) {
+        await supabase.rpc("enqueue_owned_board_cleanup", { p_paths: uploadedPaths }).catch(() => {});
+      }
+      throw upload.error;
+    }
     const row = {
       id: fileId,
       owner_kind: owner.ownerKind,
@@ -1995,21 +2027,28 @@ export const boardApi = {
       name: fileName,
       snapshot_path: snapshotPath,
       thumbnail_path: null,
-      source_board_id: null,
-      shared_board_id: null,
+      source_board_id: existingSourceBoardId,
+      shared_board_id: existingSharedBoardId,
       distribution_id: existingDistributionId,
       assignment_submitted_at: existingAssignmentSubmittedAt,
       size_bytes: blob.size,
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase
-      .from("board_files")
-      .upsert(row)
-      .select("id, name, distribution_id, assignment_submitted_at")
-      .single();
+    const { data, error } = await supabase.rpc("commit_board_file_revision", {
+      p_row: row,
+      p_expected_snapshot_path: existingSnapshotPath,
+      p_asset_paths: assetReferences.map((asset) => asset.assetPath).filter(Boolean),
+    }).single();
 
-    if (error) throw error;
+    if (error) {
+      await supabase.rpc("enqueue_owned_board_cleanup", { p_paths: [snapshotPath, ...uploadedPaths] }).catch(() => {});
+      throw error;
+    }
+
+    if (owner.ownerKind === "teacher") {
+      void callFunction("process-storage-cleanup", { limit: 25 }).catch(() => {});
+    }
 
     return {
       ok: true,

@@ -58,6 +58,8 @@ Storage 1GB、Egress 5GBです。最新値は公式の
 5. `Deploy staging frontend to GitHub Pages` workflowの完了を待ちます。
 6. workflowに表示されるPages URLを開きます。
 
+workflowは `npm test` を必須とします。全migration・Edge Functionの内容を検証済みバックエンドstampと照合し、不一致なら公開しません。バックエンドを適用・検証した後だけstampを生成します。詳しい本番手順、DatabaseとStorageのバックアップ、復元訓練、容量管理は [PRODUCTION_OPERATIONS.md](PRODUCTION_OPERATIONS.md) を参照してください。
+
 フロントに含まれるSupabase Project URLとPublishable keyは公開情報です。
 `service_role`、Secret key、DBパスワード、Supabase Access Token、教師招待コードは
 GitHubへ保存しません。将来migrationをGitHub Actionsから適用する場合は、これらを
