@@ -1,0 +1,49 @@
+name: Process Supabase Storage cleanup
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "readiness は設定確認のみ、run は cleanup を実行"
+        required: true
+        default: readiness
+        type: choice
+        options:
+          - readiness
+          - run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event_name == 'workflow_dispatch' || vars.STORAGE_CLEANUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      STORAGE_CLEANUP_URL: ${{ secrets.STORAGE_CLEANUP_URL }}
+      STORAGE_CLEANUP_SECRET: ${{ secrets.STORAGE_CLEANUP_SECRET }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check cleanup configuration
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'readiness'
+        run: node scripts/run-storage-cleanup.mjs --check
+
+      - name: Process due cleanup jobs
+        if: github.event_name == 'schedule' || inputs.mode == 'run'
+        run: node scripts/run-storage-cleanup.mjs --limit 100 --max-batches 5 --timeout-ms 30000

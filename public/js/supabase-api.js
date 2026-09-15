@@ -1,14 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
-import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915";
-import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915";
-import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912&production-fixes=20260915";
-import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912&production-fixes=20260915";
+import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   deterministicSpreadDelay,
   isRateLimitError,
   runWithRateLimitRetry,
   waitForRealtimeSpread,
-} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915";
+} from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 
 const config = window.CLASS_WHITEBOARD_CONFIG || {};
 const SUPABASE_URL = (config.supabaseUrl || "").trim();

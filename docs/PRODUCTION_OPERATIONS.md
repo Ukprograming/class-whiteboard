@@ -2,6 +2,21 @@
 
 この文書ではSupabase DatabaseとStorageの両方を保全します。Database dumpだけではStorage内の画像・動画・音声本体は復元できません。Supabase Freeでは自動バックアップを前提にせず、授業データを保持する期間に合わせて手動バックアップ日を決めます。実行前に最新の公式料金・上限とCLIのヘルプを確認してください。
 
+## 追加の運用準備
+
+- [バックアップ・復元チェックリスト](BACKUP_CHECKLIST.md): 保存先、担当者、実施日時、復元結果を記録します。チェックリストを用意しただけでは取得・復元済みになりません。
+- [不要ファイル回収の定期実行](STORAGE_CLEANUP_AUTOMATION.md): 6時間ごとのGitHub Actions workflowと、失敗・処理上限を検知するrunnerを用意しています。初期状態は無効で、Secrets設定と手動確認後に有効化します。
+
+## 下書きの復元と確認範囲
+
+生徒画面は、大きな画像などでsessionStorageの容量を超えた場合にも、復元用の小さな印を先に保存し、IndexedDBに退避した下書きを再読み込み後に探せるようにしています。
+
+教員画面にも、編集中のボードを同じタブの再読み込み後に復元する機能を追加しています。教員アカウント・クラス・教材の所有者ごとに下書きを識別します。復元した内容は未保存として扱うため、内容を確認して通常の保存操作を行ってください。保存中に追記した内容は下書きとして残し、新規作成やクラスを離れる操作では保存・破棄・キャンセルの選択を尊重します。
+
+これは端末内の一時的な復旧機能です。タブを閉じた後や別端末での復元、ブラウザのデータ消去後の復元は保証しません。ストレージ利用を拒否するブラウザ設定や容量不足では保存できない場合があります。新規挿入後、一度も保存していない動画・音声本体は再読み込みで復元できないため、ページを閉じる前に保存を完了してください。
+
+`npm.cmd test` で容量超過時の退避・アカウント等の分離・回収runnerの失敗処理を確認します。`npm run test:browser:teacher-draft` はPlaywrightとEdgeが利用可能な環境で実行し、実画面の教員下書き復元と、生徒の実sessionStorage容量超過からIndexedDB経由で復元する操作を確認します。認証とStorage通信は模擬実装であり、本番の認証済み端末での受け入れ確認は別途必要です。
+
 ## リリース順序
 
 GitHub Actionsは毎回 `npm test` を実行し、リポジトリ内の全migration・Edge Functionの内容が、検証済みバックエンドstampと一致するときだけPagesへ公開します。後続のフロントだけのcommitでも未適用バックエンドを見逃しません。不一致なら現在公開中のPagesを維持したままworkflowを失敗させます。
@@ -26,7 +41,7 @@ stampは適用そのものを自動証明するものではなく、作業者が
 
 `scripts/verify-cleanup-ownership.sql` は架空アカウントだけを作るトランザクション内で、上記の所有者・権限・担当変更を確認して全件rollbackします。Storageファイル本体は作成・削除しません。`scripts/verify-production-fixes-browser.cjs` は実Edgeで再読み込みとPDF描画を確認しますが、Storageは模擬実装です。認証済みの別端末での操作確認とは区別してください。
 
-自動cronはこの修正では追加しません。教員の保存等による既存の後処理は継続しますが、誰も操作しない期間の削除完了時刻は保証しません。バックアップ取得・復元訓練は別途実施記録が必要です。漏洩パスワード防止は[Supabaseの公式説明](https://supabase.com/docs/guides/auth/password-security)でPro以上の機能とされており、この修正で有料プランへ変更しません。
+教員の保存等による既存の後処理は継続します。追加した定期実行workflowを有効化するまでは、誰も操作しない期間の削除完了時刻は保証しません。バックアップ取得・復元訓練は別途実施記録が必要です。漏洩パスワード防止は[Supabaseの公式説明](https://supabase.com/docs/guides/auth/password-security)でPro以上の機能とされており、この修正で有料プランへ変更しません。
 
 本番のmigrationは `20260914231205_align_storage_cleanup_ownership.sql` です。CLIで作成したローカルmigrationをMCPで適用し、MCPが割り当てた履歴番号と同一SQLの適用結果を照合して、このファイル名へ揃えています。履歴のrepairは行っていません。適用前のrollback検証と適用後の同じ検証は成功しています。削除workerに必要な `service_role` の内部schema使用権限も、このmigrationで付与しています。
 
@@ -92,4 +107,4 @@ order by total_bytes desc;
 
 削除は、既存の画面操作または検証済みEdge Functionを使い、まず対象件数とパスをdry run相当で記録します。参照中のboard asset、提出物、フォーム画像をSQLやStorage画面から直接一括削除しません。GC後はDB metadataとStorage実体の双方から対象が消え、現行ボードが開けることを確認します。保持期限と削除承認者が決まるまでは自動cronを登録しません。
 
-通常の削除候補は24時間の猶予を付けてqueueへ入ります。owner scoped workerは、教師のボード保存、生徒削除、履歴削除が成功したときにfire-and-forgetで呼ばれ、認証済みownerの範囲だけを処理します。ログインだけでは起動しません。workerは削除直前にも現行DBからの参照を確認します。48時間以上残った未commit uploadを探すsweeperは通常のowner処理では動かず、`STORAGE_CLEANUP_SECRET` を持つ保守リクエストでだけ実行します。外部schedulerとcronはまだ設定していないため、sweeperを定期実行しているとは扱いません。設定する場合は保存先、保持期限、通知先、secretの保管方法を決め、dry run相当の件数確認と復元可能なバックアップ取得後に別作業として行います。
+通常の削除候補は24時間の猶予を付けてqueueへ入ります。owner scoped workerは、教師のボード保存、生徒削除、履歴削除が成功したときにfire-and-forgetで呼ばれ、認証済みownerの範囲だけを処理します。ログインだけでは起動しません。workerは削除直前にも現行DBからの参照を確認します。48時間以上残った未commit uploadを探すsweeperは通常のowner処理では動かず、`STORAGE_CLEANUP_SECRET` を持つ保守リクエストでだけ実行します。定期実行を有効化する場合は[設定手順](STORAGE_CLEANUP_AUTOMATION.md)に従います。設定だけを確認するreadinessでは、削除対象件数や本番への接続成功は検証しません。保持期限、担当者、通知先を決め、復元可能なバックアップを確認してから実行します。

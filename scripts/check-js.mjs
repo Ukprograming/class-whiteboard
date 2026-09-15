@@ -32,6 +32,7 @@ const moduleFiles = [
   "public/js/supabase-api.js",
   "public/js/timer-utils.mjs",
   "public/js/teacher.js",
+  "public/js/teacher-draft-store.mjs",
   "public/js/teacher-forms.js",
   "public/js/teacher-class-storage.js",
   "public/js/teacher-login.js",

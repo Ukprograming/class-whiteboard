@@ -1,30 +1,35 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915";
-import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
-} from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915";
+} from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   getSelectedTeacherClass,
   saveTeacherClassHints,
   setSelectedTeacherClass,
-} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915";
-import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915";
-import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901&security-reliability=20260912&production-fixes=20260915";
+} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   parseStudentWorkbook,
   validateStudentImport,
-} from "./student-bulk-import.js?v=student-bulk-import-20260831b&security-reliability=20260912&production-fixes=20260915";
+} from "./student-bulk-import.js?v=student-bulk-import-20260831b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import {
+  createTeacherDraftKey,
+  createTeacherDraftStore,
+  normalizeTeacherDraftIdentity,
+} from "./teacher-draft-store.mjs?v=teacher-draft-recovery-20260915&draft-recovery=20260915";
 
 async function requireSupabaseTeacher() {
-  if (!supabaseEnabled) return;
+  if (!supabaseEnabled) return null;
   try {
     const profile = await authApi.getProfile();
-    if (profile?.role === "teacher") return;
+    if (profile?.role === "teacher") return profile;
   } catch (error) {
     console.error("Failed to verify teacher session", error);
   }
@@ -33,7 +38,8 @@ async function requireSupabaseTeacher() {
   throw new Error("Teacher login is required.");
 }
 
-await requireSupabaseTeacher();
+const authenticatedTeacherProfile = await requireSupabaseTeacher();
+const authenticatedTeacherId = String(authenticatedTeacherProfile?.id || "").trim().toLowerCase();
 
 const teacherBoard = initBoardUI();
 window.teacherBoard = teacherBoard; // ★ デバッグ用にグローバル公開
@@ -45,6 +51,8 @@ window.addEventListener("beforeunload", (event) => {
 
   // 変更がなければ何もしない
   if (!teacherBoard.isBoardDirty) return;
+
+  void persistTeacherDraftNow();
 
   // 変更アリ → 確認ダイアログを出す
   event.preventDefault();
@@ -438,8 +446,17 @@ let currentBoardFileId = null;
 // 今開いているボードのファイル名（拡張子なし）
 let currentBoardFileName = "";
 let currentBoardOwnerKind = "teacher";
+let currentBoardOwnerStudentId = "";
 let boardFileSaveInFlight = false;
 let assignmentReviewState = null;
+const TEACHER_DRAFT_SAVE_DELAY_MS = 150;
+const teacherDraftStore = createTeacherDraftStore({
+  getSessionStorage: () => window.sessionStorage,
+  getIndexedDB: () => window.indexedDB,
+});
+let teacherDraftSaveTimerId = null;
+let hasRestoredTeacherDraft = false;
+let teacherBoardLifecycleRevision = 0;
 
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
 const SHARED_BOARD_SNAPSHOT_INTERVAL_MS = Math.max(
@@ -531,6 +548,166 @@ let boardDialogAfterSave = null;
 // ★ 追加：どの領域を見ているか（先生 / 生徒○○）
 let boardScopeMode = "teacher";         // "teacher" or "student"
 let boardScopeStudentNickname = "";     // 生徒スコープ時のニックネーム
+
+
+function getCurrentTeacherDraftIdentity(overrides = {}) {
+  return normalizeTeacherDraftIdentity({
+    teacherId: authenticatedTeacherId,
+    classCode: currentClassCode,
+    ownerKind: currentBoardOwnerKind,
+    ownerStudentId: currentBoardOwnerStudentId,
+    ...overrides,
+  });
+}
+
+function createCurrentTeacherDraft() {
+  const identity = getCurrentTeacherDraftIdentity();
+  if (!identity || !teacherBoard?.isBoardDirty) return null;
+  return {
+    version: 1,
+    ...identity,
+    draftKey: createTeacherDraftKey(identity),
+    savedAt: new Date().toISOString(),
+    boardData: teacherBoard.exportBoardData(),
+    currentBoardFileId,
+    currentBoardFileName,
+    lastUsedFolderPath,
+    boardScopeMode,
+    boardScopeStudentNickname,
+  };
+}
+
+function persistTeacherDraftNow() {
+  if (teacherDraftSaveTimerId) {
+    clearTimeout(teacherDraftSaveTimerId);
+    teacherDraftSaveTimerId = null;
+  }
+  const draft = createCurrentTeacherDraft();
+  return draft ? teacherDraftStore.persist(draft) : Promise.resolve(false);
+}
+
+function beginTeacherBoardLifecycleChange() {
+  teacherBoardLifecycleRevision += 1;
+  if (teacherDraftSaveTimerId) {
+    clearTimeout(teacherDraftSaveTimerId);
+    teacherDraftSaveTimerId = null;
+  }
+  return teacherBoardLifecycleRevision;
+}
+
+function captureTeacherBoardLifecycle() {
+  return {
+    classCode: currentClassCode,
+    revision: teacherBoard.getRevision?.(),
+    lifecycleRevision: teacherBoardLifecycleRevision,
+  };
+}
+
+function isTeacherBoardLifecycleCurrent(snapshot) {
+  return Boolean(
+    snapshot
+    && currentClassCode === snapshot.classCode
+    && teacherBoardLifecycleRevision === snapshot.lifecycleRevision
+    && (
+      typeof snapshot.revision !== "number"
+      || teacherBoard.getRevision?.() === snapshot.revision
+    )
+  );
+}
+
+function isTeacherBoardContextCurrent(snapshot) {
+  return Boolean(
+    snapshot
+    && currentClassCode === snapshot.classCode
+    && teacherBoardLifecycleRevision === snapshot.lifecycleRevision
+  );
+}
+
+function scheduleTeacherDraftSave() {
+  if (!authenticatedTeacherId || !currentClassCode || !teacherBoard?.isBoardDirty) return;
+  if (teacherDraftSaveTimerId) clearTimeout(teacherDraftSaveTimerId);
+  teacherDraftSaveTimerId = setTimeout(() => {
+    void persistTeacherDraftNow();
+  }, TEACHER_DRAFT_SAVE_DELAY_MS);
+}
+
+async function clearTeacherDraft(identity = getCurrentTeacherDraftIdentity()) {
+  if (teacherDraftSaveTimerId) {
+    clearTimeout(teacherDraftSaveTimerId);
+    teacherDraftSaveTimerId = null;
+  }
+  if (!identity) return false;
+  return teacherDraftStore.clear(identity);
+}
+
+async function restoreTeacherDraft(classCode) {
+  if (!authenticatedTeacherId || !classCode) return false;
+  const restoreClassCode = String(classCode).trim().toUpperCase();
+  const restoreLifecycle = captureTeacherBoardLifecycle();
+  const draft = await teacherDraftStore.load({
+    teacherId: authenticatedTeacherId,
+    classCode: restoreClassCode,
+  });
+  if (
+    !draft
+    || restoreLifecycle.classCode !== restoreClassCode
+    || !isTeacherBoardLifecycleCurrent(restoreLifecycle)
+  ) return false;
+
+  let restoredBoardData = draft.boardData;
+  let failedAssetCount = 0;
+  if (supabaseEnabled && typeof boardApi.hydrateDraftAssets === "function") {
+    try {
+      const hydratedDraft = await boardApi.hydrateDraftAssets(draft.boardData);
+      restoredBoardData = hydratedDraft?.boardData || draft.boardData;
+      failedAssetCount = hydratedDraft?.failedAssetPaths?.length || 0;
+    } catch (error) {
+      console.warn("Stored teacher board assets could not be restored.", error);
+      failedAssetCount = 1;
+    }
+  }
+
+  if (
+    restoreLifecycle.classCode !== restoreClassCode
+    || !isTeacherBoardLifecycleCurrent(restoreLifecycle)
+  ) {
+    return false;
+  }
+
+  beginTeacherBoardLifecycleChange();
+  if (typeof teacherBoard.restoreBoardDraft === "function") {
+    teacherBoard.restoreBoardDraft(restoredBoardData);
+  } else {
+    teacherBoard.importBoardData(restoredBoardData);
+  }
+  currentBoardFileId = draft.currentBoardFileId || null;
+  currentBoardFileName = draft.currentBoardFileName || "";
+  lastUsedFolderPath = draft.lastUsedFolderPath || "";
+  currentBoardOwnerKind = draft.ownerKind === "student" ? "student" : "teacher";
+  currentBoardOwnerStudentId = currentBoardOwnerKind === "student"
+    ? String(draft.ownerStudentId || "").trim().toLowerCase()
+    : "";
+  boardScopeMode = draft.boardScopeMode === "student" ? "student" : currentBoardOwnerKind;
+  boardScopeStudentNickname = boardScopeMode === "student"
+    ? String(draft.boardScopeStudentNickname || currentBoardOwnerStudentId).trim().toLowerCase()
+    : "";
+  hasRestoredTeacherDraft = true;
+  if (statusLabel) {
+    const savedAt = draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString() : "直前";
+    const ownerLabel = currentBoardOwnerKind === "student"
+      ? `生徒 ${currentBoardOwnerStudentId}`
+      : "先生";
+    const assetWarning = failedAssetCount
+      ? `（保存済みメディア${failedAssetCount}件を取得できませんでした。通信を確認して再読み込みすると再試行できます）`
+      : "";
+    statusLabel.textContent = `編集中の${ownerLabel}ボードを復元しました（${savedAt}）${assetWarning}`;
+  }
+  return true;
+}
+
+window.addEventListener("pagehide", () => {
+  void persistTeacherDraftNow();
+});
 
 
 // ========= 教員セッションからクラスコードを復元して自動参加 =========
@@ -668,7 +845,11 @@ async function stopSharedBoard() {
 }
 
 if (teacherBoard) {
+  teacherBoard.onDirtyChange = (isDirty) => {
+    if (isDirty) scheduleTeacherDraftSave();
+  };
   teacherBoard.onAction = (action) => {
+    scheduleTeacherDraftSave();
     if (!sharedBoardSession || !currentClassCode || applyingSharedBoardRemote) return;
     if (action?.type === "refresh") {
       void publishSharedBoardSnapshot("refresh");
@@ -703,6 +884,9 @@ socket.on("shared-board-snapshot", async ({ sharedBoardId, title, boardData: inc
     }
     return;
   }
+  if (hasRestoredTeacherDraft && teacherBoard?.isBoardDirty && !sharedBoardSession) {
+    return;
+  }
   const boardData = await resolveRealtimeBoardData(incomingBoardData, boardSnapshotPath);
   if (!teacherBoard || !boardData || typeof teacherBoard.importBoardData !== "function") return;
   sharedBoardSession = {
@@ -731,13 +915,21 @@ socket.on("shared-board-snapshot", async ({ sharedBoardId, title, boardData: inc
   }
 });
 
-async function activateTeacherClass(classCode) {
+async function activateTeacherClass(classCode, options = {}) {
   const code = String(classCode || "").trim().toUpperCase();
   if (!code) return false;
 
   if (currentClassCode && currentClassCode !== code) {
+    const previousDraftIdentity = getCurrentTeacherDraftIdentity();
+    if (teacherBoard?.isBoardDirty) {
+      const canSwitch = await confirmTeacherBoardChange(
+        "別のクラスに切り替える前に、現在のホワイトボードを保存しますか？"
+      );
+      if (!canSwitch) return false;
+    }
     await stopSharedBoard();
     await socket.emit("leave-class");
+    await resetTeacherBoardForNewFile({ draftIdentity: previousDraftIdentity });
   }
 
   currentClassCode = code;
@@ -745,6 +937,10 @@ async function activateTeacherClass(classCode) {
   setSelectedTeacherClass(code);
   if (classCodeInput) classCodeInput.value = code;
   if (statusLabel) statusLabel.textContent = `クラスコード ${code} で待機中…`;
+
+  if (options.restoreDraft === true) {
+    await restoreTeacherDraft(code);
+  }
 
   await socket.emit("join-teacher", { classCode: code });
   await socket.emit("teacher-start-class", { classCode: code });
@@ -786,7 +982,7 @@ async function autoJoinClassFromSession() {
       );
       if (!selectedClass) return;
 
-      await activateTeacherClass(selectedClass.class_code);
+      await activateTeacherClass(selectedClass.class_code, { restoreDraft: true });
     } catch (error) {
       console.error("Failed to load the selected teacher class", error);
     }
@@ -1436,6 +1632,8 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, o
       return false;
     }
 
+    const draftIdentityBeforeSave = getCurrentTeacherDraftIdentity();
+    const saveLifecycle = captureTeacherBoardLifecycle();
     const saveRevision = teacherBoard.getRevision?.();
     const boardData = teacherBoard.exportBoardData();
     console.log("[teacherSaveBoardInternal] boardData exported");
@@ -1477,7 +1675,6 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, o
     let json = {};
     if (boardApi.enabled) {
       json = await boardApi.saveBoard(payload);
-      teacherBoard.applyAssetReferences?.(json.assetReferences);
     } else {
       res = await fetch(`${BOARD_API_BASE}/save`, {
         method: "POST",
@@ -1503,6 +1700,11 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, o
       return false;
     }
 
+    if (!isTeacherBoardContextCurrent(saveLifecycle)) {
+      return false;
+    }
+    teacherBoard.applyAssetReferences?.(json.assetReferences);
+
     const mode = json.mode || (overwriteFileId ? "update" : "create");
 
     // ★ 今保存したファイルの情報を覚えておく（上書き保存ボタン用）
@@ -1519,6 +1721,7 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, o
       currentBoardFileName = finalFileName;
     }
     currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
+    currentBoardOwnerStudentId = isStudentScope ? boardScopeStudentNickname.trim().toLowerCase() : "";
 
     lastUsedFolderPath = (folderPath || "").trim();
 
@@ -1526,18 +1729,34 @@ async function teacherSaveBoardInternal(folderPath, fileName, overwriteFileId, o
     const savedCurrentRevision = typeof teacherBoard.markSaved === "function"
       ? teacherBoard.markSaved(saveRevision)
       : true;
+    hasRestoredTeacherDraft = false;
+    if (savedCurrentRevision === false) {
+      const latestDraftIdentity = getCurrentTeacherDraftIdentity();
+      const latestDraftSaved = await persistTeacherDraftNow();
+      if (
+        latestDraftSaved
+        && createTeacherDraftKey(latestDraftIdentity) !== createTeacherDraftKey(draftIdentityBeforeSave)
+      ) {
+        await teacherDraftStore.clear(draftIdentityBeforeSave);
+      }
+    } else {
+      await clearTeacherDraft(draftIdentityBeforeSave);
+    }
+
+    const saveStayedCurrent = savedCurrentRevision !== false && !teacherBoard.isBoardDirty;
+    if (!saveStayedCurrent) await persistTeacherDraftNow();
 
     const savedMessage = json.message ||
       (mode === "update"
         ? "ホワイトボードを上書き保存しました。"
         : "ホワイトボードを保存しました。");
     if (!silent) {
-      alert(savedCurrentRevision === false
+      alert(!saveStayedCurrent
         ? `${savedMessage}\n保存中に加えた変更はまだ未保存です。もう一度保存してください。`
         : savedMessage);
     }
-    if (savedCurrentRevision !== false) closeBoardDialog();
-    return savedCurrentRevision !== false;
+    if (saveStayedCurrent) closeBoardDialog();
+    return saveStayedCurrent;
   } catch (err) {
     console.error("[teacherSaveBoardInternal] error", err);
     if (!silent) alert("ホワイトボードの保存に失敗しました: " + err);
@@ -1583,6 +1802,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
     alert("生徒ボードを開くには、ニックネームを入力してください。");
     return;
   }
+  const draftIdentityBeforeLoad = getCurrentTeacherDraftIdentity();
 
   try {
     const payload = {
@@ -1608,6 +1828,9 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
         return;
       }
 
+      beginTeacherBoardLifecycleChange();
+      await clearTeacherDraft(draftIdentityBeforeLoad);
+      hasRestoredTeacherDraft = false;
       teacherBoard.importBoardData(json.boardData);
       if (typeof teacherBoard.markSaved === "function") {
         teacherBoard.markSaved();
@@ -1615,6 +1838,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
       currentBoardFileId = json.fileId || fileId || null;
       currentBoardFileName = json.fileName ? json.fileName.replace(/\.json$/i, "") : "";
       currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
+      currentBoardOwnerStudentId = isStudentScope ? boardScopeStudentNickname.trim().toLowerCase() : "";
       lastUsedFolderPath = (folderPath || "").trim();
       alert("Loaded board.");
       closeBoardDialog();
@@ -1649,6 +1873,9 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
       return;
     }
 
+    beginTeacherBoardLifecycleChange();
+    await clearTeacherDraft(draftIdentityBeforeLoad);
+    hasRestoredTeacherDraft = false;
     teacherBoard.importBoardData(json.boardData);
 
     // ★ 読み込み直後の状態を「保存済み」とみなす
@@ -1664,6 +1891,7 @@ async function teacherLoadBoardInternal(folderPath, fileId) {
       currentBoardFileName = "";
     }
     currentBoardOwnerKind = isStudentScope ? "student" : "teacher";
+    currentBoardOwnerStudentId = isStudentScope ? boardScopeStudentNickname.trim().toLowerCase() : "";
     lastUsedFolderPath = (folderPath || "").trim();
 
     alert("ホワイトボードを読み込みました。");
@@ -1733,7 +1961,7 @@ let distributionInFlight = false;
 function showBoardChangeSaveDecision(message, options = {}) {
   return new Promise((resolve) => {
     const backdrop = document.createElement("div");
-    backdrop.className = "workflow-dialog-backdrop";
+    backdrop.className = "workflow-dialog-backdrop board-change-confirmation";
     const dialog = document.createElement("section");
     dialog.className = "workflow-dialog";
     dialog.setAttribute("role", "dialog");
@@ -1787,11 +2015,18 @@ function showBoardChangeSaveDecision(message, options = {}) {
   });
 }
 
-function resetTeacherBoardForNewFile() {
+async function resetTeacherBoardForNewFile(options = {}) {
+  const previousDraftIdentity = options.draftIdentity || getCurrentTeacherDraftIdentity();
+  beginTeacherBoardLifecycleChange();
   teacherBoard.newBoard();
   currentBoardFileId = null;
   currentBoardFileName = "";
   currentBoardOwnerKind = "teacher";
+  currentBoardOwnerStudentId = "";
+  boardScopeMode = "teacher";
+  boardScopeStudentNickname = "";
+  hasRestoredTeacherDraft = false;
+  if (previousDraftIdentity) await teacherDraftStore.clear(previousDraftIdentity);
 }
 
 async function createNewTeacherBoard() {
@@ -1822,7 +2057,7 @@ async function createNewTeacherBoard() {
     }
   }
 
-  resetTeacherBoardForNewFile();
+  await resetTeacherBoardForNewFile();
 }
 
 teacherNewBoardBtn?.addEventListener("click", () => void createNewTeacherBoard());
@@ -1927,6 +2162,7 @@ async function distributeCurrentBoardToClass(title, distributionKind) {
       throw new Error("現在のクラスを教師アカウントから確認できませんでした。");
     }
 
+    const draftIdentityBeforeSave = getCurrentTeacherDraftIdentity();
     const saveRevision = teacherBoard.getRevision?.();
     const boardData = teacherBoard.exportBoardData();
     const tracksCurrentTeacherFile = currentBoardOwnerKind === "teacher";
@@ -1951,7 +2187,21 @@ async function distributeCurrentBoardToClass(title, distributionKind) {
       currentBoardFileId = savedSource.fileId;
       currentBoardFileName = String(savedSource.fileName || sourceFileName).replace(/\.json$/i, "");
       currentBoardOwnerKind = "teacher";
-      teacherBoard.markSaved?.(saveRevision);
+      currentBoardOwnerStudentId = "";
+      const savedCurrentRevision = teacherBoard.markSaved?.(saveRevision);
+      hasRestoredTeacherDraft = false;
+      if (savedCurrentRevision === false) {
+        const latestDraftIdentity = getCurrentTeacherDraftIdentity();
+        const latestDraftSaved = await persistTeacherDraftNow();
+        if (
+          latestDraftSaved
+          && createTeacherDraftKey(latestDraftIdentity) !== createTeacherDraftKey(draftIdentityBeforeSave)
+        ) {
+          await teacherDraftStore.clear(draftIdentityBeforeSave);
+        }
+      } else {
+        await clearTeacherDraft(draftIdentityBeforeSave);
+      }
     }
 
     const result = await managementApi.copyBoardToClass({
@@ -2194,6 +2444,7 @@ async function loadAssignmentStudentAt(index, options = {}) {
     );
     if (!canContinue) return false;
   }
+  const draftIdentityBeforeLoad = getCurrentTeacherDraftIdentity();
 
   try {
     const result = await boardApi.loadBoard({
@@ -2205,12 +2456,16 @@ async function loadAssignmentStudentAt(index, options = {}) {
       folderPath: student.folder_path || "",
       fileId: student.board_file_id,
     });
+    beginTeacherBoardLifecycleChange();
+    await clearTeacherDraft(draftIdentityBeforeLoad);
+    hasRestoredTeacherDraft = false;
     teacherBoard.importBoardData(result.boardData);
     teacherBoard.markSaved?.();
     assignmentReviewState.currentIndex = index;
     currentBoardFileId = result.fileId || student.board_file_id;
     currentBoardFileName = String(result.fileName || student.name || assignmentReviewState.assignment.title).replace(/\.json$/i, "");
     currentBoardOwnerKind = "student";
+    currentBoardOwnerStudentId = String(student.student_login_id || "").trim().toLowerCase();
     lastUsedFolderPath = student.folder_path || "";
     boardScopeMode = "student";
     boardScopeStudentNickname = student.student_login_id;
@@ -2256,6 +2511,7 @@ async function startAssignmentReview(assignment, classId) {
         fileId: currentBoardFileId,
         fileName: currentBoardFileName,
         ownerKind: currentBoardOwnerKind,
+        ownerStudentId: currentBoardOwnerStudentId,
         folderPath: lastUsedFolderPath,
         scopeMode: boardScopeMode,
         scopeStudentNickname: boardScopeStudentNickname,
@@ -2283,11 +2539,15 @@ async function exitAssignmentReview() {
     "課題チェックを終了する前に、現在の課題ボードを保存しますか？"
   );
   if (!canContinue) return;
+  const reviewDraftIdentity = getCurrentTeacherDraftIdentity();
   const previous = assignmentReviewState.returnBoard;
   assignmentReviewState = null;
   assignmentStudentRosterWrap?.classList.remove("roster-pinned");
   assignmentReviewSwitcher?.classList.add("hidden");
   teacherDefaultModeSwitcher?.classList.remove("hidden");
+  beginTeacherBoardLifecycleChange();
+  await clearTeacherDraft(reviewDraftIdentity);
+  hasRestoredTeacherDraft = false;
   let restoredBoardData = previous.boardData;
   if (previous.fileId && boardApi.enabled) {
     try {
@@ -2312,6 +2572,7 @@ async function exitAssignmentReview() {
   currentBoardFileId = previous.fileId;
   currentBoardFileName = previous.fileName;
   currentBoardOwnerKind = previous.ownerKind;
+  currentBoardOwnerStudentId = previous.ownerStudentId || "";
   lastUsedFolderPath = previous.folderPath;
   boardScopeMode = previous.scopeMode;
   boardScopeStudentNickname = previous.scopeStudentNickname;
@@ -2859,14 +3120,22 @@ if (leaveClassBtn) {
       return;
     }
 
+    const leavingDraftIdentity = getCurrentTeacherDraftIdentity();
+    const canLeave = await confirmTeacherBoardChange(
+      "退室する前に、現在のホワイトボードを保存しますか？"
+    );
+    if (!canLeave) return;
+
     // サーバ側に退室を通知
     await stopSharedBoard();
-    socket.emit("leave-class");
-
-    // クライアント側の状態リセット
+    await socket.emit("leave-class");
+    beginTeacherBoardLifecycleChange();
     currentClassCode = null;
     role = null;
+    if (leavingDraftIdentity) await teacherDraftStore.clear(leavingDraftIdentity);
+    hasRestoredTeacherDraft = false;
 
+    // クライアント側の状態リセット
     if (statusLabel) {
       statusLabel.textContent = "退室しました";
     }
@@ -2890,26 +3159,7 @@ if (startClassBtn && classCodeInput) {
       return;
     }
 
-    // すでに別のクラスにいたらleaveしてからjoin
-    if (currentClassCode && currentClassCode !== code) {
-      await stopSharedBoard();
-      socket.emit("leave-class");
-      console.log(`Leaving previous class ${currentClassCode}`);
-    }
-
-    // 再宣言ではなく、既存変数へ代入
-    currentClassCode = code;
-    role = "teacher";
-
-    socket.emit("join-teacher", { classCode: code });
-    socket.emit("teacher-start-class", { classCode: code });
-
-    // 互換システム用（あなたの仕組みにすでにある）
-    socket.emit("joinAsTeacher", { classCode: code });
-
-    if (statusLabel) {
-      statusLabel.textContent = `クラスコード ${code} で参加中`;
-    }
+    await activateTeacherClass(code);
   });
 }
 

@@ -1,9 +1,9 @@
-import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915";
+import { authApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   getSelectedTeacherClass,
   getTeacherClassHints,
   setSelectedTeacherClass,
-} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915";
+} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 
 const form = document.querySelector("[data-teacher-login-form]");
 const emailInput = document.getElementById("teacherEmail");

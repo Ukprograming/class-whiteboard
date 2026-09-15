@@ -148,6 +148,10 @@ body {
   color: #21704c;
 }
 
+.workflow-dialog-backdrop.board-change-confirmation {
+  z-index: 2200;
+}
+
 .workflow-dialog-backdrop {
   position: fixed;
   inset: 0;

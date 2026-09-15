@@ -100,6 +100,10 @@ DB・RLSの変更は不要です。無料枠の総保存容量・転送量の上
 本番のリリース順序、DatabaseとStorageのバックアップ、復元訓練、容量管理は
 [docs/PRODUCTION_OPERATIONS.md](docs/PRODUCTION_OPERATIONS.md) を参照してください。
 
+運用準備には[バックアップ・復元の記録表](docs/BACKUP_CHECKLIST.md)と
+[不要ファイル回収の定期実行手順](docs/STORAGE_CLEANUP_AUTOMATION.md)も用意しています。
+定期回収は初期状態では無効で、設定と手動確認後に有効化します。
+
 ## ローカル確認
 
 2026-09-15更新では、PDF取り込みの安全設定、生徒下書きの保存済みメディア復元、
