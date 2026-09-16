@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -932,6 +932,8 @@ export function initBoardUI() {
       (activeTool === "text" || activeTool === "sticky") &&
       settingsOpenTool === activeTool;
     textStylePanel.classList.toggle("hidden", !showPanel);
+    textStylePanel.querySelector("[data-text-border-settings]")?.classList.toggle("hidden", activeTool !== "text");
+    updateTextAppearanceControls();
 
     // 付箋カラー行は sticky のときだけ表示
     if (panelStickyColorRow) {
@@ -939,9 +941,28 @@ export function initBoardUI() {
     }
   }
 
+  function updateTextAppearanceControls() {
+    if (!textStylePanel) return;
+    const obj = wb.selectedObj;
+    const source = obj && ["text", "sticky"].includes(obj.kind)
+      && (wb.tool === "select" || wb.tool === obj.kind) ? obj : wb.textDefaults || {};
+    textStylePanel.querySelector("#verticalWritingToggle").checked = source.writingMode === "vertical-rl";
+    textStylePanel.querySelector("#textBorderToggle").checked = !!source.borderVisible;
+    textStylePanel.querySelector("[data-text-border-color]").value = source.borderColor || "#111827";
+    textStylePanel.querySelector("[data-text-border-width]").value = String(source.borderWidth || 2);
+    textStylePanel.querySelector("[data-text-border-style]").value = source.borderStyle || "solid";
+    textStylePanel.querySelectorAll("[data-text-align]").forEach(button => {
+      const vertical = source.writingMode === "vertical-rl";
+      button.title = button.dataset.textAlign === "center" ? "中央揃え"
+        : button.dataset.textAlign === "right" ? (vertical ? "下揃え" : "右揃え") : (vertical ? "上揃え" : "左揃え");
+      button.setAttribute("aria-label", button.title);
+    });
+  }
+
   // ★ 選択されたテキストオブジェクトからパネルの状態を更新
   function updateTextStylePanelFromSelection() {
     if (!textStylePanel) return;
+    updateTextAppearanceControls();
     const obj = wb.selectedObj;
     if (!obj || !["text", "sticky", "link"].includes(obj.kind)) return;
 
@@ -1094,9 +1115,11 @@ export function initBoardUI() {
         left = Math.max(margin, triggerRect.left - menuRect.width - gap);
       }
 
-      const maxTop = Math.max(margin, window.innerHeight - menuRect.height - margin);
+      const textMenu = activeTool === "text" || activeTool === "sticky";
+      const topMargin = textMenu ? 80 : margin;
+      const maxTop = Math.max(topMargin, window.innerHeight - menuRect.height - (textMenu ? 80 : margin));
       const top = Math.min(
-        Math.max(margin, triggerCenterY - menuRect.height / 2),
+        Math.max(topMargin, triggerCenterY - menuRect.height / 2),
         maxTop
       );
       const arrowTop = Math.min(
@@ -1269,6 +1292,29 @@ export function initBoardUI() {
           <span class="word-count-switch" aria-hidden="true"></span>
         </label>
 
+        <label class="word-count-toggle" title="オフで横書き、オンで縦書き（右から左）">
+          <span>縦書き</span>
+          <input id="verticalWritingToggle" type="checkbox" role="switch" aria-label="縦書き（オフで横書き）" />
+          <span class="word-count-switch" aria-hidden="true"></span>
+        </label>
+
+        <div class="text-border-settings" data-text-border-settings>
+          <label class="word-count-toggle">
+            <span>外枠を表示</span>
+            <input id="textBorderToggle" type="checkbox" role="switch" aria-label="テキストボックスの外枠を表示" />
+            <span class="word-count-switch" aria-hidden="true"></span>
+          </label>
+          <label class="text-border-control">線の色<input type="color" data-text-border-color aria-label="外枠の線の色" value="#111827" /></label>
+          <label class="text-border-control">太さ<select data-text-border-width aria-label="外枠の太さ">
+            <option value="1">1 px</option><option value="2" selected>2 px</option>
+            <option value="3">3 px</option><option value="4">4 px</option>
+            <option value="6">6 px</option><option value="8">8 px</option><option value="12">12 px</option>
+          </select></label>
+          <label class="text-border-control">種類<select data-text-border-style aria-label="外枠の線の種類">
+            <option value="solid">実線</option><option value="dashed">破線</option><option value="dotted">点線</option>
+          </select></label>
+        </div>
+
         <!-- ★ 付箋カラー（テキストバー内） -->
         <div data-text-sticky-colors>
           <button type="button" data-text-sticky-color="#FEF3C7"
@@ -1295,6 +1341,24 @@ export function initBoardUI() {
     wordCountToggle.addEventListener("change", () => {
       wb.setWordCountVisible(wordCountToggle.checked);
     });
+
+    const applyAppearance = style => {
+      wb.setTextDefaults(style);
+      if (wb.selectedObj?.kind === wb.tool || wb.tool === "select") wb.setSelectedTextStyle(style);
+      updateTextAppearanceControls();
+    };
+    textStylePanel.querySelector("#verticalWritingToggle").addEventListener("change", e => {
+      applyAppearance({ writingMode: e.target.checked ? "vertical-rl" : "horizontal-tb" });
+    });
+    textStylePanel.querySelector("#textBorderToggle").addEventListener("change", e => {
+      applyAppearance({ borderVisible: e.target.checked });
+    });
+    for (const [attribute, property] of [["color", "borderColor"], ["width", "borderWidth"], ["style", "borderStyle"]]) {
+      textStylePanel.querySelector(`[data-text-border-${attribute}]`).addEventListener("change", e => {
+        applyAppearance({ [property]: attribute === "width" ? Number(e.target.value) : e.target.value });
+      });
+    }
+    updateTextAppearanceControls();
 
     const generatedTextColorInput = textStylePanel.querySelector("[data-text-color]");
     if (generatedTextColorInput) {

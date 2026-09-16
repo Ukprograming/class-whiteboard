@@ -185,7 +185,12 @@ export class Whiteboard {
       fontFamily: 'Meiryo, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       bold: false,
       color: "#111827", // 文字色
-      align: "left"     // "left" | "center" | "right"
+      align: "left",    // "left" | "center" | "right"
+      writingMode: "horizontal-tb",
+      borderVisible: false,
+      borderColor: "#111827",
+      borderWidth: 2,
+      borderStyle: "solid"
     };
 
     // ★ 外部連携用コールバック
@@ -1075,6 +1080,7 @@ export class Whiteboard {
 
   setTool(tool) {
     if (this.tool === tool) return;
+    this.textPlacement = null;
     this.tool = tool;
     this.canvas.style.cursor = "";
     if (this.editingObj || this.editingTableCell) {
@@ -2091,6 +2097,12 @@ export class Whiteboard {
       }
     }
 
+    else if (last.kind === "text-appearance") {
+      Object.assign(last.object, last.before);
+      this.onAction?.({ type: "modify", object: { ...last.object } });
+      this._fireSelectionChange();
+    }
+
     // ★ テキスト編集の UNDO
     else if (last.kind === "edit-text") {
       const obj = last.object;
@@ -2814,7 +2826,8 @@ export class Whiteboard {
   }
 
   // ★ 修正：色と配置も変更できるように拡張
-  setSelectedTextStyle({ fontSize, fontFamily, bold, color, align } = {}) {
+  setSelectedTextStyle({ fontSize, fontFamily, bold, color, align, writingMode,
+    borderVisible, borderColor, borderWidth, borderStyle } = {}) {
     if (!this.selectedObj) return;
     if (!["text", "sticky", "link"].includes(this.selectedObj.kind)) return;
 
@@ -2823,6 +2836,28 @@ export class Whiteboard {
     if (typeof bold === "boolean") this.selectedObj.bold = bold;
     if (color) this.selectedObj.textColor = color;
     if (align) this.selectedObj.textAlign = align;
+    const obj = this.selectedObj;
+    const before = { writingMode: obj.writingMode || "horizontal-tb",
+      borderVisible: !!obj.borderVisible, borderColor: obj.borderColor || "#111827",
+      borderWidth: obj.borderWidth || 2, borderStyle: obj.borderStyle || "solid",
+      width: obj.width, height: obj.height };
+    if (["text", "sticky"].includes(obj.kind) && ["horizontal-tb", "vertical-rl"].includes(writingMode)) {
+      obj.writingMode = writingMode;
+      if (writingMode !== before.writingMode) this._autoResizeTextObject(obj);
+    }
+    if (obj.kind === "text") {
+      if (typeof borderVisible === "boolean") obj.borderVisible = borderVisible;
+      if (borderColor) obj.borderColor = borderColor;
+      if (borderWidth != null) obj.borderWidth = Math.max(1, Math.min(12, Number(borderWidth) || 2));
+      if (["solid", "dashed", "dotted"].includes(borderStyle)) obj.borderStyle = borderStyle;
+    }
+    if (Object.keys(before).some(key => (obj[key] ?? before[key]) !== before[key])) {
+      this.history.push({ kind: "text-appearance", object: obj, before });
+    }
+    if (this.editingObj === obj) {
+      this._applyTextEditorLayout(obj);
+      this._updateTextCountLabel();
+    }
 
     this.render();
     this._notifyObjectStyleChanges([this.selectedObj]);
@@ -2831,7 +2866,8 @@ export class Whiteboard {
 
 
   // ★ 追加：テキストツールのデフォルトスタイルを更新
-  setTextDefaults({ fontSize, fontFamily, bold, color, align } = {}) {
+  setTextDefaults({ fontSize, fontFamily, bold, color, align, writingMode,
+    borderVisible, borderColor, borderWidth, borderStyle } = {}) {
     if (!this.textDefaults) {
       this.textDefaults = {};
     }
@@ -2840,6 +2876,11 @@ export class Whiteboard {
     if (typeof bold === "boolean") this.textDefaults.bold = bold;
     if (color) this.textDefaults.color = color;
     if (align) this.textDefaults.align = align;
+    if (["horizontal-tb", "vertical-rl"].includes(writingMode)) this.textDefaults.writingMode = writingMode;
+    if (typeof borderVisible === "boolean") this.textDefaults.borderVisible = borderVisible;
+    if (borderColor) this.textDefaults.borderColor = borderColor;
+    if (borderWidth != null) this.textDefaults.borderWidth = Math.max(1, Math.min(12, Number(borderWidth) || 2));
+    if (["solid", "dashed", "dotted"].includes(borderStyle)) this.textDefaults.borderStyle = borderStyle;
   }
 
   setSelectedStickyColor(color) {
@@ -2975,6 +3016,13 @@ export class Whiteboard {
         base.fontFamily = o.fontFamily || "system-ui";
         base.bold = !!o.bold;
         base.textAlign = o.textAlign || "left";
+        if (o.kind !== "link") base.writingMode = o.writingMode || "horizontal-tb";
+        if (o.kind === "text") {
+          base.borderVisible = !!o.borderVisible;
+          base.borderColor = o.borderColor || "#111827";
+          base.borderWidth = o.borderWidth || 2;
+          base.borderStyle = o.borderStyle || "solid";
+        }
         if (o.textColor) {
           base.textColor = o.textColor;
         }
@@ -3174,6 +3222,7 @@ export class Whiteboard {
 
   _importSinglePageData(data, options = {}) {
     if (!data) return;
+    this.textPlacement = null;
 
     this.backgroundStyle = ["grid", "ruled", "blank"].includes(data.backgroundStyle) ? data.backgroundStyle : "grid";
     this.showGrid = !this._hidePagePattern && this.backgroundStyle !== "blank";
@@ -3282,6 +3331,13 @@ export class Whiteboard {
         obj.bold = !!o.bold;
         obj.textAlign = o.textAlign || "left";
         obj.textColor = o.textColor || null;
+        if (o.kind !== "link") obj.writingMode = o.writingMode === "vertical-rl" ? "vertical-rl" : "horizontal-tb";
+        if (o.kind === "text") {
+          obj.borderVisible = !!o.borderVisible;
+          obj.borderColor = o.borderColor || "#111827";
+          obj.borderWidth = Math.max(1, Math.min(12, Number(o.borderWidth) || 2));
+          obj.borderStyle = ["dashed", "dotted"].includes(o.borderStyle) ? o.borderStyle : "solid";
+        }
       }
 
 
@@ -3972,6 +4028,56 @@ export class Whiteboard {
     return ta;
   }
 
+  _applyTextEditorLayout(obj) {
+    const vertical = obj.writingMode === "vertical-rl";
+    const editor = this.textEditor;
+    editor.style.writingMode = vertical ? "vertical-rl" : "horizontal-tb";
+    editor.style.textOrientation = "upright";
+    editor.style.overflow = "auto";
+    editor.style.width = `${Math.abs(obj.width) * this.scale}px`;
+    editor.style.height = `${Math.abs(obj.height) * this.scale}px`;
+    editor.style.fontSize = `${(obj.fontSize || 16) * this.scale}px`;
+    editor.style.fontFamily = obj.fontFamily || "system-ui";
+    editor.style.fontWeight = obj.bold ? "bold" : "normal";
+    editor.style.color = obj.textColor || "#111827";
+    editor.style.textAlign = obj.textAlign || "left";
+  }
+
+  _verticalTextColumns(obj) {
+    const size = obj.fontSize || 16;
+    const capacity = Math.max(1, Math.floor((Math.abs(obj.height) - 16) / size));
+    this.textSegmenter ||= new Intl.Segmenter("ja", { granularity: "grapheme" });
+    const columns = [];
+    for (const line of (obj.text || "").split("\n")) {
+      const chars = Array.from(this.textSegmenter.segment(line), part => part.segment);
+      if (!chars.length) columns.push([]);
+      for (let i = 0; i < chars.length; i += capacity) columns.push(chars.slice(i, i + capacity));
+    }
+    return columns;
+  }
+
+  _renderVerticalText(ctx, obj, x, y, width, height) {
+    const size = obj.fontSize || 16;
+    const columns = this._verticalTextColumns(obj);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    columns.forEach((chars, index) => {
+      const cx = x + width - 8 - size * 0.7 - index * size * 1.4;
+      const spare = Math.max(0, height - 16 - chars.length * size);
+      const shift = obj.textAlign === "center" ? spare / 2 : obj.textAlign === "right" ? spare : 0;
+      chars.forEach((ch, row) => {
+        ctx.save();
+        ctx.translate(cx, y + 8 + shift + (row + 0.5) * size);
+        // Canvas has no writing-mode. Use upright graphemes, vertical brackets,
+        // and the upper-right position of Japanese commas and full stops.
+        if (/^[ー―—…‥（）()［］\[\]｛｝{}「」『』【】〈〉《》〔〕]$/.test(ch)) ctx.rotate(Math.PI / 2);
+        if (/^[、。，．]$/.test(ch)) ctx.translate(size * 0.55, -size * 0.55);
+        ctx.fillText(ch, 0, 0);
+        ctx.restore();
+      });
+    });
+  }
+
   _openTextEditorForObject(obj) {
     this._clearTextEditSync();
     this.editingTableCell = null;
@@ -3993,9 +4099,10 @@ export class Whiteboard {
 
     this.textEditor.style.left = `${sx}px`;
     this.textEditor.style.top = `${sy}px`;
-    this.textEditor.style.width = `${Math.max(sw, 150)}px`;
-    this.textEditor.style.height = `${Math.max(sh, 40)}px`;
-    this.textEditor.style.boxSizing = "content-box";
+    this.textEditor.style.width = `${sw}px`;
+    this.textEditor.style.height = `${sh}px`;
+    this.textEditor.style.boxSizing = "border-box";
+    this.textEditor.style.padding = `${8 * this.scale}px`;
     this.textEditor.style.borderRadius = "4px";
     this.textEditor.style.background = "rgba(255,255,255,0.95)";
     this.textEditor.style.color = obj.textColor || "#111827";
@@ -4005,6 +4112,7 @@ export class Whiteboard {
     this.textEditor.style.fontWeight = bold;
     // ★ 追加：テキストの配置を反映
     this.textEditor.style.textAlign = obj.textAlign || "left";
+    this._applyTextEditorLayout(obj);
     this.textEditor.style.display = "block";
 
     this._updateTextCountLabel();
@@ -4039,6 +4147,9 @@ export class Whiteboard {
 
     this._positionTableCellEditor(obj, row, col);
     this.textEditor.style.boxSizing = "border-box";
+    this.textEditor.style.writingMode = "horizontal-tb";
+    this.textEditor.style.textOrientation = "mixed";
+    this.textEditor.style.padding = "4px 6px";
     this.textEditor.style.borderRadius = "0";
     this.textEditor.style.background = cell.fill || "#ffffff";
     this.textEditor.style.color = cell.textColor || "#111827";
@@ -4064,6 +4175,13 @@ export class Whiteboard {
   // ★ テキストボックスの高さを自動調整
   _autoResizeTextObject(obj) {
     if (!obj) return;
+
+    if (obj.writingMode === "vertical-rl") {
+      const columns = this._verticalTextColumns(obj);
+      const needed = columns.length * (obj.fontSize || 16) * 1.4 + 16;
+      if (Math.abs(obj.width) < needed) obj.width = Math.sign(obj.width || 1) * needed;
+      return;
+    }
 
     const fontSize = obj.fontSize || 16;
     const fontFamily = obj.fontFamily || "system-ui";
@@ -4124,6 +4242,8 @@ export class Whiteboard {
     if (!obj || !this.objects.includes(obj) || obj.text === this.textEditor.value) return;
     obj.text = this.textEditor.value;
     this._autoResizeTextObject(obj);
+    this._applyTextEditorLayout(obj);
+    this._updateTextCountLabel();
     this._markDirty();
     this.render();
     // Throttle (not debounce): continuous typing still reaches the monitor.
@@ -4256,10 +4376,17 @@ export class Whiteboard {
     return { x, y, width, height };
   }
 
-  _createTextObject(wx, wy, kind) {
+  _updateTextPlacement(wx, wy) {
+    const p = this.textPlacement;
+    p.endX = wx;
+    p.endY = wy;
+    if (Math.hypot(wx - p.x, wy - p.y) * this.scale >= 6) p.dragged = true;
+  }
+
+  _createTextObject(wx, wy, kind, bounds = null) {
     const id = this._newEntityId("object");
-    const width = 240;
-    const height = 60;
+    const width = bounds?.width ?? 240;
+    const height = bounds?.height ?? (kind === "sticky" ? 240 : 60);
 
     // ★ デフォルトスタイルを使用
     const d = this.textDefaults || {};
@@ -4283,6 +4410,13 @@ export class Whiteboard {
       bold,
       textColor,
       textAlign,
+      writingMode: d.writingMode || "horizontal-tb",
+      ...(kind === "text" ? {
+        borderVisible: !!d.borderVisible,
+        borderColor: d.borderColor || "#111827",
+        borderWidth: d.borderWidth || 2,
+        borderStyle: d.borderStyle || "solid"
+      } : {}),
       fill: kind === "sticky" ? this.stickyColor : "transparent",
       stroke: kind === "sticky" ? this.stickyColor : this.penColor,
       strokeWidth: 2
@@ -4450,6 +4584,7 @@ export class Whiteboard {
       }
 
       if (e.touches && e.touches.length >= 2) {
+        this.textPlacement = null;
         if (this.isResizingTableCells) this._finishTableCellResize();
         this.pendingTableTouchTap = null;
         this.lastTableTap = null;
@@ -4555,8 +4690,12 @@ export class Whiteboard {
       }
 
 
-      if (this.tool === "text" || this.tool === "sticky") {
-        this._createTextObject(wx, wy, this.tool === "sticky" ? "sticky" : "text");
+      if (this.tool === "text") {
+        this.textPlacement = { x: wx, y: wy, endX: wx, endY: wy, dragged: false };
+        return;
+      }
+      if (this.tool === "sticky") {
+        this._createTextObject(wx, wy, "sticky");
         return;
       }
 
@@ -5084,6 +5223,14 @@ export class Whiteboard {
         return;
       }
 
+      if (this.textPlacement) {
+        e.preventDefault();
+        const { wx, wy } = getPos(e);
+        this._updateTextPlacement(wx, wy);
+        this.render();
+        return;
+      }
+
       // ---- 図形描画中 ----
       if (this.isDrawingShape) {
         e.preventDefault();
@@ -5428,6 +5575,24 @@ export class Whiteboard {
 
 
     const up = e => {
+      if (this.textPlacement) {
+        if (e.type === "touchcancel" || e.type === "mouseleave") {
+          this.textPlacement = null;
+          this.render();
+          return;
+        }
+        const point = e.changedTouches?.[0] || e;
+        const { wx, wy } = getPos(point);
+        this._updateTextPlacement(wx, wy);
+        const placement = this.textPlacement;
+        this.textPlacement = null;
+        const rect = this._normalizeRect({ x: placement.x, y: placement.y,
+          width: placement.endX - placement.x, height: placement.endY - placement.y });
+        this._createTextObject(placement.dragged ? rect.x : placement.x,
+          placement.dragged ? rect.y : placement.y, "text",
+          placement.dragged ? { width: Math.max(24, rect.width), height: Math.max(24, rect.height) } : null);
+        return;
+      }
       if (e.type === "mouseleave") {
         canvas.style.cursor = "";
       }
@@ -7140,9 +7305,22 @@ export class Whiteboard {
         const padding = 8;
         const lineHeight = 1.4;
 
+        const vertical = kind !== "link" && obj.writingMode === "vertical-rl";
+        if (kind === "text" && obj.borderVisible) {
+          ctx.save();
+          const borderWidth = Math.max(1, Math.min(12, Number(obj.borderWidth) || 2));
+          ctx.strokeStyle = obj.borderColor || "#111827";
+          ctx.lineWidth = borderWidth;
+          ctx.lineCap = obj.borderStyle === "dotted" ? "round" : "butt";
+          ctx.setLineDash(obj.borderStyle === "dashed" ? [borderWidth * 4, borderWidth * 2]
+            : obj.borderStyle === "dotted" ? [0, borderWidth * 2.5] : []);
+          ctx.strokeRect(x, y, width, height);
+          ctx.restore();
+        }
+
         // ★ 自動改行：ボックス幅に合わせてテキストを折り返す
         const maxTextWidth = Math.max(10, width - padding * 2);
-        const rawLines = (obj.text || "").split("\n");
+        const rawLines = vertical ? [] : (obj.text || "").split("\n");
         const lines = [];
 
         for (const raw of rawLines) {
@@ -7179,7 +7357,11 @@ export class Whiteboard {
         // ★ 追加：テキスト配置
         const align = obj.textAlign || "left";
 
-        for (const line of lines) {
+        if (vertical) {
+          this._renderVerticalText(ctx, obj, x, y, width, height);
+          ty = y + height; // Keep the count badge outside vertical text columns.
+        }
+        for (const line of vertical ? [] : lines) {
           let tx;
           if (align === "center") {
             ctx.textAlign = "center";
@@ -7245,6 +7427,15 @@ export class Whiteboard {
   }
 
   _renderOverlays(ctx) {
+    if (this.textPlacement?.dragged) {
+      const p = this.textPlacement;
+      ctx.save();
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.setLineDash([5 / this.scale, 3 / this.scale]);
+      ctx.strokeRect(p.x, p.y, p.endX - p.x, p.endY - p.y);
+      ctx.restore();
+    }
     // ---- ボックス選択の描画 ----
     if (this.isBoxSelecting && this.selectionBoxStart && this.selectionBoxEnd) {
       const sx = Math.min(this.selectionBoxStart.x, this.selectionBoxEnd.x);

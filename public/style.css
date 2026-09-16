@@ -8972,6 +8972,32 @@ body.notebook-panel-expanded .student-notebook-layout {
   background: #fff;
 }
 .word-count-toggle input:checked + .word-count-switch { background: #2563eb; }
+.text-border-settings {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 4px;
+}
+.text-border-settings.hidden { display: none; }
+#contextMenu:has(#textStylePanel:not(.hidden)) {
+  box-sizing: border-box;
+  width: 260px;
+  min-width: 0;
+  max-width: calc(100vw - 112px);
+  max-height: calc(100dvh - 160px);
+  overflow-y: auto;
+}
+.text-border-control {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+}
+.text-border-control input[type="color"] { width: 100%; height: 30px; padding: 2px; }
 .word-count-toggle input:checked + .word-count-switch::before { transform: translateX(12px); }
 .word-count-toggle:has(input:focus-visible) { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: 6px; }
 .text-editor-count {
