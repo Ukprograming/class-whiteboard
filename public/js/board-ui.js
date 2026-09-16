@@ -1,11 +1,11 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -80,6 +80,15 @@ export function initBoardUI() {
   const mediaInput = document.getElementById("mediaInput");
   const pdfInput = document.getElementById("pdfInput");
   const undoBtn = document.getElementById("undoBtn");
+  const redoBtn = document.getElementById("redoBtn");
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  if (undoBtn) undoBtn.title = `元に戻す（${isMac ? "⌘" : "Ctrl"}+Z）`;
+  if (redoBtn) redoBtn.title = `やり直す（${isMac ? "⌘+Shift+Z" : "Ctrl+Y / Ctrl+Shift+Z"}）`;
+  wb.onHistoryChange = ({ canUndo, canRedo }) => {
+    if (undoBtn) undoBtn.disabled = !canUndo;
+    if (redoBtn) redoBtn.disabled = !canRedo;
+  };
+  wb._notifyHistoryChange();
   const clearBtn = document.getElementById("clearBtn");
   const zoomInBtn = document.getElementById("zoomInBtn");
   const zoomOutBtn = document.getElementById("zoomOutBtn");
@@ -2101,6 +2110,9 @@ export function initBoardUI() {
   }
 
   // ========= Undo / Clear =========
+  if (redoBtn) {
+    redoBtn.addEventListener("click", () => wb.redoLast());
+  }
   if (undoBtn) {
     undoBtn.addEventListener("click", () => {
       wb.undoLast();
@@ -2203,8 +2215,10 @@ export function initBoardUI() {
   window.addEventListener("keydown", e => {
     const target = e.target;
     if (
+      e.isComposing ||
       target.tagName === "INPUT" ||
       target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT" ||
       target.isContentEditable
     ) {
       return; // 入力中は何もしない
@@ -2225,8 +2239,15 @@ export function initBoardUI() {
 
     const key = e.key.toLowerCase();
 
+    // Common editor shortcuts; native text fields retain their own undo/redo.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey &&
+        ((key === "z" && e.shiftKey) || (key === "y" && !e.shiftKey))) {
+      e.preventDefault();
+      wb.redoLast();
+      return;
+    }
     // Undo
-    if ((e.ctrlKey || e.metaKey) && key === "z") {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && key === "z") {
       e.preventDefault();
       wb.undoLast();
       return;

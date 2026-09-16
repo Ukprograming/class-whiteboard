@@ -80,8 +80,9 @@ export class Whiteboard {
     this.changeRevision = 0;
     this.savedRevision = 0;
 
-    // 操作履歴（Undo 用）
-    this.history = []; // { kind:'stroke'|'object'|'delete-object'|'delete-multi', ... }
+    // 操作履歴（Undo / Redo 用）
+    this.history = [];
+    this.redoHistory = [];
 
     // 表示（ズーム＆パン）
     this.scale = 1;
@@ -488,8 +489,16 @@ export class Whiteboard {
     this.onAction?.({ type: "refresh" });
   }
 
-  // ★ 追加：未保存状態を「変更あり」にする内部メソッド
-  _markDirty() {
+  _notifyHistoryChange() {
+    this.onHistoryChange?.({
+      canUndo: (this.history?.length || 0) > 0,
+      canRedo: (this.redoHistory?.length || 0) > 0
+    });
+  }
+
+  _markDirty({ preserveRedo = false } = {}) {
+    if (!preserveRedo) this.redoHistory = [];
+    this._notifyHistoryChange();
     this.changeRevision += 1;
     if (!this.isBoardDirty) {
       this.isBoardDirty = true;
@@ -686,6 +695,8 @@ export class Whiteboard {
   // ★ 外部からのアクション適用（共同編集用）
   applyAction(action) {
     if (!action) return;
+    this.redoHistory = [];
+    this._notifyHistoryChange();
 
     if (action.type === "page-add" && action.page?.id) {
       this.addPage(action.page.name, { id: action.page.id, emit: false });
@@ -1981,6 +1992,8 @@ export class Whiteboard {
     this.strokes = [];
     this.objects = [];
     this.history = [];
+    this.redoHistory = [];
+    this._notifyHistoryChange();
     this._setSelected(null);
 
     this.bgCanvas.width = 0;
@@ -1995,9 +2008,62 @@ export class Whiteboard {
     if (this.onAction) this.onAction({ type: "refresh" });
   }
 
+  // Store inverse operations, retaining media objects and references used by
+  // older history entries. Replacing the whole board would break those references.
+  _inverseHistoryEntry(entry) {
+    if (entry.kind === "stroke") {
+      const index = this.strokes.indexOf(entry.stroke);
+      return index < 0 ? null : { kind: "delete-stroke", stroke: entry.stroke, index };
+    }
+    if (entry.kind === "object") {
+      const index = this.objects.findIndex(object => object.id === entry.id);
+      return index < 0 ? null : { kind: "delete-object", object: this.objects[index], index };
+    }
+    if (entry.kind === "delete-stroke") return { kind: "stroke", stroke: entry.stroke };
+    if (entry.kind === "delete-object") return { kind: "object", id: entry.object.id };
+    if (entry.kind === "delete-multi" || entry.kind === "remove-multi") {
+      return { ...entry, kind: entry.kind === "delete-multi" ? "remove-multi" : "delete-multi" };
+    }
+    if (entry.kind === "transform") {
+      const capture = (target, before) => Object.fromEntries(Object.keys(before).map(key =>
+        [key, key === "points" ? target.points?.map(point => ({ ...point })) : target[key]]));
+      return { ...entry,
+        objects: (entry.objects || []).map(item => ({ ...item, before: capture(item.obj, item.before) })),
+        strokes: (entry.strokes || []).map(item => ({ ...item, before: capture(item.stroke, item.before) }))
+      };
+    }
+    if (entry.kind === "edit-table") return { ...entry, before: this._snapshotTable(entry.object) };
+    if (entry.kind === "edit-table-cell") {
+      return { ...entry, before: this._getTableCell(entry.object, entry.row, entry.col)?.text || "" };
+    }
+    if (entry.kind === "edit-text" || entry.kind === "text-appearance") {
+      return { ...entry, before: Object.fromEntries(Object.keys(entry.before).map(key => [key, entry.object[key]])) };
+    }
+    return null;
+  }
+
   undoLast() {
-    const last = this.history.pop();
+    this._replayHistory(this.history, this.redoHistory ||= []);
+  }
+
+  redoLast() {
+    this._replayHistory(this.redoHistory ||= [], this.history);
+  }
+
+  _replayHistory(source, destination) {
+    const last = source.pop();
     if (!last) return;
+    const inverse = this._inverseHistoryEntry(last);
+    if (!inverse) {
+      this._notifyHistoryChange();
+      return;
+    }
+    this._applyHistoryEntry(last);
+    destination.push(inverse);
+    this._notifyHistoryChange();
+  }
+
+  _applyHistoryEntry(last) {
 
     // ストロークの追加を取り消し
     if (last.kind === "stroke") {
@@ -2005,6 +2071,7 @@ export class Whiteboard {
       if (idx >= 0) {
         this.strokes.splice(idx, 1);
         this.onAction?.({ type: "delete-stroke", strokeId: last.stroke.id });
+        this._setSelected(null);
       }
     }
 
@@ -2015,9 +2082,7 @@ export class Whiteboard {
         this.objects.splice(idx, 1);
         this.onAction?.({ type: "delete", objectId: last.id });
       }
-      if (this.selectedObj && this.selectedObj.id === last.id) {
-        this._setSelected(null);
-      }
+      this._setSelected(null);
     }
 
     // 単一オブジェクト削除の UNDO（_deleteObject 用）
@@ -2032,14 +2097,15 @@ export class Whiteboard {
     // 複数オブジェクト／ストローク削除の UNDO（deleteSelection 用）
     else if (last.kind === "delete-multi") {
       if (last.objects) {
-        last.objects.forEach(entry => {
+        // Indices were captured as items were removed; reverse that removal order.
+        [...last.objects].reverse().forEach(entry => {
           const idx =
             typeof entry.index === "number" ? entry.index : this.objects.length;
           this.objects.splice(idx, 0, entry.object);
         });
       }
       if (last.strokes) {
-        last.strokes.forEach(entry => {
+        [...last.strokes].reverse().forEach(entry => {
           const idx =
             typeof entry.index === "number" ? entry.index : this.strokes.length;
           this.strokes.splice(idx, 0, entry.stroke);
@@ -2060,6 +2126,24 @@ export class Whiteboard {
       this._fireSelectionChange();
       // Restore media assets and stacking order through the existing snapshot path.
       this.onAction?.({ type: "refresh" });
+    }
+
+    else if (last.kind === "remove-multi") {
+      for (const { object } of last.objects || []) {
+        const index = this.objects.indexOf(object);
+        if (index >= 0) {
+          this.objects.splice(index, 1);
+          this.onAction?.({ type: "delete", objectId: object.id });
+        }
+      }
+      for (const { stroke } of last.strokes || []) {
+        const index = this.strokes.indexOf(stroke);
+        if (index >= 0) {
+          this.strokes.splice(index, 1);
+          this.onAction?.({ type: "delete-stroke", strokeId: stroke.id });
+        }
+      }
+      this._setSelected(null);
     }
 
     // ★ 教員モードの消しゴムによるストローク削除の UNDO
@@ -2126,8 +2210,13 @@ export class Whiteboard {
     }
 
     // ★ 追加：UNDO も状態変化なので未保存フラグを立てる
-    this._markDirty();
+    this._markDirty({ preserveRedo: true });
 
+    // Geometry/table changes need the same refresh path as restored media.
+    if (["transform", "edit-table", "edit-table-cell"].includes(last.kind)) {
+      this.onAction?.({ type: "refresh" });
+    }
+    this._fireSelectionChange();
     this.render();
   }
 
@@ -3281,6 +3370,8 @@ export class Whiteboard {
     }
 
     this.history = [];
+    this.redoHistory = [];
+    this._notifyHistoryChange();
     this._setSelected(null);
     // ★ 追加：読み込んだ直後は「保存済み」とみなす
     if (!options.preserveDirty) {

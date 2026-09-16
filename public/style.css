@@ -360,9 +360,22 @@ body.camera-capture-open {
 .camera-shutter-btn.is-recording { color: #b42318; border-color: #fda29b; background: #fff0ee; }
 .background-style-control { flex-shrink: 0; }
 
+#undoBtn:disabled,
+#redoBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
 @media (max-width: 640px) {
   .floating-bottom-right {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .background-style-control button {
+    padding-inline: 4px;
   }
 }
 
@@ -6504,7 +6517,8 @@ select:focus {
   color: #17212b;
 }
 
-.login-box label[hidden] {
+.login-box label[hidden],
+.teacher-login-card label[hidden] {
   display: none !important;
 }
 
@@ -6590,7 +6604,7 @@ select:focus {
     justify-content: center;
   }
 
-  .edit-tools .icon-btn:nth-of-type(n+3),
+  .edit-tools .icon-btn:nth-of-type(n+4),
   .edit-tools .divider-vertical:nth-of-type(n+2) {
     display: none;
   }

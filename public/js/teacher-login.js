@@ -38,6 +38,8 @@ function renderSavedClasses() {
   if (!classSelect) return;
   const classes = getTeacherClassHints();
   const selectedClass = getSelectedTeacherClass();
+  const classField = document.getElementById("teacherClassField");
+  if (classField) classField.hidden = classes.length === 0;
   classSelect.innerHTML = '<option value="">ログイン後にクラスを作成・選択</option>';
   for (const item of classes) {
     const option = document.createElement("option");
@@ -51,7 +53,7 @@ function renderSavedClasses() {
   if (classHelp) {
     classHelp.textContent = classes.length > 0
       ? `${classes.length}件のクラスをこの端末に保存しています。`
-      : "保存済みクラスはありません。ログイン後にクラスを作成できます。";
+      : "ログイン後にクラスを作成・選択できます。";
   }
 }
 

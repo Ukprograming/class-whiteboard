@@ -6,14 +6,13 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>教員ログイン | Class Whiteboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="./style.css?v=login-flow-20260824&amp;password-visibility=20260825&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915" rel="stylesheet" />
+  <link href="./style.css?v=login-flow-20260824&amp;password-visibility=20260825&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;redo-login=20260917" rel="stylesheet" />
 </head>
 
 <body class="app-root login-page">
   <main class="login-container teacher-login-card">
     <p class="login-product-name">Class Whiteboard</p>
     <h1>教員ログイン</h1>
-    <p class="login-page-description">登録済みの教員アカウントでログインします。</p>
     <form method="POST" action="./teacher-login.html" data-teacher-login-form>
       <label>
         教員メール
@@ -37,13 +36,13 @@
           </button>
         </span>
       </label>
-      <label>
+      <label id="teacherClassField" hidden>
         担当クラス
         <select id="teacherClassSelect" name="classCode">
           <option value="">ログイン後にクラスを作成・選択</option>
         </select>
       </label>
-      <p id="teacherClassHelp" class="login-field-help">この端末で作成・取得したクラスが表示されます。</p>
+      <p id="teacherClassHelp" class="login-field-help">ログイン後にクラスを作成・選択できます。</p>
       <button type="submit">ログイン</button>
       <a class="login-secondary-action login-secondary-link" href="./teacher-signup.html">初回の教員アカウント作成</a>
       <p id="teacherLoginMessage" class="login-message" aria-live="polite"></p>
@@ -52,7 +51,7 @@
   <script src="./js/app-config.js"></script>
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/password-visibility.js?v=20260825&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915"></script>
-  <script type="module" src="./js/teacher-login.js?v=login-flow-20260824&amp;realtime-duplex=20260824&amp;auth-load=20260905&amp;media-upload=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915"></script>
+  <script type="module" src="./js/teacher-login.js?v=login-flow-20260824&amp;realtime-duplex=20260824&amp;auth-load=20260905&amp;media-upload=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;redo-login=20260917"></script>
 </body>
 
 </html>

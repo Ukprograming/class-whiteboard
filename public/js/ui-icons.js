@@ -52,6 +52,7 @@ const ICON_ALIASES = {
   timer: "timer",
   title: "type",
   undo: "undo-2",
+  redo: "redo-2",
 };
 
 const LUCIDE_ICONS = {
@@ -104,6 +105,7 @@ const LUCIDE_ICONS = {
   "trash-2": `<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>`,
   type: `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
   "undo-2": `<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>`,
+  "redo-2": `<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>`,
   "users-round": `<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.4-2-6.5-4-8a5 5 0 0 0-.5-8.3"/>`,
   x: `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
 };
