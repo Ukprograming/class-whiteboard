@@ -1,4 +1,5 @@
 // public/js/student.js
+import { createThumbnailSender } from "./thumbnail-sender.mjs?v=thumbnail-idle-20260916";
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916";
 import {
   assignmentApi,
@@ -120,7 +121,6 @@ let monitorIntervalId = null;
 let monitorLoopGeneration = 0;
 let pendingAnnotationData = null;
 const runtimeConfig = window.CLASS_WHITEBOARD_CONFIG || {};
-const FREE_TIER_MODE = runtimeConfig.freeTierMode !== false;
 const REALTIME_PAYLOAD_LIMIT_BYTES = Math.max(
   64000,
   Number(runtimeConfig.maxRealtimePayloadBytes) || 180000
@@ -361,10 +361,6 @@ socket.on("teacher-history-deleted", (payload = {}) => {
   void refreshPendingStudentAssignments();
 });
 
-let captureTimerId = null;
-let initialThumbnailTimerId = null;
-let captureLoopActive = false;
-let captureLoopGeneration = 0;
 const CAPTURE_INTERVAL_MS = Math.max(
   5000,
   Number(runtimeConfig.thumbnailIntervalMs) || 5000
@@ -2097,6 +2093,7 @@ socket.on("realtime-disconnected", () => {
 socket.on("realtime-reconnected", ({ classCode }) => {
   const restoredClassCode = classCode || currentClassCode;
   if (!restoredClassCode) return;
+  sendWhiteboardThumbnail();
   if (!whiteboard?.isBoardDirty) {
     void loadActiveSharedBoard(restoredClassCode);
   }
@@ -2121,21 +2118,26 @@ chatReactionButtons.forEach(btn => {
    サムネイル送信（ホワイトボード / 画面共有）
    ======================================== */
 
+// Existing mode/camera callers request a refresh through the same rate limiter.
 function sendWhiteboardThumbnail() {
-  if (!currentClassCode || !nickname) return;
+  thumbnailSender.request();
+}
+
+function transmitWhiteboardThumbnail() {
+  if (!currentClassCode || !nickname) return false;
 
   // ノート提出モードでは、ホワイトボードではなく台形補正後の画像を送る。
   // 教師側のタイル表示はこの通常サムネイル経路を使うため、個別監視の開始を待たない。
   if (viewMode === "notebook") {
     if (!currentStream || !previewCanvas || !videoEl?.videoWidth || !videoEl?.videoHeight) {
-      return;
+      return false;
     }
     drawCorrectedFrameToPreview();
     const dataUrl = encodeCanvasForRealtime(previewCanvas, {
       maxWidth: highQualityMode ? 960 : 720,
       quality: highQualityMode ? 0.72 : 0.52,
     });
-    if (!dataUrl) return;
+    if (!dataUrl) return false;
     return socket.emit("student-thumbnail", {
       classCode: currentClassCode,
       nickname,
@@ -2147,13 +2149,13 @@ function sendWhiteboardThumbnail() {
 
   // 画面共有モード
   if (captureMode === "screen") {
-    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return;
+    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return false;
 
     const track = screenStream.getVideoTracks()[0];
     const settings = track ? track.getSettings() : {};
     const vw = screenVideo.videoWidth || settings.width || window.screen.width;
     const vh = screenVideo.videoHeight || settings.height || window.screen.height;
-    if (!vw || !vh) return;
+    if (!vw || !vh) return false;
 
     const thumbWidth = 320;
     const ratio = vh / vw;
@@ -2181,7 +2183,7 @@ function sendWhiteboardThumbnail() {
     );
 
     const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
-    if (!dataUrl) return;
+    if (!dataUrl) return false;
 
     return socket.emit("student-thumbnail", {
       classCode: currentClassCode,
@@ -2194,7 +2196,7 @@ function sendWhiteboardThumbnail() {
 
   // ホワイトボードモード
   const srcCanvasThumb = studentCanvas;
-  if (!srcCanvasThumb || !srcCanvasThumb.width || !srcCanvasThumb.height) return;
+  if (!srcCanvasThumb || !srcCanvasThumb.width || !srcCanvasThumb.height) return false;
 
   const thumbWidth = 320;
   const ratio = srcCanvasThumb.height / srcCanvasThumb.width;
@@ -2222,7 +2224,7 @@ function sendWhiteboardThumbnail() {
   );
 
   const dataUrl = encodeCanvasForRealtime(off, { maxWidth: 320, quality: 0.55 });
-  if (!dataUrl) return;
+  if (!dataUrl) return false;
 
   return socket.emit("student-thumbnail", {
     classCode: currentClassCode,
@@ -2668,7 +2670,7 @@ socket.on("setHighQualityMode", ({ enabled }) => {
   console.log("High quality mode:", highQualityMode);
   // 解像度を切り替え
   setupPreviewCanvas();
-  // 教員の操作に応じた更新なので、次の5秒周期を待たずに送る。
+  // 初回・設定変更も共通の送信間隔制限を通す。
   if (viewMode === "notebook" && currentStream) sendWhiteboardThumbnail();
 });
 
@@ -2746,7 +2748,7 @@ if (startCameraBtn) {
           });
           setupPreviewCanvas();
           updateCornerSelectionUI();
-          // カメラ起動直後は、タイル更新周期を待たずに1回送る。
+          // カメラ起動を共通の送信スケジュールへ通知する。
           sendWhiteboardThumbnail();
         };
       }
@@ -2840,7 +2842,7 @@ if (cornerSelectionCanvas) {
     updateCornerSelectionUI();
     drawCorrectedFrameToPreview();
     if (cornersLocked) {
-      // 台形補正が確定した画像を、次の5秒周期を待たずに送る。
+      // 台形補正の確定を共通の送信スケジュールへ通知する。
       sendWhiteboardThumbnail();
     }
   };
@@ -3146,87 +3148,67 @@ window.addEventListener("load", async () => {
    タイル用キャプチャループ管理（ホワイトボード / 画面共有 / ノート提出）
    ======================================== */
 
-function restartCaptureLoop() {
-  captureLoopActive = true;
-  const generation = ++captureLoopGeneration;
-  if (captureTimerId) {
-    clearTimeout(captureTimerId);
-    captureTimerId = null;
+// Sample locally without JPEG encoding or full-resolution camera rectification.
+// Board revision/viewport catch fine edits; pixels also catch video, timers and asset loads.
+const thumbnailSampleCanvas = document.createElement("canvas");
+thumbnailSampleCanvas.width = 96;
+thumbnailSampleCanvas.height = 72;
+const thumbnailSampleContext = thumbnailSampleCanvas.getContext("2d", { willReadFrequently: true });
+function sampleThumbnail() {
+  if (!currentClassCode || !nickname) return null;
+  let source;
+  let key;
+  if (viewMode === "notebook") {
+    if (!currentStream || !videoEl?.videoWidth || !videoEl?.videoHeight) return null;
+    source = videoEl;
+    key = [viewMode, currentClassCode, nickname, highQualityMode,
+      previewCanvas?.width, previewCanvas?.height, selectedCorners];
+  } else if (captureMode === "screen") {
+    if (!screenStream || !screenVideo || screenVideo.readyState < 2) return null;
+    source = screenVideo;
+    key = [viewMode, currentClassCode, nickname, source.videoWidth, source.videoHeight];
+  } else {
+    if (!studentCanvas?.width || !studentCanvas?.height) return null;
+    source = studentCanvas;
+    const rect = source.getBoundingClientRect();
+    key = [viewMode, currentClassCode, nickname, whiteboard?.getRevision?.(),
+      whiteboard?.scale, whiteboard?.offsetX, whiteboard?.offsetY,
+      source.width, source.height, rect.width, rect.height];
   }
-  const runCapture = async () => {
-    captureTimerId = null;
-    if (!captureLoopActive || generation !== captureLoopGeneration) return;
-    try {
-      await Promise.resolve(sendWhiteboardThumbnail());
-    } catch (error) {
-      console.warn("Thumbnail send failed; the next scheduled capture will retry.", error);
-    }
-    if (!captureLoopActive || generation !== captureLoopGeneration) return;
-    captureTimerId = setTimeout(
-      runCapture,
-      jitteredInterval(CAPTURE_INTERVAL_MS, 750)
-    );
+  thumbnailSampleContext.fillStyle = "#ffffff";
+  thumbnailSampleContext.fillRect(0, 0, 96, 72);
+  thumbnailSampleContext.drawImage(source, 0, 0, 96, 72);
+  return {
+    key: JSON.stringify(key),
+    pixels: thumbnailSampleContext.getImageData(0, 0, 96, 72).data,
+    noisy: viewMode === "notebook",
   };
-  captureTimerId = setTimeout(
-    runCapture,
-    jitteredInterval(CAPTURE_INTERVAL_MS, 750)
-  );
 }
-
-function scheduleInitialThumbnail() {
-  if (initialThumbnailTimerId) {
-    clearTimeout(initialThumbnailTimerId);
-  }
-  const delayMs = FREE_TIER_MODE
-    ? 1000 + Math.floor(Math.random() * 3000)
-    : 0;
-  initialThumbnailTimerId = setTimeout(() => {
-    initialThumbnailTimerId = null;
-    sendWhiteboardThumbnail();
-  }, delayMs);
-}
-
-// 教員が「生徒画面確認モード」に入った。遅れて参加した生徒には
-// private channel 経由の個別イベントが届くが、開始処理は共通にする。
-function handleStudentViewStart() {
-  if (!currentClassCode || !nickname) return;
-  restartCaptureLoop();
-  scheduleInitialThumbnail();
-}
-
-socket.on("student-view-start", handleStudentViewStart);
-socket.on("student-view-start-targeted", handleStudentViewStart);
-
-// 教員が生徒画面から離れた
-socket.on("student-view-stop", () => {
-  captureLoopActive = false;
-  captureLoopGeneration += 1;
-  if (captureTimerId) {
-    clearTimeout(captureTimerId);
-    captureTimerId = null;
-  }
-  if (initialThumbnailTimerId) {
-    clearTimeout(initialThumbnailTimerId);
-    initialThumbnailTimerId = null;
-  }
+const thumbnailSender = createThumbnailSender({
+  sample: sampleThumbnail,
+  send: transmitWhiteboardThumbnail,
+  minIntervalMs: CAPTURE_INTERVAL_MS,
+  onError: (error) => console.warn("Thumbnail update failed; a spaced retry will follow.", error),
 });
 
+// A fresh frame is required even when the board did not change while the teacher was away.
+function handleStudentViewStart() {
+  if (!currentClassCode || !nickname) return;
+  thumbnailSender.start();
+}
+socket.on("student-view-start", handleStudentViewStart);
+socket.on("student-view-start-targeted", handleStudentViewStart);
+socket.on("student-view-stop", () => thumbnailSender.stop());
 
 window.addEventListener("beforeunload", () => {
   void persistStudentDraftNow();
-  captureLoopActive = false;
-  captureLoopGeneration += 1;
-  if (captureTimerId) {
-    clearTimeout(captureTimerId);
-  }
-  if (initialThumbnailTimerId) {
-    clearTimeout(initialThumbnailTimerId);
-  }
-  stopScreenCapture();
-  stopNotebookCamera();
+  // Stop only on pagehide: cancelling the leave dialog must keep previews running.
 });
 
 window.addEventListener("pagehide", () => {
+  thumbnailSender.stop();
+  stopScreenCapture();
+  stopNotebookCamera();
   // 確認で離脱を取り消した場合には発火せず、実際に更新・閉じるときだけ
   // Presence から明示的に抜ける。通信断はこの経路に入らず再接続を待てる。
   void persistStudentDraftNow();

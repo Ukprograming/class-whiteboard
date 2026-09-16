@@ -773,9 +773,9 @@ const communicationIntervalContracts = [
   [studentSource, "Number(runtimeConfig.thumbnailIntervalMs) || 5000"],
   [studentSource, "Number(runtimeConfig.monitoringIntervalMs) || 3000"],
   [studentSource, "if (cornersLocked) {"],
-  [studentSource, "jitteredInterval(CAPTURE_INTERVAL_MS, 750)"],
+  [studentSource, "minIntervalMs: CAPTURE_INTERVAL_MS"],
   [studentSource, "jitteredInterval(MONITORING_INTERVAL_MS, 500)"],
-  [studentSource, "await Promise.resolve(sendWhiteboardThumbnail())"],
+  [studentSource, "send: transmitWhiteboardThumbnail"],
   [teacherSource, 'modalShareToStudentBtn.addEventListener("click"'],
   [teacherSource, 'shareToggleBtn.addEventListener("click", sendFeedbackImageOnce)'],
 ];
@@ -883,7 +883,7 @@ for (const [filePath, htmlSource] of [
   }
 }
 if (!/videoEl\.onloadedmetadata\s*=\s*\(\)\s*=>\s*\{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\};/.test(notebookCaptureSource)) {
-  console.error("Notebook camera start must send an immediate thumbnail.");
+  console.error("Notebook camera start must request a rate-limited thumbnail.");
   ok = false;
 }
 if (!/if \(cornersLocked\) \{[\s\S]*?sendWhiteboardThumbnail\(\);[\s\S]*?\}/.test(notebookCaptureSource)) {
