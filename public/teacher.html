@@ -14,27 +14,16 @@
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <link href="./clear-blue.css?v=20260917" rel="stylesheet" />
+  <script type="module" src="./js/clear-blue-ui.js?v=20260917"></script>
 </head>
 
-<body class="app-root">
+<body class="app-root teacher-app">
 
   <!-- ホワイトボード (全画面) -->
   <div id="boardContainer" class="board-container full-screen">
     <canvas id="whiteboard"></canvas>
   </div>
-
-  <nav class="page-toolbar" aria-label="ホワイトボードのページ">
-    <div id="pageTabs" class="page-tabs" role="tablist"></div>
-    <button id="pageAddBtn" class="page-tool-btn" type="button" title="ページを追加" aria-label="ページを追加">
-      <span class="material-symbols-rounded">add</span>
-    </button>
-    <button id="pageRenameBtn" class="page-tool-btn" type="button" title="ページ名を変更" aria-label="ページ名を変更">
-      <span class="material-symbols-rounded">edit</span>
-    </button>
-    <button id="pageDeleteBtn" class="page-tool-btn" type="button" title="現在のページを削除" aria-label="現在のページを削除">
-      <span class="material-symbols-rounded">delete</span>
-    </button>
-  </nav>
 
   <!-- 生徒画面確認ビュー (全画面オーバーレイ) -->
   <div id="studentViewContainer" class="student-view full-screen hidden">
@@ -64,11 +53,11 @@
     <!-- 左側：ファイルメニュー -->
     <div class="topbar-left">
       <div class="dropdown">
-        <button id="fileMenuBtn" class="icon-btn-text">
+        <button id="fileMenuBtn" class="icon-btn-text" aria-label="ファイルメニュー" aria-expanded="false">
           <span class="material-symbols-rounded">menu</span>
-          ファイル
+          <span class="control-label">ファイル</span>
         </button>
-        <div id="fileMenuDropdown" class="dropdown-content">
+        <div id="fileMenuDropdown" class="dropdown-content hidden">
           <button id="teacherNewBoardBtn"><span class="material-symbols-rounded">note_add</span> 新規作成</button>
           <hr>
           <button id="teacherOpenSaveDialogBtn"><span class="material-symbols-rounded">save</span> 保存...</button>
@@ -90,15 +79,28 @@
       </div>
     </div>
 
+  <nav class="page-toolbar" aria-label="ホワイトボードのページ">
+    <div id="pageTabs" class="page-tabs" role="tablist"></div>
+    <button id="pageAddBtn" class="page-tool-btn" type="button" title="ページを追加" aria-label="ページを追加">
+      <span class="material-symbols-rounded">add</span>
+    </button>
+    <button id="pageRenameBtn" class="page-tool-btn" type="button" title="ページ名を変更" aria-label="ページ名を変更">
+      <span class="material-symbols-rounded">edit</span>
+    </button>
+    <button id="pageDeleteBtn" class="page-tool-btn" type="button" title="現在のページを削除" aria-label="現在のページを削除">
+      <span class="material-symbols-rounded">delete</span>
+    </button>
+  </nav>
+
     <!-- 中央：モード切り替え -->
     <div class="topbar-center">
       <div id="teacherDefaultModeSwitcher" class="mode-switcher">
         <button id="teacherModeWhiteboard" class="mode-btn active" title="ホワイトボード">
           <span class="material-symbols-rounded">edit_note</span>
-        </button>
+        <span class="control-label">ホワイトボード</span></button>
         <button id="teacherModeStudentView" class="mode-btn" title="生徒画面確認">
           <span class="material-symbols-rounded">grid_view</span>
-        </button>
+        <span class="control-label">生徒画面</span></button>
         <!-- ノート確認は一旦非表示または必要なら追加 -->
         <!-- <button id="teacherModeNotebook" class="mode-btn" title="ノート確認"><span class="material-symbols-rounded">assignment</span></button> -->
       </div>
@@ -128,11 +130,11 @@
       <button id="formToggleBtn" class="icon-btn" title="フォーム" aria-label="フォーム" aria-expanded="false">
         <span class="material-symbols-rounded">fact_check</span>
         <span id="formLiveDot" class="form-live-dot hidden"></span>
-      </button>
+      <span class="control-label">フォーム</span></button>
       <button id="chatToggleBtn" class="icon-btn" title="チャット">
         <span class="material-symbols-rounded">chat</span>
         <span id="chatNotifyDot" class="chat-notify-dot"></span>
-      </button>
+      <span class="control-label">チャット</span></button>
     </div>
   </header>
 
@@ -196,7 +198,7 @@
     </div>
 
     <!-- 折りたたみボタン -->
-    <button id="sidebarToggle" class="sidebar-toggle-btn">
+    <button id="sidebarToggle" class="sidebar-toggle-btn" aria-label="ツールバーを折りたたむ" aria-expanded="true">
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
 
@@ -577,18 +579,18 @@
         <button type="button" data-background-style="blank" aria-pressed="false" title="白紙">白紙</button>
       </div>
       <div class="divider-vertical"></div>
-      <button id="undoBtn" class="icon-btn" type="button" title="元に戻す" aria-label="元に戻す" disabled><span class="material-symbols-rounded" aria-hidden="true">undo</span></button>
-      <button id="redoBtn" class="icon-btn" type="button" title="やり直す" aria-label="やり直す" disabled><span class="material-symbols-rounded" aria-hidden="true">redo</span></button>
-      <button id="clearBtn" class="icon-btn" title="全消去"><span class="material-symbols-rounded">delete</span></button>
+      <button id="undoBtn" class="icon-btn" type="button" title="元に戻す" aria-label="元に戻す" disabled><span class="material-symbols-rounded" aria-hidden="true">undo</span><span class="edit-label" aria-hidden="true">戻る</span></button>
+      <button id="redoBtn" class="icon-btn" type="button" title="やり直す" aria-label="やり直す" disabled><span class="material-symbols-rounded" aria-hidden="true">redo</span><span class="edit-label" aria-hidden="true">やり直す</span></button>
+      <button id="clearBtn" class="icon-btn" title="全消去"><span class="material-symbols-rounded">delete</span><span class="edit-label" aria-hidden="true">全消去</span></button>
       <div class="divider-vertical"></div>
       <button id="groupBtn" class="icon-btn" title="グループ化"><span
-          class="material-symbols-rounded">group_work</span></button>
-      <button id="lockBtn" class="icon-btn" title="ロック"><span class="material-symbols-rounded">lock</span></button>
+          class="material-symbols-rounded">group_work</span><span class="edit-label" aria-hidden="true">グループ</span></button>
+      <button id="lockBtn" class="icon-btn" title="ロック"><span class="material-symbols-rounded">lock</span><span class="edit-label" aria-hidden="true">ロック</span></button>
       <div class="divider-vertical"></div>
       <button id="bringToFrontBtn" class="icon-btn" title="前面へ"><span
-          class="material-symbols-rounded">flip_to_front</span></button>
+          class="material-symbols-rounded">flip_to_front</span><span class="edit-label" aria-hidden="true">最前面へ</span></button>
       <button id="sendToBackBtn" class="icon-btn" title="背面へ"><span
-          class="material-symbols-rounded">flip_to_back</span></button>
+          class="material-symbols-rounded">flip_to_back</span><span class="edit-label" aria-hidden="true">最背面へ</span></button>
     </div>
 
     <div class="zoom-controls">
@@ -900,7 +902,7 @@
   <script src="./js/local-config-loader.js"></script>
   <script src="./js/legacy-socket-loader.js"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260902&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260901b&amp;forms=20260830b&amp;student-bulk-import=20260831b&amp;form-privacy=20260831&amp;form-excel-history=20260831&amp;form-images=20260901&amp;youtube=20260831b&amp;assignments=20260901b&amp;camera-tool=20260902b&amp;edit-selection=20260902&amp;history-delete=20260904&amp;new-board=20260904b&amp;auth-singleton=20260904&amp;media-file=20260904&amp;mode-presence=20260905&amp;auth-load=20260905&amp;pdf-render=20260905&amp;insert-auto-select=20260905&amp;zoom-step=20260909&amp;media-background=20260910&amp;media-upload=20260911&amp;ruled-spacing=20260911&amp;word-count=20260911b&amp;text-live=20260911&delete-sync=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;text-layout=20260916&amp;redo-login=20260917"></script>
+  <script type="module" src="./js/teacher.js?v=monitor-sync-20260819-modal-image-viewport-20260822-draw-style-20260824-modal-tools-20260824&amp;highlighter-settings=20260824&amp;png-stamps=20260824&amp;realtime-scale=20260902&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;student-delete=20260826&amp;timer-tool=20260826&amp;table-tool=20260901b&amp;forms=20260830b&amp;student-bulk-import=20260831b&amp;form-privacy=20260831&amp;form-excel-history=20260831&amp;form-images=20260901&amp;youtube=20260831b&amp;assignments=20260901b&amp;camera-tool=20260902b&amp;edit-selection=20260902&amp;history-delete=20260904&amp;new-board=20260904b&amp;auth-singleton=20260904&amp;media-file=20260904&amp;mode-presence=20260905&amp;auth-load=20260905&amp;pdf-render=20260905&amp;insert-auto-select=20260905&amp;zoom-step=20260909&amp;media-background=20260910&amp;media-upload=20260911&amp;ruled-spacing=20260911&amp;word-count=20260911b&amp;text-live=20260911&delete-sync=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;text-layout=20260916&amp;redo-login=20260917&amp;clear-blue=20260917"></script>
 </body>
 
 </html>

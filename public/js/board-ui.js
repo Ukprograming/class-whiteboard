@@ -1,11 +1,11 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -1125,10 +1125,13 @@ export function initBoardUI() {
       }
 
       const textMenu = activeTool === "text" || activeTool === "sticky";
-      const topMargin = textMenu ? 80 : margin;
+      const topMargin = Math.max(margin,
+        (document.querySelector('.floating-topbar')?.getBoundingClientRect().bottom || 0) + 12);
       const maxTop = Math.max(topMargin, window.innerHeight - menuRect.height - (textMenu ? 80 : margin));
+      const preferredTop = activeTool === 'pen' || activeTool === 'highlighter'
+        ? triggerRect.bottom + 8 : triggerCenterY - menuRect.height / 2;
       const top = Math.min(
-        Math.max(topMargin, triggerCenterY - menuRect.height / 2),
+        Math.max(topMargin, preferredTop),
         maxTop
       );
       const arrowTop = Math.min(

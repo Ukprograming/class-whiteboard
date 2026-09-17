@@ -1,0 +1,355 @@
+/* Clear Blue — shared visual layer. Loaded after the legacy layout stylesheet.
+   Control IDs, application state, canvas coordinates and hidden states stay owned
+   by the existing teacher/student controllers. */
+:root {
+  color-scheme: light;
+  --cw-bg: #f4f8ff;
+  --cw-bg-soft: #f7faff;
+  --cw-surface: rgba(255, 255, 255, .97);
+  --cw-surface-solid: #fff;
+  --cw-line: #dbe5f3;
+  --cw-line-strong: #b9cce6;
+  --cw-text: #192e52;
+  --cw-muted: #62748e;
+  --cw-accent: #246bf2;
+  --cw-accent-strong: #1858cf;
+  --cw-accent-soft: #e8f1ff;
+  --cw-success: #24ae72;
+  --cw-danger: #c73649;
+  --cw-shadow-soft: 0 3px 6px #18365e06, 0 8px 20px #18365e0b;
+  --cw-shadow: 0 18px 55px #18365e24;
+  --cw-radius: 14px;
+  --cw-radius-lg: 20px;
+  --ui-header-bottom: 78px;
+}
+
+html, body { color: var(--cw-text); background: var(--cw-bg); }
+body.app-root { background: var(--cw-bg); font-size: 14px; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #246bf285; outline-offset: 3px;
+}
+.app-root .board-container { background: #fff; }
+
+/* One header row on desktop. Page navigation belongs to the header, never
+   reserves a second strip of the drawing surface at desktop/tablet widths. */
+.app-root .floating-topbar {
+  top: max(12px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left));
+  right: max(16px, env(safe-area-inset-right)); height: 54px; gap: 14px;
+  padding: 0; border: 0; border-radius: 0; background: transparent;
+  box-shadow: none; backdrop-filter: none; justify-content: flex-start;
+  pointer-events: none;
+}
+.floating-topbar > * { pointer-events: auto; }
+.app-root :is(.topbar-left, .topbar-center, .topbar-right) {
+  position: static; transform: none; min-width: 0; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px;
+}
+.app-root .topbar-right { margin-left: auto; }
+.app-root :is(.icon-btn-text, .class-status-pill, .mode-switcher, .topbar-right > .icon-btn,
+  .page-toolbar, .floating-sidebar, .floating-bottom-right, .context-menu, .floating-palette) {
+  background: var(--cw-surface); color: var(--cw-text);
+  border: 1px solid var(--cw-line); border-radius: var(--cw-radius);
+  box-shadow: var(--cw-shadow-soft); backdrop-filter: none;
+}
+.app-root .icon-btn-text {
+  width: auto; height: 54px; padding: 0 16px; gap: 10px;
+  font-size: 15px; font-weight: 700; white-space: nowrap;
+}
+.app-root .class-status-pill {
+  display: inline-flex; width: auto; min-width: 46px; max-width: 180px;
+  height: 54px; min-height: 54px; padding: 0 12px; gap: 8px;
+  overflow: visible; position: relative; font-size: 12px; cursor: help;
+}
+.app-root .class-status-pill > span:last-child {
+  width: auto; max-width: 140px; opacity: 1; transform: none;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.app-root .class-status-pill:is(:hover, :focus, :focus-within) > span:last-child {
+  position: absolute; top: calc(100% + 8px); left: 0; width: max-content;
+  max-width: min(380px, calc(100vw - 40px)); padding: 12px 16px;
+  border: 1px solid var(--cw-line); border-radius: 12px;
+  box-shadow: var(--cw-shadow); background: #fff; white-space: normal;
+}
+.status-dot { width: 11px; height: 11px; box-shadow: none; }
+.app-root .page-toolbar {
+  position: static; left: auto; bottom: auto; flex: 1 1 380px;
+  min-width: 176px; max-width: 540px; height: 54px;
+  display: flex; align-items: center; gap: 3px; padding: 4px;
+}
+.app-root .page-tabs { flex: 1 1 auto; min-width: 44px; gap: 3px; scrollbar-width: thin; }
+.app-root .page-tab {
+  flex: 0 0 auto; min-width: 60px; max-width: 150px; height: 44px;
+  border: 1px solid transparent; background: transparent; color: var(--cw-muted);
+  border-radius: 10px; padding: 0 12px; font-weight: 600;
+}
+.app-root .page-tab.active {
+  background: var(--cw-accent-soft); color: var(--cw-accent-strong);
+  border-color: #d0e1ff; box-shadow: inset 0 -2px var(--cw-accent);
+}
+.app-root .page-tool-btn { flex: 0 0 40px; width: 40px; min-height: 44px; border: 0; color: var(--cw-text); }
+.app-root .mode-switcher { min-height: 54px; padding: 4px; gap: 3px; }
+.app-root .mode-btn { width: auto; min-width: 44px; height: 44px; padding: 0 12px; gap: 8px; color: var(--cw-text); }
+.app-root .mode-btn.active { background: var(--cw-accent-soft); color: var(--cw-accent-strong); border-color: transparent; box-shadow: none; }
+.control-label { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.app-root .topbar-right > .icon-btn { width: auto; min-width: 54px; height: 54px; padding: 0 14px; gap: 8px; }
+.app-root .topbar-right .app-icon, .mode-btn .app-icon { width: 24px; height: 24px; flex-shrink: 0; }
+
+/* Every original drawing tool stays in the rail. Scrolling only applies when
+   the viewport is too short; collapse always leaves its reopening handle. */
+.app-root .floating-sidebar {
+  top: calc(var(--ui-header-bottom) + 12px); left: max(16px, env(safe-area-inset-left));
+  bottom: auto; width: 64px; height: auto;
+  max-height: calc(100dvh - var(--ui-header-bottom) - 114px);
+}
+.app-root .sidebar-content { flex: 0 1 auto; padding: 8px; gap: 6px; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.app-root .tool-group { gap: 4px; }
+.app-root .tool-btn { flex-shrink: 0; width: 46px; height: 46px; border: 0; color: #263d62; border-radius: 10px; }
+.app-root .tool-btn.active { background: var(--cw-accent); color: white; box-shadow: 0 3px 8px #246bf226; }
+.tool-btn[data-tool="highlighter"]:not(.active) { color: #a8770a; }
+.tool-btn[data-tool="sticky"]:not(.active) { color: #ad821a; }
+.app-root .sidebar-toggle-btn {
+  position: static; flex: 0 0 42px; width: 100%; height: 42px; min-height: 42px;
+  border: 0; border-top: 1px solid var(--cw-line); border-radius: 0 0 14px 14px;
+  box-shadow: none; background: transparent; color: var(--cw-text);
+}
+.app-root .floating-sidebar.collapsed { transform: translateX(calc(-100% - 16px)); }
+.app-root .floating-sidebar.collapsed .sidebar-toggle-btn {
+  position: absolute; left: 100%; top: 0; width: 44px; height: 48px;
+  border: 1px solid var(--cw-line); border-radius: 0 12px 12px 0;
+  background: white; box-shadow: var(--cw-shadow-soft);
+}
+.app-root .context-menu { padding: 14px; background: #fff; max-height: calc(100dvh - var(--ui-header-bottom) - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.app-root #contextMenu:has(#penSettings:not(.hidden)),
+.app-root #modalToolMenu:has(#modalDrawSettings:not(.hidden)) { width: 196px; min-width: 196px; }
+.app-root :is(#penSettings, #modalDrawSettings) .width-slider { display: block; width: 100%; margin-top: 12px; }
+.app-root :is(#penSettings, #modalDrawSettings) .choice-buttons { width: 100%; }
+.app-root .context-menu::before { display: none; }
+.app-root .color-palette { gap: 10px; }
+.app-root .color-dot { width: 32px; height: 32px; border: 3px solid white; box-shadow: 0 0 0 1px var(--cw-line); }
+.app-root .color-dot.active { box-shadow: 0 0 0 2px var(--cw-accent); }
+.app-root :is(#penSettings .color-palette, #modalDrawSettings .color-palette) { display: grid; grid-template-columns: repeat(4, 32px); }
+.app-root .color-palette.mini .color-dot { width: 28px; height: 28px; }
+.choice-buttons { display: flex; gap: 3px; padding: 3px; background: var(--cw-bg-soft); border-radius: 10px; }
+.choice-buttons button { flex: 1; min-width: 0; min-height: 40px; border: 0; border-radius: 8px; padding: 4px; background: transparent; color: var(--cw-muted); font-size: 12px; white-space: nowrap; }
+.choice-buttons button[aria-pressed="true"] { background: var(--cw-accent-soft); color: var(--cw-accent-strong); font-weight: 700; }
+.choice-buttons button::before { content: ''; display: block; width: 20px; height: 3px; margin: 4px auto 8px; border-radius: 10px; background: currentColor; }
+.choice-buttons button:nth-child(1)::before { width: 4px; height: 4px; }
+.choice-buttons button:nth-child(3)::before { height: 5px; }
+.choice-buttons button:nth-child(4)::before { height: 9px; }
+.choice-source { display: none !important; }
+.input-color-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; width: 100%; }
+.input-color-palette .color-dot { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; }
+.app-root .input-color-palette input[type="color"] { width: 32px; height: 30px; min-height: 30px; padding: 2px; border: 1px solid var(--cw-line); border-radius: 7px; }
+.text-border-control:has(.input-color-palette) { grid-template-columns: 1fr; }
+#contextMenu #textStylePanel .text-style-panel-inner > .input-color-palette {
+  grid-column: 1 / -1; grid-row: 3;
+}
+#contextMenu #textStylePanel .input-color-palette input { grid-column: auto; grid-row: auto; width: 32px !important; }
+#contextMenu #textStylePanel [data-text-align-group] { grid-row: 4; }
+#contextMenu #textStylePanel [data-text-sticky-colors] { grid-row: 5; }
+
+/* Edit tools remain separate from the page controls. */
+.app-root .floating-bottom-right {
+  left: auto; right: max(16px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+  max-width: calc(100vw - 32px); gap: 8px; padding: 7px;
+  display: flex; flex-wrap: nowrap; align-items: center;
+}
+.app-root .floating-bottom-right .edit-tools { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.app-root .floating-bottom-right .icon-btn { flex: 0 0 50px; width: 50px; height: 52px; padding: 4px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.edit-label { font-size: 10px; line-height: 1.3; white-space: nowrap; font-weight: 600; }
+.floating-bottom-right .app-icon { width: 24px; height: 24px; }
+.app-root .floating-bottom-right .zoom-controls { display: flex; flex: 0 0 auto; gap: 2px; }
+.app-root .zoom-controls .icon-btn { border: 1px solid var(--cw-line); border-radius: 50%; width: 40px; height: 40px; flex-basis: 40px; }
+.app-root #zoomLevel { min-width: 52px; font-size: 13px; font-weight: 700; }
+.app-root .background-style-control { flex: 0 0 auto; padding: 3px; border-radius: 10px; background: var(--cw-bg-soft); }
+.app-root .background-style-control button { min-height: 42px; padding: 0 9px; font-size: 12px; border-radius: 8px; }
+.app-root .background-style-control button[aria-pressed="true"] { background: var(--cw-accent-soft); color: var(--cw-accent-strong); box-shadow: none; }
+.app-root .divider-vertical { flex: 0 0 1px; height: 30px; background: var(--cw-line); }
+.app-root :is(.icon-btn, .icon-btn-text, .mode-btn, .tool-btn, .page-tool-btn, .icon-btn-sm, .wb-btn):hover:not(:disabled) { background: #edf4ff; color: var(--cw-accent-strong); transform: none; }
+.app-root .tool-btn.active:hover { background: var(--cw-accent-strong); color: white; }
+.app-root button:disabled { opacity: .42; }
+
+/* Shared surfaces: menus, file browser, dialogs, forms, chat and monitoring. */
+.app-root :is(.dropdown-content, .board-dialog, .modal, .workflow-dialog, .camera-capture-dialog,
+  .student-form-dialog, .form-editor-dialog, .form-present-dialog, .student-form-image-dialog,
+  .chat-panel, .form-panel, .student-assignment-panel, .student-modal-frame, .login-box, .teacher-login-card) {
+  color: var(--cw-text); background: #fff; border: 1px solid var(--cw-line);
+  border-radius: var(--cw-radius-lg); box-shadow: var(--cw-shadow);
+}
+.app-root :is(.modal-backdrop, .student-modal-backdrop, .workflow-dialog-backdrop,
+  .camera-capture-backdrop, .board-dialog-overlay, .form-editor-backdrop, .form-present-backdrop,
+  .student-form-backdrop, .student-form-image-backdrop) { background: #152b4b66; backdrop-filter: blur(5px); }
+.app-root .dropdown-content { width: 280px; max-width: calc(100vw - 32px); padding: 8px; margin-top: 10px; max-height: calc(100dvh - var(--ui-header-bottom) - 20px); overflow-y: auto; }
+.app-root .dropdown-content button { display: flex; align-items: center; gap: 12px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--cw-text); font-size: 14px; text-align: left; box-shadow: none; }
+.app-root .dropdown-content button:hover { background: var(--cw-accent-soft); color: var(--cw-accent-strong); }
+.app-root .dropdown-content hr { border: 0; border-top: 1px solid var(--cw-line); margin: 6px; }
+.app-root :is(.modal-header, .board-dialog-header, .workflow-dialog-header, .camera-capture-header,
+  .form-panel-header, .form-editor-header, .student-form-header, .chat-panel-header,
+  .student-assignment-panel-header, .modal-header-overlay) {
+  background: var(--cw-bg-soft); color: var(--cw-text); border-bottom: 1px solid var(--cw-line);
+}
+.app-root :is(.modal h2, .workflow-dialog h2, .camera-capture-header h2, .chat-title, .form-panel-header h3) { color: var(--cw-text); letter-spacing: -.025em; }
+.app-root :is(.board-dialog, .workflow-dialog) { padding: 22px; gap: 18px; }
+.app-root .board-dialog-header { padding-bottom: 14px; background: #fff; font-size: 19px; }
+.app-root .board-dialog-list { padding: 6px; border: 1px solid var(--cw-line); border-radius: 12px; background: var(--cw-bg-soft); }
+.app-root .board-dialog-list li { padding: 12px; min-height: 44px; border-radius: 8px; }
+.app-root .board-dialog-list li.selected { color: var(--cw-accent-strong); background: var(--cw-accent-soft); }
+.app-root :is(.modal, .board-dialog, .workflow-dialog, .form-panel, .student-form-dialog, .form-editor-dialog,
+  .student-assignment-panel, .login-box, .teacher-login-card) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea) {
+  min-height: 44px; max-width: 100%; padding: 10px 12px; color: var(--cw-text);
+  background: #fff; border: 1px solid var(--cw-line-strong); border-radius: 10px; box-shadow: none;
+}
+.app-root :is(.wb-btn, .close-btn, .share-btn, .topbar-btn, .form-secondary-btn,
+  .form-compact-action, .notebook-action-btn, .camera-capture-btn, .workflow-dialog-button,
+  .board-dialog button:not(.board-dialog-close)) {
+  min-height: 40px; border: 1px solid var(--cw-line); border-radius: 10px;
+  padding: 8px 14px; background: #fff; color: var(--cw-text); font-weight: 600; box-shadow: none;
+}
+.app-root :is(.form-primary-btn, .wb-btn.primary, .share-btn.share-on, .notebook-action-primary,
+  .camera-capture-btn.primary, .workflow-dialog-button.primary, .icon-btn-primary,
+  .login-box button[type="submit"], .teacher-login-card button[type="submit"], .entry-page nav a:first-child) {
+  background: var(--cw-accent); color: #fff; border: 1px solid var(--cw-accent);
+  border-radius: 10px; box-shadow: 0 4px 10px #246bf21c; font-weight: 700;
+}
+.app-root :is(.form-primary-btn, .notebook-action-primary, .login-box button[type="submit"], .teacher-login-card button[type="submit"]):hover:not(:disabled) { background: var(--cw-accent-strong); }
+.app-root :is(#boardDialogSaveBtn, #boardDialogLoadBtn, #classManagementCreateClassForm button[type="submit"], #classManagementCreateStudentForm button[type="submit"]) { background: var(--cw-accent); color: white; border-color: var(--cw-accent); }
+.app-root .dropdown-content .topbar-btn { border: 0; box-shadow: none; min-height: 44px; }
+.app-root .modal-header-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.app-root .modal-header-controls .input-color-palette { width: auto; max-width: 100%; }
+.app-root .modal-header-controls button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--cw-line); border-radius: 10px; background: #fff; color: var(--cw-text); }
+.app-root .modal-header-controls .share-on { background: var(--cw-accent); color: #fff; }
+.app-root :is(.form-danger-btn, .wb-btn.danger, .workflow-dialog-button.danger) { background: #fff1f3; color: var(--cw-danger); border: 1px solid #f0c3cb; }
+.app-root :is(.form-tabs, .student-form-tabs, .camera-capture-modes) { border-color: var(--cw-line); background: var(--cw-bg-soft); }
+.app-root :is(.form-tabs, .student-form-tabs, .camera-capture-modes) button { border-radius: 8px; color: var(--cw-muted); min-height: 40px; }
+.app-root :is(.form-tabs, .student-form-tabs) button.active,
+.app-root .camera-capture-modes button[aria-pressed="true"] { background: var(--cw-accent-soft); color: var(--cw-accent-strong); border-color: transparent; box-shadow: none; }
+.app-root :is(.form-question-card, .form-template-card, .form-history-card, .student-assignment-card) { border-color: var(--cw-line); border-radius: 14px; box-shadow: none; }
+.app-root :is(.chat-messages, .student-modal-chat-messages) { background: var(--cw-bg-soft); }
+.app-root :is(.chat-input-area, .chat-target-area, .chat-template-area, .student-modal-chat-input) { background: #fff; border-color: var(--cw-line); }
+.app-root :is(.chat-template-btn, .chat-reaction-bar button) { border: 1px solid var(--cw-line); border-radius: 10px; background: white; color: var(--cw-text); }
+.app-root .chat-msg.mine { background: var(--cw-accent-soft); color: var(--cw-text); }
+.app-root :is(.student-view, .notebook-view) { background: var(--cw-bg); padding-top: calc(var(--ui-header-bottom) + 20px); }
+.app-root .view-header { max-width: 1600px; margin: 0 auto 24px; }
+.app-root .view-header h2 { color: var(--cw-text); font-size: 26px; letter-spacing: -.035em; }
+.app-root :is(.tile, .student-card) { background: #fff; border: 1px solid var(--cw-line); border-radius: 16px; box-shadow: var(--cw-shadow-soft); }
+.app-root :is(.tile-header, .student-card-header) { color: var(--cw-text); background: #fff; border-color: var(--cw-line); }
+.app-root :is(.modal-sidebar, .student-modal-chat) { background: var(--cw-bg-soft); border-color: var(--cw-line); }
+.app-root .assignment-review-switcher { background: #fff; border-color: var(--cw-line); box-shadow: var(--cw-shadow-soft); }
+.app-root .assignment-review-student-btn { background: var(--cw-accent); }
+
+/* Notebook, screen sharing and camera retain their existing layout/behavior. */
+.app-root .student-notebook-layout { padding-top: calc(var(--ui-header-bottom) + 8px); background: var(--cw-bg); }
+.app-root :is(.student-notebook-toolbar, .video-section, .preview-section, .feedback-section) {
+  background: #fff; border: 1px solid var(--cw-line); border-radius: 16px; box-shadow: var(--cw-shadow-soft);
+}
+.app-root :is(.notebook-title-icon, .notebook-toolbar-field, .feedback-toolbar) { color: var(--cw-text); background: var(--cw-bg-soft); border-color: var(--cw-line); }
+.app-root :is(.notebook-select, .notebook-action-btn, .notebook-expand-btn) { border-color: var(--cw-line-strong); border-radius: 10px; }
+.app-root :is(.notebook-select, .notebook-action-btn) { min-height: 40px; }
+.app-root .section-title { color: var(--cw-text); }
+body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
+
+/* Teacher/student authentication and entry share the same product identity. */
+.app-root.login-page, .app-root .login-overlay { background: var(--cw-bg); }
+.app-root :is(.login-box, .teacher-login-card) { width: min(440px, 100%); padding: 36px; text-align: left; }
+.app-root :is(.login-product-name, .login-brand) { color: var(--cw-accent-strong); font-size: 13px; font-weight: 700; letter-spacing: .035em; margin: 0 0 14px; }
+.app-root :is(.login-box, .teacher-login-card) :is(h1, h2) { color: var(--cw-text); font-size: 27px; font-weight: 800; letter-spacing: -.035em; margin: 0 0 12px; }
+.app-root :is(.login-page-description, .login-box > p:not(.login-product-name), .login-field-help) { color: var(--cw-muted); line-height: 1.75; }
+.app-root :is(.login-box, .teacher-login-card) form { display: flex; flex-direction: column; gap: 18px; margin-top: 24px; }
+.app-root :is(.login-box, .teacher-login-card) label { color: var(--cw-text); font-size: 13px; font-weight: 600; display: flex; flex-direction: column; gap: 8px; }
+.app-root :is(.login-box, .teacher-login-card) button[type="submit"] { min-height: 48px; font-size: 15px; }
+.app-root .login-secondary-action { border: 1px solid var(--cw-line); border-radius: 10px; background: white; color: var(--cw-accent-strong); }
+.app-root .password-visibility-btn { color: var(--cw-muted); }
+.app-root .password-input-wrap input { padding-right: 50px !important; }
+.app-root.entry-page .teacher-login-card { width: min(540px, 100%); }
+.entry-page nav { display: grid; gap: 12px; margin-top: 26px; }
+.entry-page nav a { display: grid; place-items: center; min-height: 50px; text-decoration: none; font-weight: 700; border: 1px solid var(--cw-line); border-radius: 10px; color: var(--cw-text); }
+
+/* Preserve state visibility: no theme rule may resurrect a hidden control. */
+.app-root [hidden], .app-root .hidden { display: none !important; }
+
+@media (max-width: 1439px) {
+  .app-root .floating-topbar { gap: 8px; }
+  .app-root :is(.topbar-left, .topbar-right) { gap: 6px; }
+  .app-root :is(.mode-btn, .topbar-right > .icon-btn) .control-label { display: none; }
+  .app-root .mode-btn { padding: 0; width: 44px; }
+  .app-root .class-status-pill { max-width: 145px; }
+  .app-root .class-status-pill > span:last-child { max-width: 100px; }
+  .app-root .page-toolbar { max-width: none; }
+}
+@media (max-width: 1000px) {
+  .app-root .class-status-pill { width: 44px; max-width: 44px; padding: 0; justify-content: center; }
+  .app-root .class-status-pill > span:last-child { width: 0; max-width: 0; opacity: 0; }
+  .app-root .class-status-pill:is(:hover, :focus, :focus-within) > span:last-child { width: max-content; max-width: min(320px, 70vw); opacity: 1; }
+  .app-root .topbar-right > .icon-btn { min-width: 46px; padding: 0; }
+  .app-root .icon-btn-text { padding: 0 12px; }
+  .app-root .floating-bottom-right .edit-tools { gap: 2px; }
+  .app-root .floating-bottom-right .icon-btn { flex-basis: 44px; width: 44px; }
+  .app-root .floating-bottom-right .edit-label { display: none; }
+}
+@media (max-width: 760px) {
+  :root { --ui-header-bottom: 70px; }
+  .app-root .floating-topbar { left: 8px; right: 8px; top: 8px; height: 52px; gap: 4px; }
+  .app-root .icon-btn-text { width: 44px; height: 52px; padding: 0; }
+  .app-root .icon-btn-text .control-label { display: none; }
+  .app-root .class-status-pill { height: 52px; min-height: 52px; }
+  .app-root :is(.topbar-left, .topbar-right) { gap: 3px; }
+  .app-root .page-toolbar { min-width: 148px; gap: 0; padding: 3px; height: 52px; }
+  .app-root .page-tool-btn { width: 32px; flex-basis: 32px; }
+  .app-root .page-tab { min-width: 44px; padding: 0 7px; font-size: 12px; }
+  .app-root .mode-switcher { min-height: 52px; padding: 3px; gap: 0; }
+  .app-root .mode-btn { width: 40px; min-width: 40px; }
+  .app-root .topbar-right > .icon-btn { height: 52px; min-width: 40px; }
+  .app-root .floating-sidebar { left: 8px; width: 58px; max-height: calc(100dvh - var(--ui-header-bottom) - 98px); }
+  .app-root .sidebar-content { padding: 6px; }
+  .app-root .tool-btn { width: 44px; height: 44px; }
+  .app-root .floating-sidebar.collapsed { transform: translateX(calc(-100% - 8px)); }
+  .app-root .floating-bottom-right { left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); max-width: none; padding: 4px; gap: 4px; }
+  .app-root .floating-bottom-right .edit-tools { flex: 1; }
+  .app-root .floating-bottom-right .icon-btn { height: 44px; }
+  .app-root .zoom-controls .icon-btn { flex-basis: 36px; width: 36px; height: 36px; }
+  .app-root #zoomLevel { min-width: 44px; font-size: 12px; }
+  .app-root .board-dialog { padding: 16px; max-height: calc(100dvh - 24px); overflow-y: auto; }
+  .app-root .board-dialog-body { flex-direction: column; min-height: 0; overflow: auto; }
+  .app-root .board-dialog-list { min-height: 100px; max-height: 24dvh; flex-shrink: 0; }
+  .app-root .board-dialog-footer { flex-wrap: wrap; }
+  .app-root .board-dialog-field { flex-wrap: wrap; white-space: normal; }
+  .app-root .board-dialog-field input { min-width: 0; width: 100%; }
+  .app-root .student-notebook-toolbar { padding: 12px; }
+  .app-root :is(.login-box, .teacher-login-card) { padding: 26px; }
+}
+/* A phone cannot fit all controls in one row at usable sizes. The page group
+   wraps INSIDE the same header, with horizontally scrollable tabs; no removal. */
+@media (max-width: 560px) {
+  :root { --ui-header-bottom: 124px; }
+  .app-root .floating-topbar { flex-wrap: wrap; height: auto; row-gap: 6px; }
+  .app-root .page-toolbar { order: 4; flex: 1 1 100%; max-width: 100%; }
+  .app-root .page-toolbar.hidden { display: none !important; }
+  body:has(.page-toolbar.hidden) { --ui-header-bottom: 70px; }
+  .app-root .topbar-center { flex: 1 1 auto; justify-content: center; }
+  .app-root .topbar-right { margin-left: 0; }
+  .app-root .topbar-left { gap: 2px; }
+  .app-root .class-status-pill { width: 30px; min-width: 30px; max-width: 30px; border: 0; box-shadow: none; background: white; }
+  .app-root .mode-switcher { padding: 3px; }
+  .app-root .mode-btn { width: 38px; min-width: 38px; }
+  .app-root .topbar-right > .icon-btn { min-width: 38px; }
+  .app-root .page-tool-btn { width: 44px; flex-basis: 44px; }
+  .app-root .page-tab { min-width: 70px; }
+  .app-root .dropdown-content { position: fixed; top: 64px; left: 8px; margin-top: 0; max-height: calc(100dvh - 78px); }
+  .app-root .assignment-review-switcher { max-width: calc(100vw - 170px); overflow-x: auto; }
+  .app-root .assignment-review-student-btn { min-width: 96px; }
+  .app-root .assignment-review-nav-btn { min-width: 40px; padding: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-root *, .app-root *::before, .app-root *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .01ms !important; }
+}
+@media (max-width: 360px) {
+  .app-root .floating-topbar { column-gap: 2px; }
+  .app-root .icon-btn-text { width: 40px; }
+  .app-root .class-status-pill { width: 28px; min-width: 28px; max-width: 28px; }
+  .app-root .mode-btn { width: 36px; min-width: 36px; }
+  .app-root .topbar-right > .icon-btn { min-width: 36px; }
+}

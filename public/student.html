@@ -17,27 +17,16 @@
   <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+  <link href="./clear-blue.css?v=20260917" rel="stylesheet" />
+  <script type="module" src="./js/clear-blue-ui.js?v=20260917"></script>
 </head>
 
-<body class="app-root">
+<body class="app-root student-app">
 
   <!-- ホワイトボード (全画面) -->
   <div id="boardContainer" class="board-container full-screen">
     <canvas id="whiteboard"></canvas>
   </div>
-
-  <nav class="page-toolbar" aria-label="ホワイトボードのページ">
-    <div id="pageTabs" class="page-tabs" role="tablist"></div>
-    <button id="pageAddBtn" class="page-tool-btn" type="button" title="ページを追加" aria-label="ページを追加">
-      <span class="material-symbols-rounded">add</span>
-    </button>
-    <button id="pageRenameBtn" class="page-tool-btn" type="button" title="ページ名を変更" aria-label="ページ名を変更">
-      <span class="material-symbols-rounded">edit</span>
-    </button>
-    <button id="pageDeleteBtn" class="page-tool-btn" type="button" title="現在のページを削除" aria-label="現在のページを削除">
-      <span class="material-symbols-rounded">delete</span>
-    </button>
-  </nav>
 
   <!-- ノート提出モード用レイアウト (全画面オーバーレイ) -->
   <div id="notebookLayout" class="student-notebook-layout hidden">
@@ -204,9 +193,9 @@
     <!-- 左側：ファイルメニュー -->
     <div class="topbar-left">
       <div class="dropdown">
-        <button id="fileMenuBtn" class="icon-btn-text">
+        <button id="fileMenuBtn" class="icon-btn-text" aria-label="ファイルメニュー" aria-expanded="false">
           <span class="material-symbols-rounded">menu</span>
-          ファイル
+          <span class="control-label">ファイル</span>
         </button>
         <div id="fileMenuDropdown" class="dropdown-content hidden">
           <button id="studentNewBoardBtn"><span class="material-symbols-rounded">note_add</span> 新規作成</button>
@@ -225,18 +214,31 @@
       </div>
     </div>
 
+  <nav class="page-toolbar" aria-label="ホワイトボードのページ">
+    <div id="pageTabs" class="page-tabs" role="tablist"></div>
+    <button id="pageAddBtn" class="page-tool-btn" type="button" title="ページを追加" aria-label="ページを追加">
+      <span class="material-symbols-rounded">add</span>
+    </button>
+    <button id="pageRenameBtn" class="page-tool-btn" type="button" title="ページ名を変更" aria-label="ページ名を変更">
+      <span class="material-symbols-rounded">edit</span>
+    </button>
+    <button id="pageDeleteBtn" class="page-tool-btn" type="button" title="現在のページを削除" aria-label="現在のページを削除">
+      <span class="material-symbols-rounded">delete</span>
+    </button>
+  </nav>
+
     <!-- 中央：モード切り替え -->
     <div class="topbar-center">
       <div class="mode-switcher">
         <button id="studentModeWhiteboard" class="mode-btn active" title="ホワイトボード">
           <span class="material-symbols-rounded">edit_note</span>
-        </button>
+        <span class="control-label">ホワイトボード</span></button>
         <button id="studentModeScreen" class="mode-btn" title="全画面共有">
           <span class="material-symbols-rounded">screen_share</span>
-        </button>
+        <span class="control-label">全画面共有</span></button>
         <button id="studentModeNotebook" class="mode-btn" title="ノート提出">
           <span class="material-symbols-rounded">assignment</span>
-        </button>
+        <span class="control-label">ノート提出</span></button>
       </div>
     </div>
 
@@ -245,15 +247,15 @@
       <button id="studentAssignmentChip" class="icon-btn hidden" type="button" title="未提出の課題" aria-label="未提出の課題を開く" aria-expanded="false">
         <span class="material-symbols-rounded">assignment</span>
         <span id="studentAssignmentCount" class="assignment-notify-count">0</span>
-      </button>
+      <span class="control-label">課題</span></button>
       <button id="studentFormChip" class="icon-btn hidden" type="button" title="フォーム" aria-label="フォームを開く">
         <span class="material-symbols-rounded">fact_check</span>
         <span id="studentFormLiveDot" class="form-live-dot hidden"></span>
-      </button>
+      <span class="control-label">フォーム</span></button>
       <button id="chatToggleBtn" class="icon-btn" title="チャット">
         <span class="material-symbols-rounded">chat</span>
         <span id="chatNotifyDot" class="chat-notify-dot"></span>
-      </button>
+      <span class="control-label">チャット</span></button>
     </div>
   </header>
 
@@ -332,7 +334,7 @@
     </div>
 
     <!-- 折りたたみボタン -->
-    <button id="sidebarToggle" class="sidebar-toggle-btn">
+    <button id="sidebarToggle" class="sidebar-toggle-btn" aria-label="ツールバーを折りたたむ" aria-expanded="true">
       <span class="material-symbols-rounded">chevron_left</span>
     </button>
   </aside>
@@ -387,18 +389,18 @@
         <button type="button" data-background-style="blank" aria-pressed="false" title="白紙">白紙</button>
       </div>
       <div class="divider-vertical"></div>
-      <button id="undoBtn" class="icon-btn" type="button" title="元に戻す" aria-label="元に戻す" disabled><span class="material-symbols-rounded" aria-hidden="true">undo</span></button>
-      <button id="redoBtn" class="icon-btn" type="button" title="やり直す" aria-label="やり直す" disabled><span class="material-symbols-rounded" aria-hidden="true">redo</span></button>
-      <button id="deleteBtn" class="icon-btn" title="削除"><span class="material-symbols-rounded">delete</span></button>
+      <button id="undoBtn" class="icon-btn" type="button" title="元に戻す" aria-label="元に戻す" disabled><span class="material-symbols-rounded" aria-hidden="true">undo</span><span class="edit-label" aria-hidden="true">戻る</span></button>
+      <button id="redoBtn" class="icon-btn" type="button" title="やり直す" aria-label="やり直す" disabled><span class="material-symbols-rounded" aria-hidden="true">redo</span><span class="edit-label" aria-hidden="true">やり直す</span></button>
+      <button id="deleteBtn" class="icon-btn" title="削除" aria-label="削除"><span class="material-symbols-rounded">delete</span><span class="edit-label" aria-hidden="true">削除</span></button>
       <div class="divider-vertical"></div>
       <button id="groupBtn" class="icon-btn" title="グループ化"><span
-          class="material-symbols-rounded">group_work</span></button>
-      <button id="lockBtn" class="icon-btn" title="ロック"><span class="material-symbols-rounded">lock</span></button>
+          class="material-symbols-rounded">group_work</span><span class="edit-label" aria-hidden="true">グループ</span></button>
+      <button id="lockBtn" class="icon-btn" title="ロック"><span class="material-symbols-rounded">lock</span><span class="edit-label" aria-hidden="true">ロック</span></button>
       <div class="divider-vertical"></div>
       <button id="bringToFrontBtn" class="icon-btn" title="前面へ"><span
-          class="material-symbols-rounded">flip_to_front</span></button>
+          class="material-symbols-rounded">flip_to_front</span><span class="edit-label" aria-hidden="true">最前面へ</span></button>
       <button id="sendToBackBtn" class="icon-btn" title="背面へ"><span
-          class="material-symbols-rounded">flip_to_back</span></button>
+          class="material-symbols-rounded">flip_to_back</span><span class="edit-label" aria-hidden="true">最背面へ</span></button>
     </div>
 
     <div class="zoom-controls">
@@ -699,7 +701,7 @@
   <script src="./js/legacy-socket-loader.js"></script>
   <script src="./js/password-visibility.js?v=20260825&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915"></script>
   <!-- モジュール -->
-  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-ui-20260824b&amp;draw-style=20260824&amp;highlighter-settings=20260824&amp;login-flow=20260824&amp;png-stamps=20260824&amp;chat-panel-fit=20260824c&amp;realtime-scale=20260902&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;timer-tool=20260826&amp;table-tool=20260901b&amp;forms=20260830&amp;form-history=20260831&amp;form-images=20260901&amp;youtube=20260831b&amp;assignments=20260831&amp;camera-tool=20260902b&amp;edit-selection=20260902&amp;history-delete=20260904&amp;new-board=20260904b&amp;auth-singleton=20260904&amp;media-file=20260904&amp;mode-presence=20260905&amp;auth-load=20260905&amp;pdf-render=20260905&amp;insert-auto-select=20260905&amp;zoom-step=20260909&amp;media-background=20260910&amp;media-upload=20260911&amp;ruled-spacing=20260911&amp;word-count=20260911b&amp;text-live=20260911&delete-sync=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;text-layout=20260916&amp;thumbnail-idle=20260916&amp;redo-login=20260917"></script>
+  <script type="module" src="./js/student.js?v=monitor-sync-20260819&amp;ui=notebook-ui-20260824b&amp;draw-style=20260824&amp;highlighter-settings=20260824&amp;login-flow=20260824&amp;png-stamps=20260824&amp;chat-panel-fit=20260824c&amp;realtime-scale=20260902&amp;asset-lifecycle=20260824&amp;realtime-duplex=20260824&amp;session-recovery=20260824&amp;eraser-hit=20260825&amp;timer-tool=20260826&amp;table-tool=20260901b&amp;forms=20260830&amp;form-history=20260831&amp;form-images=20260901&amp;youtube=20260831b&amp;assignments=20260831&amp;camera-tool=20260902b&amp;edit-selection=20260902&amp;history-delete=20260904&amp;new-board=20260904b&amp;auth-singleton=20260904&amp;media-file=20260904&amp;mode-presence=20260905&amp;auth-load=20260905&amp;pdf-render=20260905&amp;insert-auto-select=20260905&amp;zoom-step=20260909&amp;media-background=20260910&amp;media-upload=20260911&amp;ruled-spacing=20260911&amp;word-count=20260911b&amp;text-live=20260911&delete-sync=20260911&amp;security-reliability=20260912&amp;production-fixes=20260915&amp;draft-recovery=20260915&amp;text-layout=20260916&amp;thumbnail-idle=20260916&amp;redo-login=20260917&amp;clear-blue=20260917"></script>
 
 </body>
 

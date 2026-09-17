@@ -5,21 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Class Whiteboard</title>
-  <style>
-    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f3f7fb; color: #17212b; }
-    main { width: min(560px, calc(100% - 32px)); padding: 32px; box-sizing: border-box; border: 1px solid #dce5ec; border-radius: 18px; background: #fff; box-shadow: 0 18px 50px rgba(31, 50, 66, .1); }
-    h1 { margin: 0 0 8px; font-size: clamp(25px, 5vw, 34px); }
-    p { color: #52616d; line-height: 1.7; }
-    nav { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
-    a { display: grid; place-items: center; min-height: 52px; border-radius: 12px; text-decoration: none; font-weight: 750; }
-    a:first-child { background: #1769aa; color: #fff; }
-    a:last-child { border: 1px solid #b9c9d5; color: #24465f; background: #f8fbfd; }
-    @media (max-width: 520px) { nav { grid-template-columns: 1fr; } main { padding: 24px; } }
-  </style>
+  <link href="./style.css" rel="stylesheet" />
+  <link href="./clear-blue.css?v=20260917" rel="stylesheet" />
+  <script type="module" src="./js/clear-blue-ui.js?v=20260917"></script>
 </head>
-<body>
-  <main>
+<body class="app-root login-page entry-page">
+  <main class="login-container teacher-login-card">
+    <p class="login-product-name">みんなの学びを、ひとつのキャンバスに。</p>
     <h1>Class Whiteboard</h1>
     <p>教員と生徒が授業の内容をリアルタイムに共有できるオンラインホワイトボードです。</p>
     <nav aria-label="ログイン先">

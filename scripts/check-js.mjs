@@ -12,6 +12,7 @@ const commonJsFiles = [
   "public/js/password-visibility.js",
 ];
 const moduleFiles = [
+  "public/js/clear-blue-ui.js",
   "public/js/text-count.mjs",
   "public/js/media-limits.mjs",
   "public/js/resumable-upload.mjs",

@@ -6227,7 +6227,8 @@ export class Whiteboard {
       // Draw in device pixels so the grid stays crisp on every zoom level and DPR.
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.strokeStyle = "rgba(115, 139, 152, 0.34)";
+      ctx.strokeStyle = this.backgroundStyle === "ruled"
+        ? "rgba(115, 145, 190, 0.32)" : "rgba(140, 171, 216, 0.16)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = startX; this.backgroundStyle !== "ruled" && x <= endX; x += gridStep) {
@@ -6241,6 +6242,19 @@ export class Whiteboard {
         ctx.lineTo(w, screenY);
       }
       ctx.stroke();
+      if (this.backgroundStyle === "grid") {
+        // Keep the existing 240-unit grid and add subtle 24-unit reference dots.
+        // Thin dots when zoomed out, bounding the work by viewport pixels.
+        const dotStep = 24 * Math.max(1, Math.ceil(12 / (24 * this.scale)));
+        const dotSize = Math.max(1, dpr);
+        ctx.fillStyle = "rgba(114, 166, 237, 0.42)";
+        for (let x = Math.floor(left / dotStep) * dotStep; x <= right; x += dotStep) {
+          for (let y = Math.floor(top / dotStep) * dotStep; y <= bottom; y += dotStep) {
+            ctx.fillRect(Math.round((x * this.scale + this.offsetX) * dpr),
+              Math.round((y * this.scale + this.offsetY) * dpr), dotSize, dotSize);
+          }
+        }
+      }
       ctx.restore();
     }
 

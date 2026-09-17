@@ -1,6 +1,6 @@
 // public/js/student.js
 import { createThumbnailSender } from "./thumbnail-sender.mjs?v=thumbnail-idle-20260916";
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917";
 import {
   assignmentApi,
   authApi,
@@ -11,7 +11,7 @@ import {
 } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
-import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917";
+import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
 import { chooseNewestStudentDraft } from "./student-draft-utils.mjs?v=draft-recovery-20260912&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 
 // 共通ホワイトボード UI 初期化
