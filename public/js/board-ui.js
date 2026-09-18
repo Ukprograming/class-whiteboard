@@ -2537,7 +2537,7 @@ export function initBoardUI() {
   if (sidebarToggle && sidebar) {
     sidebarToggle.addEventListener("click", () => {
       sidebar.classList.toggle("collapsed");
-      document.body.classList.toggle("sidebar-collapsed");
+      document.body.classList.toggle("sidebar-tools-collapsed", sidebar.classList.contains("collapsed"));
 
       // サイドバーが閉じたときにコンテキストメニューも隠す
       if (sidebar.classList.contains("collapsed") && contextMenu) {

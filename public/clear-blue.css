@@ -323,7 +323,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 }
 /* A phone cannot fit all controls in one row at usable sizes. The page group
    wraps INSIDE the same header, with horizontally scrollable tabs; no removal. */
-@media (max-width: 560px) {
+@media (max-width: 680px) {
   :root { --ui-header-bottom: 124px; }
   .app-root .floating-topbar { flex-wrap: wrap; height: auto; row-gap: 6px; }
   .app-root .page-toolbar { order: 4; flex: 1 1 100%; max-width: 100%; }
@@ -352,4 +352,43 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .class-status-pill { width: 28px; min-width: 28px; max-width: 28px; }
   .app-root .mode-btn { width: 36px; min-width: 36px; }
   .app-root .topbar-right > .icon-btn { min-width: 36px; }
+}
+
+/* Class details are a tooltip, not an expanding item in the header layout. */
+.app-root .class-status-pill,
+.app-root .class-status-pill:is(:hover, :focus, :focus-within) {
+  width: 44px; min-width: 44px; max-width: 44px; padding: 0; gap: 0;
+  justify-content: center;
+}
+.app-root .class-status-pill > span:last-child {
+  position: absolute; top: calc(100% + 8px); left: 0;
+  width: max-content; max-width: min(320px, calc(100vw - 96px));
+  opacity: 0; visibility: hidden; pointer-events: none;
+}
+.app-root .class-status-pill:is(:hover, :focus, :focus-within) > span:last-child {
+  width: max-content; max-width: min(320px, calc(100vw - 96px));
+  opacity: 1; visibility: visible;
+}
+.app-root .chrome-toggle {
+  position: relative; z-index: 1600;
+  flex: 0 0 44px; width: 44px; height: 54px; padding: 0;
+  color: var(--cw-text); background: #fff; border: 1px solid var(--cw-line);
+  border-radius: var(--cw-radius); box-shadow: var(--cw-shadow-soft);
+}
+.chrome-toggle .app-icon { transform: rotate(90deg); }
+.chrome-hidden .chrome-toggle .app-icon { transform: rotate(-90deg); }
+.app-root.chrome-hidden .floating-topbar > :not(.chrome-toggle),
+.app-root.chrome-hidden .floating-bottom-right { display: none !important; }
+.app-root.chrome-hidden .floating-topbar { justify-content: flex-end; pointer-events: none; }
+.app-root.chrome-hidden .chrome-toggle { pointer-events: auto; }
+.app-root.sidebar-tools-collapsed :is(#contextMenu, #textSettings, .floating-palette) { display: none !important; }
+@media (max-width: 680px) {
+  .app-root .class-status-pill,
+  .app-root .class-status-pill:is(:hover, :focus, :focus-within) { width: 28px; min-width: 28px; max-width: 28px; }
+  .app-root .floating-topbar { padding-right: 48px; }
+  .app-root .floating-topbar:has(.page-toolbar:not(.hidden)) { padding-right: 0; }
+  .app-root .page-toolbar { padding-right: 48px; }
+  .app-root .chrome-toggle { position: absolute; right: 0; top: 0; height: 52px; }
+  .app-root .floating-topbar:has(.page-toolbar:not(.hidden)) .chrome-toggle { top: 58px; }
+  .app-root.chrome-hidden .floating-topbar > #chromeToggle { top: 0; }
 }

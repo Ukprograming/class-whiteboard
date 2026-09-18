@@ -10,6 +10,17 @@ import { replaceMaterialIcons } from './ui-icons.js?v=clear-blue-20260917';
   const palettes = new Map();
   let queued = false;
 
+  const chromeToggle = document.getElementById('chromeToggle');
+  chromeToggle?.addEventListener('click', () => {
+    const hidden = document.body.classList.toggle('chrome-hidden');
+    chromeToggle.setAttribute('aria-expanded', String(!hidden));
+    const label = hidden ? 'ヘッダーと下部ツールバーを表示' : 'ヘッダーと下部ツールバーを非表示';
+    chromeToggle.setAttribute('aria-label', label);
+    chromeToggle.title = label;
+    // Close the file popup so it does not reappear unexpectedly on restore.
+    document.getElementById('fileMenuDropdown')?.classList.add('hidden');
+  });
+
   function sync() {
     queued = false;
     replaceMaterialIcons();

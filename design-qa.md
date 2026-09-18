@@ -61,6 +61,11 @@ No remaining actionable P0/P1/P2 visual findings were observed in the tested sur
 
 ## Verification boundaries
 
+### 2026-09-18: independent visibility controls
+
+Updated the status indicator to show only its green dot until hover/keyboard focus. Added a header toggle for the entire header (including pages) and bottom toolbar, retaining a restore button. The sidebar toggle now controls only the sidebar and its tool popovers.
+Browser checks on both teacher and student verified all four sidebar/header visibility combinations and restoration. The student notebook header fits at 320px without horizontal document overflow. These checks use the same local fixtures as above.
+
 The local preview replaces authentication, data APIs and realtime with fixtures. It does not prove real login, persistence, assignment distribution, camera/screen capture, or authenticated teacher/student synchronization. Screen sharing still uses the existing browser permission flow and was not started against a real device. Page rename uses the existing native prompt, which the in-app browser does not support; rename/delete confirmation completion needs a normal browser. Their original handlers are retained.
 
 No production database, deployment, remote branch or main branch was changed. Before release, verify authenticated teacher + student workflows, camera/screen permissions, save/load and live synchronization on supported real devices.
