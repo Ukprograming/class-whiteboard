@@ -1,11 +1,11 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
-import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
+import { replaceMaterialIcons } from "./ui-icons.js?v=timer-tool-20260826&forms=20260830b&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917&laser=20260922";
 
 export function initBoardUI() {
   replaceMaterialIcons();
@@ -802,6 +802,8 @@ export function initBoardUI() {
   let currentPenWidth = 3;
   let currentHighlighterColor = "#facc15";
   let currentHighlighterWidth = 30;
+  let currentLaserColor = "#ef4444";
+  let currentLaserWidth = 3;
 
   // ペンと同じ4段階の表示を使いながら、蛍光ペンに適した太さへ変換する。
   const highlighterWidthPresets = Object.freeze({
@@ -813,12 +815,12 @@ export function initBoardUI() {
 
   function updateDrawSettingsUI(tool) {
     const isHighlighter = tool === "highlighter";
-    const color = isHighlighter ? currentHighlighterColor : currentPenColor;
+    const color = tool === "laser" ? currentLaserColor : isHighlighter ? currentHighlighterColor : currentPenColor;
     const widthValue = isHighlighter
       ? Object.entries(highlighterWidthPresets).find(
         ([, width]) => width === currentHighlighterWidth
       )?.[0] || "3"
-      : String(currentPenWidth);
+      : String(tool === "laser" ? currentLaserWidth : currentPenWidth);
 
     penColorButtons.forEach(btn => {
       btn.classList.toggle("active", btn.dataset.penColor === color);
@@ -1094,7 +1096,7 @@ export function initBoardUI() {
       if (!btn.dataset.baseTitle) btn.dataset.baseTitle = btn.title || "ツール";
       btn.classList.toggle("active", t === activeTool);
       btn.classList.toggle("primary", t === activeTool);
-      const hasSettings = ["pen", "highlighter", "sticky", "text", "shape", "table"].includes(t);
+      const hasSettings = ["pen", "highlighter", "laser", "sticky", "text", "shape", "table"].includes(t);
       const isActive = t === activeTool;
       btn.title = hasSettings && isActive
         ? `${btn.dataset.baseTitle}（もう一度押すと設定）`
@@ -1128,7 +1130,7 @@ export function initBoardUI() {
       const topMargin = Math.max(margin,
         (document.querySelector('.floating-topbar')?.getBoundingClientRect().bottom || 0) + 12);
       const maxTop = Math.max(topMargin, window.innerHeight - menuRect.height - (textMenu ? 80 : margin));
-      const preferredTop = activeTool === 'pen' || activeTool === 'highlighter'
+      const preferredTop = activeTool === 'pen' || activeTool === 'highlighter' || activeTool === 'laser'
         ? triggerRect.bottom + 8 : triggerCenterY - menuRect.height / 2;
       const top = Math.min(
         Math.max(topMargin, preferredTop),
@@ -1167,7 +1169,7 @@ export function initBoardUI() {
     // ペン設定
     const penSettings = document.getElementById("penSettings");
     if (penSettings) {
-      if (activeTool === "pen" || activeTool === "highlighter") {
+      if (activeTool === "pen" || activeTool === "highlighter" || activeTool === "laser") {
         if (settingsOpenTool === activeTool) {
           updateDrawSettingsUI(activeTool);
           penSettings.classList.remove("hidden");
@@ -1711,7 +1713,7 @@ export function initBoardUI() {
 
       // 設定を持つツールは、1回目で選択、同じボタンの2回目で設定を開く。
       if (tool !== "stamp") {
-        const hasSettings = ["pen", "highlighter", "sticky", "text", "shape", "table"].includes(tool);
+        const hasSettings = ["pen", "highlighter", "laser", "sticky", "text", "shape", "table"].includes(tool);
         const showSettings =
           hasSettings && currentTool === tool && settingsOpenTool !== tool;
 
@@ -1906,7 +1908,9 @@ export function initBoardUI() {
       btn.addEventListener("click", () => {
         const color = btn.dataset.penColor;
         if (!color) return;
-        if (settingsOpenTool === "highlighter") {
+        if (settingsOpenTool === "laser") {
+          wb.laserColor = currentLaserColor = color;
+        } else if (settingsOpenTool === "highlighter") {
           currentHighlighterColor = color;
           wb.setHighlighterColor?.(currentHighlighterColor);
         } else {
@@ -1925,7 +1929,9 @@ export function initBoardUI() {
   if (penWidthSelect) {
     penWidthSelect.addEventListener("change", () => {
       const width = parseInt(penWidthSelect.value, 10) || 3;
-      if (settingsOpenTool === "highlighter") {
+      if (settingsOpenTool === "laser") {
+        wb.laserWidth = currentLaserWidth = width;
+      } else if (settingsOpenTool === "highlighter") {
         currentHighlighterWidth = highlighterWidthPresets[width] || 30;
         wb.setHighlighterWidth?.(currentHighlighterWidth);
       } else {

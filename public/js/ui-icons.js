@@ -36,6 +36,7 @@ const ICON_ALIASES = {
   image: "image",
   ink_eraser: "eraser",
   ink_highlighter: "highlighter",
+  highlight_mouse_cursor: "laser-pointer",
   lock: "lock",
   library_books: "files",
   menu: "menu",
@@ -61,6 +62,7 @@ const ICON_ALIASES = {
 };
 
 const LUCIDE_ICONS = {
+  "laser-pointer": `<path d="m4 17 8-8 3 3-8 8H4Z"/><path d="m16 8 2-2M13 5V2M19 11h3M18 3l1-1"/><circle cx="15" cy="8" r="1"/>`,
   "align-center": `<path d="M17 12H7"/><path d="M19 18H5"/><path d="M21 6H3"/>`,
   "align-left": `<path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/>`,
   "align-right": `<path d="M21 12H9"/><path d="M21 18H7"/><path d="M21 6H3"/>`,

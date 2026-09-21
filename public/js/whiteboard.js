@@ -3,6 +3,7 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
+import { LaserTrail } from "./laser-trail.js?v=20260922";
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { formatTextCount } from "./text-count.mjs?v=word-count-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -95,6 +96,9 @@ export class Whiteboard {
     this.penWidth = 3;
     this.highlighterColor = "rgba(250, 204, 21, 0.55)";
     this.highlighterWidth = 30;
+    this.laserColor = "#ef4444";
+    this.laserWidth = 3;
+    this.laserTrail = new LaserTrail(this);
     this.eraserWidth = 24;
 
     // ★ 図形ツール用：現在選択中の図形タイプ
@@ -248,6 +252,7 @@ export class Whiteboard {
   }
 
   destroy() {
+    this.laserTrail?.clear();
     if (this._destroyed) return;
     this._destroyed = true;
     this._clearTextEditSync();
@@ -1091,6 +1096,7 @@ export class Whiteboard {
 
   setTool(tool) {
     if (this.tool === tool) return;
+    this.laserTrail?.end();
     this.textPlacement = null;
     this.tool = tool;
     this.canvas.style.cursor = "";
@@ -1989,6 +1995,7 @@ export class Whiteboard {
   }
 
   clearAll() {
+    this.laserTrail?.clear();
     this.strokes = [];
     this.objects = [];
     this.history = [];
@@ -3310,6 +3317,7 @@ export class Whiteboard {
   }
 
   _importSinglePageData(data, options = {}) {
+    this.laserTrail?.clear();
     if (!data) return;
     this.textPlacement = null;
 
@@ -4675,6 +4683,7 @@ export class Whiteboard {
       }
 
       if (e.touches && e.touches.length >= 2) {
+        this.laserTrail?.end();
         this.textPlacement = null;
         if (this.isResizingTableCells) this._finishTableCellResize();
         this.pendingTableTouchTap = null;
@@ -4715,6 +4724,11 @@ export class Whiteboard {
 
       const { sx, sy, wx, wy } = getPos(e);
       const button = e.button != null ? e.button : 0;
+
+      if (this.tool === "laser" && button === 0 && !e.altKey) {
+        this.laserTrail.begin(wx, wy);
+        return;
+      }
 
       if (button === 0) {
         const tableControl = this.tool === "select" ? this._hitTestTableControl(sx, sy) : null;
@@ -5297,6 +5311,18 @@ export class Whiteboard {
       }
 
 
+      if (this.laserTrail.active) {
+        e.preventDefault();
+        const { sx, sy, wx, wy } = getPos(e);
+        const rect = canvas.getBoundingClientRect();
+        if (sx < 0 || sy < 0 || sx > rect.width || sy > rect.height) {
+          this.laserTrail?.end();
+        } else {
+          this.laserTrail.move(wx, wy);
+        }
+        return;
+      }
+
       // ---- ペン／蛍光ペンで描画中 ----
       if (this.isDrawingStroke && this.currentStroke) {
         e.preventDefault();
@@ -5666,6 +5692,7 @@ export class Whiteboard {
 
 
     const up = e => {
+      this.laserTrail?.end();
       if (this.textPlacement) {
         if (e.type === "touchcancel" || e.type === "mouseleave") {
           this.textPlacement = null;
@@ -6027,6 +6054,10 @@ export class Whiteboard {
     this._listen(canvas, "touchmove", move, { passive: false });
     this._listen(canvas, "touchend", up);
     this._listen(canvas, "touchcancel", up);
+    this._listen(window, "blur", () => this.laserTrail.end());
+    this._listen(document, "visibilitychange", () => {
+      if (document.hidden) this.laserTrail?.end();
+    });
 
     const wheel = e => {
       e.preventDefault();
@@ -6285,6 +6316,7 @@ export class Whiteboard {
     }
     this._syncYouTubePlayerOverlay();
     this._syncVideoPlayerOverlay();
+    this.laserTrail?.render();
   }
 
   _renderStrokes(ctx, strokes) {
