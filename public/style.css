@@ -4168,6 +4168,14 @@ body.camera-capture-open {
   gap: 12px;
 }
 
+.shape-recognition-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #536773;
+  overflow-wrap: anywhere;
+}
+
 #shapeSettings .shape-items {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

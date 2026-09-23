@@ -3,6 +3,7 @@
 // 選択ツールでオブジェクト移動・リサイズ + キャンバス上でテキスト編集 + テキスト書式変更
 // 手書きは strokeCanvas レイヤーで管理（消しゴムは手書きのみ影響）
 
+import { recognizeShape, curvePoint, setCurveRange } from "./shape-recognition.mjs?v=20260923";
 import { LaserTrail } from "./laser-trail.js?v=20260922";
 import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -31,10 +32,10 @@ const PDF_WEBP_QUALITY = 0.9;
 const SHAPE_KINDS = new Set([
   "line", "arrow", "double-arrow", "triangle", "rect", "rounded-rect",
   "ellipse", "diamond", "parallelogram", "trapezoid", "pentagon",
-  "hexagon", "star", "tri-prism", "rect-prism", "cylinder"
+  "hexagon", "star", "tri-prism", "rect-prism", "cylinder", "parabola", "sine"
 ]);
 const FILLABLE_SHAPE_KINDS = new Set(
-  Array.from(SHAPE_KINDS).filter(kind => !["line", "arrow", "double-arrow"].includes(kind))
+  Array.from(SHAPE_KINDS).filter(kind => !["line", "arrow", "double-arrow", "parabola", "sine"].includes(kind))
 );
 
 export class Whiteboard {
@@ -103,7 +104,7 @@ export class Whiteboard {
 
     // ★ 図形ツール用：現在選択中の図形タイプ
     // line, arrow, double-arrow, triangle, rect, ellipse, tri-prism, rect-prism, cylinder
-    this.currentShapeType = "rect";
+    this.currentShapeType = "auto";
     this.shapeDefaults = {
       stroke: "#111827",
       fill: "transparent",
@@ -1151,7 +1152,7 @@ export class Whiteboard {
 
   // ★ 図形ツールから呼ばれる
   setShapeType(shapeType) {
-    this.currentShapeType = shapeType || "rect";
+    this.currentShapeType = shapeType || "auto";
   }
 
   _cloneTableBorder(border = {}) {
@@ -2172,6 +2173,9 @@ export class Whiteboard {
           obj.y = before.y;
           if (before.width != null) obj.width = before.width;
           if (before.height != null) obj.height = before.height;
+          for (const key of ["curve", "curveAxis", "arcStart", "arcSweep", "shapeVertices"]) {
+            if (Object.prototype.hasOwnProperty.call(before, key)) obj[key] = before[key] == null ? null : JSON.parse(JSON.stringify(before[key]));
+          }
           if (before.points && obj.points) {
             obj.points = before.points.map(p => ({ x: p.x, y: p.y }));
           }
@@ -3106,6 +3110,10 @@ export class Whiteboard {
         base.rotation = o.rotation;
       }
 
+      for (const key of ["curve", "curveAxis", "shapeVertices", "arcStart", "arcSweep"]) {
+        if (o[key] != null) base[key] = JSON.parse(JSON.stringify(o[key]));
+      }
+
       if (o.kind === "text" || o.kind === "sticky" || o.kind === "link") {
         base.text = o.text || "";
         base.fontSize = o.fontSize || 16;
@@ -3454,6 +3462,10 @@ export class Whiteboard {
         obj.stroke = "#FBBF24";
       } else {
         obj.stroke = "transparent";
+      }
+
+      for (const key of ["curve", "curveAxis", "shapeVertices", "arcStart", "arcSweep"]) {
+        if (o[key] != null) obj[key] = JSON.parse(JSON.stringify(o[key]));
       }
 
       obj.strokeWidth = o.strokeWidth != null ? o.strokeWidth : 2;
@@ -4537,6 +4549,12 @@ export class Whiteboard {
 
 
   _startShape(wx, wy, kind) {
+    if (kind === "auto") {
+      this.autoShapePoints = [{ x: wx, y: wy }];
+      this.isDrawingShape = true;
+      this._setSelected(null);
+      return;
+    }
     const id = this._newEntityId("object");
     const defaults = this.shapeDefaults || {};
     const obj = {
@@ -4559,6 +4577,13 @@ export class Whiteboard {
       ];
     }
 
+    if (kind === "parabola" || kind === "sine") {
+      obj.curveAxis = "x";
+      obj.curve = kind === "parabola"
+        ? { a: 4, b: -4, c: 1 }
+        : { amplitude: 0.5, frequency: Math.PI * 4, phase: 0, offset: 0.5 };
+    }
+
     if (kind === "tri-prism" || kind === "rect-prism") {
       obj.depth = 24;
     } else if (kind === "cylinder") {
@@ -4573,6 +4598,14 @@ export class Whiteboard {
   }
 
   _updateShape(wx, wy, isShiftKey = false) {
+    if (this.autoShapePoints) {
+      const last = this.autoShapePoints.at(-1);
+      if (Math.hypot(wx - last.x, wy - last.y) >= 1 / this.scale) {
+        this.autoShapePoints.push({ x: wx, y: wy });
+      }
+      this.render();
+      return;
+    }
     if (!this.shapeDraft) return;
     const kind = this.shapeDraft.kind;
 
@@ -4607,7 +4640,34 @@ export class Whiteboard {
   }
 
   _finishShape() {
+    if (this.autoShapePoints) {
+      const points = this.autoShapePoints;
+      this.autoShapePoints = null;
+      this.isDrawingShape = false;
+      const length = points.slice(1).reduce((s, p, i) => s + Math.hypot(p.x - points[i].x, p.y - points[i].y), 0);
+      if (length >= 8 / this.scale) {
+        const geometry = recognizeShape(points);
+        if (geometry) {
+          const obj = { id: this._newEntityId("object"), ...geometry,
+            stroke: this.shapeDefaults?.stroke || "#111827", strokeWidth: this.shapeDefaults?.strokeWidth || 3,
+            fill: FILLABLE_SHAPE_KINDS.has(geometry.kind) ? this.shapeDefaults?.fill || "transparent" : "transparent" };
+          this._addObject(obj);
+          this.onAction?.({ type: "object", object: obj });
+        } else {
+          // Ambiguous scribbles stay editable ink instead of being forced into a wrong shape.
+          const stroke = { id: this._newEntityId("stroke"), type: "pen", points,
+            color: this.shapeDefaults?.stroke || "#111827", width: this.shapeDefaults?.strokeWidth || 3 };
+          this._addStroke(stroke);
+          this.onAction?.({ type: "stroke", stroke });
+        }
+        this._markDirty();
+      }
+      this.setTool("select");
+      this.render();
+      return;
+    }
     if (!this.shapeDraft) return;
+    if (this.shapeDraft.curve) Object.assign(this.shapeDraft, this._normalizeRect(this.shapeDraft));
     const { width, height } = this.shapeDraft;
     if (Math.abs(width) < 2 && Math.abs(height) < 2) {
       this.objects = this.objects.filter(o => o.id !== this.shapeDraft.id);
@@ -4626,7 +4686,71 @@ export class Whiteboard {
     this.shapeDraft = null;
 
     // ★ 図形を置いたら自動的に選択ツールへ戻す
-    this.tool = "select";
+    this.setTool("select");
+    this.render();
+  }
+
+  _shapeEditSnapshot(obj) {
+    return Object.fromEntries(["x", "y", "width", "height", "curve", "curveAxis", "arcStart", "arcSweep", "shapeVertices"]
+      .map(key => [key, obj[key] == null ? null : JSON.parse(JSON.stringify(obj[key]))]));
+  }
+
+  _shapeEditControls(obj) {
+    const { x, y, width, height } = this._normalizeRect(obj);
+    const controls = [];
+    if (obj.curve) {
+      controls.push({ name: "shape-start", ...curvePoint(obj, 0) }, { name: "shape-end", ...curvePoint(obj, 1) });
+      if (obj.kind === "sine") controls.push({ name: "shape-period", x: x + width / 2, y: y + height + 28 / this.scale });
+    }
+    if (obj.kind === "ellipse") {
+      const start = obj.arcStart || 0, sweep = obj.arcSweep ?? Math.PI * 2;
+      for (const [name, angle, extra] of [["shape-arc-start", start, 0], ["shape-arc-end", start + sweep, 18 / this.scale]]) {
+        controls.push({ name, x: x + width / 2 + (width / 2 + extra) * Math.cos(angle),
+          y: y + height / 2 + (height / 2 + extra) * Math.sin(angle) });
+      }
+    }
+    // Vertex handles preserve the recognized orientation; corner handles scale the whole figure.
+    if (obj.shapeVertices && obj.kind === "triangle") obj.shapeVertices.forEach((p, i) => controls.push({ name: `shape-vertex-${i}`, x: x + width * p.x, y: y + height * p.y }));
+    const angle = obj.rotation || 0, cx = x + width / 2, cy = y + height / 2;
+    return controls.map(p => ({ ...p, x: cx + (p.x-cx)*Math.cos(angle)-(p.y-cy)*Math.sin(angle), y: cy+(p.x-cx)*Math.sin(angle)+(p.y-cy)*Math.cos(angle) }));
+  }
+
+  _updateShapeControl(obj, wx, wy, stretch = false) {
+    const before = this.dragStart.shapeBefore;
+    Object.assign(obj, JSON.parse(JSON.stringify(before)));
+    const angle = obj.rotation || 0, cx = obj.x + obj.width / 2, cy = obj.y + obj.height / 2;
+    const px = cx + (wx-cx)*Math.cos(angle)+(wy-cy)*Math.sin(angle);
+    const py = cy - (wx-cx)*Math.sin(angle)+(wy-cy)*Math.cos(angle);
+    const handle = this.resizeHandle;
+    if (handle === "shape-start" || handle === "shape-end") {
+      const t = obj.curveAxis === "y" ? (py-obj.y)/(obj.height || 1) : (px-obj.x)/(obj.width || 1);
+      const start = handle === "shape-start" ? Math.min(.97, t) : 0, end = handle === "shape-end" ? Math.max(.03, t) : 1;
+      if (stretch && obj.kind === "sine") {
+        if (obj.curveAxis === "y") { obj.y += obj.height*start; obj.height *= end-start; }
+        else { obj.x += obj.width*start; obj.width *= end-start; }
+      } else setCurveRange(obj, start, end);
+    } else if (handle === "shape-period") {
+      const delta = (px-this.dragStart.localX) / Math.max(10, obj.width);
+      obj.curve = { ...obj.curve, frequency: Math.max(Math.PI*.4, Math.min(Math.PI*40, obj.curve.frequency*Math.exp(delta*2))) };
+      setCurveRange(obj, 0, 1);
+    } else if (handle.startsWith("shape-arc-")) {
+      const a = Math.atan2((py-cy)/(obj.height/2 || 1), (px-cx)/(obj.width/2 || 1));
+      const tau = Math.PI*2, start = obj.arcStart || 0, end = start + (obj.arcSweep ?? tau);
+      const sweep = ((handle === "shape-arc-start" ? end-a : a-start) % tau + tau) % tau;
+      obj.arcStart = handle === "shape-arc-start" ? a : start;
+      obj.arcSweep = sweep < .045 || tau-sweep < .045 ? tau : sweep;
+    } else if (handle.startsWith("shape-vertex-")) {
+      const index = Number(handle.split("-").at(-1));
+      obj.shapeVertices[index] = { x: (px-obj.x)/(obj.width || 1), y: (py-obj.y)/(obj.height || 1) };
+      const vertices = obj.shapeVertices.map(p => ({ x:obj.x+p.x*obj.width, y:obj.y+p.y*obj.height }));
+      obj.x = Math.min(...vertices.map(p=>p.x)); obj.y = Math.min(...vertices.map(p=>p.y));
+      obj.width = Math.max(1, Math.max(...vertices.map(p=>p.x))-obj.x); obj.height = Math.max(1,Math.max(...vertices.map(p=>p.y))-obj.y);
+      obj.shapeVertices = vertices.map(p=>({ x:(p.x-obj.x)/obj.width,y:(p.y-obj.y)/obj.height }));
+    }
+    // A changed local bounding box must not shift an already rotated curve/polygon.
+    const dx = obj.x + obj.width/2-cx, dy = obj.y+obj.height/2-cy;
+    obj.x += dx*Math.cos(angle)-dy*Math.sin(angle)-dx;
+    obj.y += dx*Math.sin(angle)+dy*Math.cos(angle)-dy;
     this.render();
   }
 
@@ -4713,6 +4837,7 @@ export class Whiteboard {
         this.isPanning = false;
         this.isDrawingStroke = false;
         this.isDrawingShape = false;
+        this.autoShapePoints = null;
         this.isDraggingObj = false;
         this.isResizingObj = false;
         this.isBoxSelecting = false;
@@ -4805,7 +4930,7 @@ export class Whiteboard {
       }
 
       if (this.tool === "shape") {
-        const kind = this.currentShapeType || "rect";
+        const kind = this.currentShapeType || "auto";
         this._startShape(wx, wy, kind);
         return;
       }
@@ -4877,6 +5002,12 @@ export class Whiteboard {
             this.resizeHandle = handle;
 
             const obj = this.selectedObj;
+
+            if (handle.startsWith("shape-")) {
+              const cx = obj.x + obj.width / 2, cy = obj.y + obj.height / 2, angle = obj.rotation || 0;
+              this.dragStart = { shapeBefore: this._shapeEditSnapshot(obj), localX: cx+(wx-cx)*Math.cos(angle)+(wy-cy)*Math.sin(angle) };
+              return;
+            }
 
             // ★ ① 回転ハンドルを掴んだとき
             if (handle === "rotate") {
@@ -5472,6 +5603,11 @@ export class Whiteboard {
           if (!this.selectedObj) return;
           const obj = this.selectedObj;
 
+          if (this.dragStart.shapeBefore) {
+            this._updateShapeControl(obj, wx, wy, e.shiftKey);
+            return;
+          }
+
           // ★ ① 回転ハンドルをドラッグ中
           if (
             this.resizeHandle === "rotate" &&
@@ -5734,6 +5870,10 @@ export class Whiteboard {
       this.currentStroke = null;
 
       if (this.isDrawingShape) {
+        if (this.autoShapePoints && e.type !== "touchcancel") {
+          const { wx, wy } = getPos(e.changedTouches?.[0] || e);
+          this._updateShape(wx, wy);
+        }
         this._finishShape();
       }
 
@@ -5750,6 +5890,14 @@ export class Whiteboard {
 
         // ★ ここから：移動／リサイズの履歴を記録する ------------------
         if (this.dragStart) {
+          if (this.dragStart.shapeBefore && this.selectedObj) {
+            const before = this.dragStart.shapeBefore, after = this._shapeEditSnapshot(this.selectedObj);
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+              this.history.push({ kind: "transform", objects: [{ obj: this.selectedObj, before, after }], strokes: [] });
+              this._markDirty();
+              changedObjectsForAction.push(this.selectedObj);
+            }
+          }
           // ① 複数オブジェクト／ストロークのドラッグ移動
           if (this.dragStart.objects || this.dragStart.strokes) {
             const changedObjects = [];
@@ -6796,6 +6944,27 @@ export class Whiteboard {
         ctx.restore();
       }
 
+      else if (obj.curve || obj.shapeVertices) {
+        ctx.save();
+        const angle = obj.rotation || 0, cx = x+width/2, cy = y+height/2;
+        ctx.translate(cx,cy); ctx.rotate(angle); ctx.translate(-cx,-cy);
+        ctx.strokeStyle = strokeColor; ctx.fillStyle = fillColor; ctx.lineWidth = strokeWidth / this.scale;
+        ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
+        const vertices = obj.curve
+          ? Array.from({length: Math.min(2049, Math.max(129, Math.ceil((obj.curve.frequency || 8)*24)))}, (_,i) => i)
+          : obj.shapeVertices;
+        if (obj.curve) {
+          for (let i=0; i<vertices.length; i++) {
+            const p = curvePoint(obj, i/(vertices.length-1));
+            if (i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
+          }
+        } else {
+          vertices.forEach((p,i) => { if(i===0) ctx.moveTo(x+p.x*width,y+p.y*height); else ctx.lineTo(x+p.x*width,y+p.y*height); });
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.stroke(); ctx.restore();
+      }
+
       else if (kind === "rect") {
         ctx.save();
 
@@ -6862,10 +7031,10 @@ export class Whiteboard {
           Math.abs(width) / 2,
           Math.abs(height) / 2,
           0,
-          0,
-          2 * Math.PI
+          obj.arcStart || 0,
+          (obj.arcStart || 0) + (obj.arcSweep ?? 2 * Math.PI)
         );
-        ctx.fill();
+        if ((obj.arcSweep ?? 2 * Math.PI) >= 2 * Math.PI - .001) ctx.fill();
         ctx.stroke();
         ctx.restore();
       }
@@ -7609,6 +7778,14 @@ export class Whiteboard {
       ctx.restore();
     }
 
+    if (this.autoShapePoints?.length) {
+      ctx.save(); ctx.strokeStyle = this.shapeDefaults?.stroke || "#111827";
+      ctx.lineWidth = (this.shapeDefaults?.strokeWidth || 3) / this.scale;
+      ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath();
+      this.autoShapePoints.forEach((p,i) => { if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+      ctx.stroke(); ctx.restore();
+    }
+
     // ---- リサイズハンドルの描画 ----
     const multiSelectionBounds = this.tool === "select"
       ? this._getMultiSelectionBounds()
@@ -7796,6 +7973,14 @@ export class Whiteboard {
     const dpr = this.dpr || window.devicePixelRatio || 1;
     const sizeWorld = handleSizePx / (this.scale * dpr); // ワールド座標でのサイズ
     const halfWorld = sizeWorld / 2;
+
+    for (const control of this._shapeEditControls(obj)) {
+      const screen = this._worldToScreen(control.x, control.y);
+      this.handleRects.push({name:control.name, x:screen.x-12, y:screen.y-12, size:24});
+      ctx.save(); ctx.fillStyle = "#ffffff"; ctx.strokeStyle = control.name === "shape-period" ? "#9333ea" : "#0891b2";
+      ctx.lineWidth = 2 / this.scale; ctx.beginPath(); ctx.arc(control.x,control.y,6/this.scale,0,Math.PI*2);
+      ctx.fill(); ctx.stroke(); ctx.restore();
+    }
 
     // ==== 1) 線・矢印・相互矢印 → 両端だけ（現状維持） ====
     if (kind === "line" || kind === "arrow" || kind === "double-arrow") {

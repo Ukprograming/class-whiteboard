@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -723,7 +723,7 @@ export function initBoardUI() {
   );
   const shapeDepthRange = document.getElementById("shapeDepthRange");
   const shapeSettingsPanel = document.getElementById("shapeSettings");
-  let currentShapeKey = "rect";
+  let currentShapeKey = "auto";
   const editableShapeKinds = new Set([
     "line", "arrow", "double-arrow", "triangle", "rect", "rounded-rect",
     "ellipse", "diamond", "parallelogram", "trapezoid", "pentagon",
@@ -1815,6 +1815,9 @@ export function initBoardUI() {
 
   function createShapePreview(key) {
     const paths = {
+      auto: '<path d="M3 19 7 8l4 8 4-12 6 14"/>',
+      parabola: '<path d="M3 3Q12 39 21 3"/>',
+      sine: '<path d="M2 12Q7-6 12 12T22 12"/>',
       line: '<path d="M4 20 20 4"/>',
       arrow: '<path d="M4 12h15M14 7l5 5-5 5"/>',
       "double-arrow": '<path d="M5 12h14M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
@@ -1850,6 +1853,9 @@ export function initBoardUI() {
 
     // Whiteboard 側に shapePresets があればそれを使う。なければデフォルト。
     const defaultShapes = [
+      { key: "auto", label: "自動判定" },
+      { key: "parabola", label: "放物線" },
+      { key: "sine", label: "サインカーブ" },
       { key: "line", label: "直線", icon: "／" },
       { key: "arrow", label: "矢印", icon: "→" },
       { key: "double-arrow", label: "相互矢印", icon: "↔" },
@@ -1868,6 +1874,10 @@ export function initBoardUI() {
       { key: "cylinder", label: "円柱", icon: "◯┃" }
     ];
 
+    const hint = document.createElement("p");
+    hint.className = "shape-recognition-hint";
+    hint.textContent = "自動判定：一筆で描いて離すと図形に変換。水色の端点で曲線の範囲・円弧を調整。サインの紫ハンドル、または Shift＋端点で周期を調整。判定できない線は手描きのまま残ります。";
+    host.append(hint);
     const shapePresets = wb.shapePresets || defaultShapes;
 
     shapePresets.forEach(shape => {
