@@ -10,19 +10,32 @@ const closed = {
   ellipse: Array.from({length:121},(_,i)=>({x:100*Math.cos(i*Math.PI/60),y:80*Math.sin(i*Math.PI/60)}))
 };
 let cases = 0;
+function assertDefaultGeometry(obj) {
+  if (obj.kind === 'ellipse') assert.equal(obj.width,obj.height,'recognized circle has equal diameters');
+  if (obj.kind === 'rect' || obj.kind === 'parallelogram') {
+    const v=obj.shapeVertices.map(p=>({x:obj.x+p.x*obj.width,y:obj.y+p.y*obj.height}));
+    const horizontal=v.map((p,i)=>Math.abs(p.y-v[(i+1)%4].y)<1e-8);
+    assert(horizontal[0] && horizontal[2] || horizontal[1] && horizontal[3],'opposite base edges are horizontal');
+    if(obj.kind==='rect') v.forEach((p,i)=>assert(horizontal[i] || Math.abs(p.x-v[(i+1)%4].x)<1e-8,'rectangle sides are vertical'));
+  }
+}
 for (const [kind, points] of Object.entries(closed)) {
   for (const offset of [0,10,20,40]) for(const reverse of [false,true]) {
     const ring = points.slice(0,-1);
     let p = [...ring.slice(offset),...ring.slice(0,offset),ring[offset]];
     if(reverse) p.reverse();
     p=p.map((p,i)=>({x:p.x+2*Math.sin(i*1.3),y:p.y+2*Math.cos(i*2.1)}));
-    assert.equal(recognizeShape(p)?.kind,kind,`${kind} start=${offset} reverse=${reverse}`);
+    const obj=recognizeShape(p);
+    assert.equal(obj?.kind,kind,`${kind} start=${offset} reverse=${reverse}`);
+    assertDefaultGeometry(obj);
     cases++;
   }
 }
-for(const angle of [0,.4,1.3]) {
-  const points=closed.rect.map(p=>({x:p.x*Math.cos(angle)-p.y*Math.sin(angle),y:p.x*Math.sin(angle)+p.y*Math.cos(angle)}));
-  assert.equal(recognizeShape(points)?.kind,'rect'); cases++;
+for(const kind of ['rect','parallelogram']) for(const angle of [0,.4,-.4,1.3,2.8]) {
+  const points=closed[kind].map(p=>({x:p.x*Math.cos(angle)-p.y*Math.sin(angle),y:p.x*Math.sin(angle)+p.y*Math.cos(angle)}));
+  const obj=recognizeShape(points);
+  assert.equal(obj?.kind,kind);
+  assertDefaultGeometry(obj); cases++;
 }
 for(const kind of ['parabola','sine']) for(const swap of [false,true]) for(const reverse of [false,true]) {
   let points=Array.from({length:121},(_,i)=>({x:50+i*3,y:kind==='parabola'?30+130*(2*i/120-1)**2:150+60*Math.sin(i/120*Math.PI*4)}));

@@ -89,13 +89,19 @@ export function recognizeShape(raw) {
       let kind='triangle';
       let v=vertices;
       if(v.length===4) {
-        // Average opposing edges to make a true parallelogram, preserving orientation.
+        // Average opposing edges, then level the pair closest to horizontal.
         const center={x:v.reduce((s,p)=>s+p.x,0)/4,y:v.reduce((s,p)=>s+p.y,0)/4};
-        const u={x:(v[1].x-v[0].x+v[2].x-v[3].x)/4,y:(v[1].y-v[0].y+v[2].y-v[3].y)/4};
+        let u={x:(v[1].x-v[0].x+v[2].x-v[3].x)/4,y:(v[1].y-v[0].y+v[2].y-v[3].y)/4};
         let w={x:(v[3].x-v[0].x+v[2].x-v[1].x)/4,y:(v[3].y-v[0].y+v[2].y-v[1].y)/4};
         const dot=(u.x*w.x+u.y*w.y)/(Math.hypot(u.x,u.y)*Math.hypot(w.x,w.y)||1);
         kind=Math.abs(dot)<.25?'rect':'parallelogram';
         if(kind==='rect') { const k=(u.x*w.y-u.y*w.x)/(u.x*u.x+u.y*u.y||1); w={x:-u.y*k,y:u.x*k}; }
+        const base = Math.abs(u.y)/Math.hypot(u.x,u.y) <= Math.abs(w.y)/Math.hypot(w.x,w.y) ? u : w;
+        let angle = Math.atan2(base.y, base.x);
+        if (angle > Math.PI/2) angle -= Math.PI;
+        if (angle < -Math.PI/2) angle += Math.PI;
+        const level = edge => ({x:edge.x*Math.cos(angle)+edge.y*Math.sin(angle), y:-edge.x*Math.sin(angle)+edge.y*Math.cos(angle)});
+        u = level(u); w = level(w);
         v=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>({x:center.x+a*u.x+b*w.x,y:center.y+a*u.y+b*w.y}));
       }
       const bx=Math.min(...v.map(p=>p.x)),by=Math.min(...v.map(p=>p.y));
@@ -103,7 +109,11 @@ export function recognizeShape(raw) {
       return {kind,x:bx,y:by,width:bw,height:bh,shapeVertices:v.map(p=>({x:(p.x-bx)/bw,y:(p.y-by)/bh}))};
     }
     const radial=p.reduce((s,p)=>s+Math.abs(Math.hypot((p.x-x-width/2)/(width/2),(p.y-y-height/2)/(height/2))-1),0)/p.length;
-    if(radial<.18) return {kind:'ellipse',...bounds};
+    if(radial<.18) {
+      // Keep the drawn center and average diameter, but always create a true circle.
+      const diameter = (width + height) / 2;
+      return {kind:'ellipse',x:x+width/2-diameter/2,y:y+height/2-diameter/2,width:diameter,height:diameter};
+    }
     return null;
   }
   let best=null;
