@@ -27,8 +27,33 @@ export function initBoardUI() {
   const pageAddBtn = document.getElementById("pageAddBtn");
   const pageRenameBtn = document.getElementById("pageRenameBtn");
   const pageDeleteBtn = document.getElementById("pageDeleteBtn");
+  const compactPageNav = document.createElement("nav");
+  compactPageNav.className = "compact-page-nav";
+  compactPageNav.setAttribute("aria-label", "ホワイトボードのページ切り替え");
+  const pageNavButtons = [-1, 1].map(direction => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon-btn";
+    const label = direction < 0 ? "前のページ" : "次のページ";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.innerHTML = `<span class="material-symbols-rounded">chevron_${direction < 0 ? "left" : "right"}</span>`;
+    button.addEventListener("click", () => {
+      const pages = wb.getPages();
+      const index = pages.findIndex(page => page.id === wb.activePageId);
+      const target = index >= 0 ? pages[index + direction] : null;
+      if (target) wb.selectPage(target.id);
+    });
+    compactPageNav.appendChild(button);
+    return button;
+  });
+  pageTabsEl?.closest(".floating-topbar")?.prepend(compactPageNav);
+  replaceMaterialIcons();
 
   function renderPageTabs({ pages = wb.getPages(), activePageId = wb.activePageId } = {}) {
+    const activeIndex = pages.findIndex(page => page.id === activePageId);
+    pageNavButtons[0].disabled = activeIndex <= 0;
+    pageNavButtons[1].disabled = activeIndex < 0 || activeIndex >= pages.length - 1;
     if (!pageTabsEl) return;
     pageTabsEl.innerHTML = "";
     pages.forEach(page => {

@@ -377,9 +377,19 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 }
 .chrome-toggle .app-icon { transform: rotate(90deg); }
 .chrome-hidden .chrome-toggle .app-icon { transform: rotate(-90deg); }
-.app-root.chrome-hidden .floating-topbar > :not(.chrome-toggle),
+.app-root .compact-page-nav { display: none; }
+.app-root.chrome-hidden .floating-topbar > :not(.chrome-toggle, .topbar-right, .compact-page-nav),
+.app-root.chrome-hidden .topbar-right > :not(#chatToggleBtn),
 .app-root.chrome-hidden .floating-bottom-right { display: none !important; }
 .app-root.chrome-hidden .floating-topbar { justify-content: flex-end; pointer-events: none; }
+.app-root.chrome-hidden .topbar-right { margin-left: auto; }
+.app-root.chrome-hidden .floating-topbar:has(.page-toolbar:not(.hidden)) .compact-page-nav {
+  display: flex; align-items: center; gap: 2px; margin-right: auto;
+  background: var(--cw-surface); border: 1px solid var(--cw-line);
+  border-radius: var(--cw-radius); box-shadow: var(--cw-shadow-soft);
+}
+.app-root .compact-page-nav .icon-btn { width: 36px; min-width: 36px; height: 40px; padding: 0; }
+.app-root .compact-page-nav .icon-btn:disabled { opacity: .35; cursor: default; }
 .app-root.chrome-hidden .chrome-toggle { pointer-events: auto; }
 .app-root.sidebar-tools-collapsed :is(#contextMenu, #textSettings, .floating-palette) { display: none !important; }
 @media (max-width: 680px) {
@@ -390,5 +400,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .page-toolbar { padding-right: 48px; }
   .app-root .chrome-toggle { position: absolute; right: 0; top: 0; height: 52px; }
   .app-root .floating-topbar:has(.page-toolbar:not(.hidden)) .chrome-toggle { top: 58px; }
-  .app-root.chrome-hidden .floating-topbar > #chromeToggle { top: 0; }
+  .app-root.chrome-hidden .floating-topbar > #chromeToggle { position: static; }
+  .app-root.chrome-hidden .floating-topbar,
+  .app-root.chrome-hidden .floating-topbar:has(.page-toolbar:not(.hidden)) { padding-right: 0; flex-wrap: nowrap; }
 }
