@@ -6896,20 +6896,30 @@ export class Whiteboard {
         const y1 = y;
         const x2 = x + width;
         const y2 = y + height;
+        const length = Math.hypot(width, height);
+        const headLen = Math.max(10, strokeWidth * 3) / this.scale;
+        const headDepth = headLen * Math.cos(Math.PI / 6);
+        const startInset = kind === "double-arrow" ? headDepth : 0;
+        const endInset = kind === "line" ? 0 : headDepth;
+        const ux = length ? width / length : 0;
+        const uy = length ? height / length : 0;
 
         ctx.save();
         ctx.beginPath();
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth / this.scale;
         ctx.lineCap = "round";
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
+        // Stop the shaft at each head's base so its round cap cannot protrude
+        // through the tip. Very short arrows need only their heads.
+        if (kind === "line" || length > startInset + endInset) {
+          ctx.moveTo(x1 + ux * startInset, y1 + uy * startInset);
+          ctx.lineTo(x2 - ux * endInset, y2 - uy * endInset);
+          ctx.stroke();
+        }
 
         if (kind === "arrow" || kind === "double-arrow") {
           const angle = Math.atan2(y2 - y1, x2 - x1);
           // Keep thin arrows at the familiar size, then grow the head with the shaft.
-          const headLen = Math.max(10, strokeWidth * 3) / this.scale;
           ctx.beginPath();
           ctx.moveTo(x2, y2);
           ctx.lineTo(
@@ -6926,7 +6936,6 @@ export class Whiteboard {
         }
         if (kind === "double-arrow") {
           const angle = Math.atan2(y1 - y2, x1 - x2);
-          const headLen = Math.max(10, strokeWidth * 3) / this.scale;
           ctx.beginPath();
           ctx.moveTo(x1, y1);
           ctx.lineTo(
