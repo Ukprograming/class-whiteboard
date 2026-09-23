@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="barrel" x1="19" y1="20" x2="29" y2="20" gradientUnits="userSpaceOnUse"><stop stop-color="#75baff"/><stop offset=".35" stop-color="#3987ee"/><stop offset="1" stop-color="#2254b8"/></linearGradient>
+    <linearGradient id="metal" x1="19" y1="33" x2="29" y2="33" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset=".45" stop-color="#e2eaf3"/><stop offset="1" stop-color="#91a4bc"/></linearGradient>
+  </defs>
+  <g transform="rotate(42 24 24)" stroke-linejoin="round">
+    <path d="M20 9V6a4 4 0 0 1 8 0v3" fill="#254774" stroke="#24466e" stroke-width="1.3"/>
+    <path d="M19 9h10v23l-2 4h-6l-2-4Z" fill="url(#barrel)" stroke="#234e88" stroke-width="1.3"/>
+    <path d="M21.3 11v17" stroke="#bce2ff" stroke-width="1.6" stroke-linecap="round" opacity=".85"/>
+    <path d="M27.5 9v11" stroke="#193f7b" stroke-width="2.3" stroke-linecap="round"/>
+    <path d="M27.1 9.5v9.5" stroke="#d9eafa" stroke-width="1.1" stroke-linecap="round"/>
+    <path d="M19.3 30h9.4v2.5h-9.4Z" fill="#234d86"/>
+    <path d="M20.6 33h6.8L25 41h-2Z" fill="url(#metal)" stroke="#526980" stroke-width="1.1"/>
+    <path d="M23 40h2l-1 4Z" fill="#203754" stroke="#203754" stroke-width=".7"/>
+  </g>
+</svg>
