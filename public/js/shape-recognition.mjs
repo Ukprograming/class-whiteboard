@@ -25,22 +25,63 @@ function resample(points, count = 96) {
   });
 }
 function fit(points, basis) {
-  const m=Array.from({length:3},()=>[0,0,0,0]);
+  const n=basis(points[0].x).length;
+  const m=Array.from({length:n},()=>Array(n+1).fill(0));
   for(const p of points) {
     const v=basis(p.x);
-    for(let i=0;i<3;i++) { for(let j=0;j<3;j++) m[i][j]+=v[i]*v[j]; m[i][3]+=v[i]*p.y; }
+    for(let i=0;i<n;i++) { for(let j=0;j<n;j++) m[i][j]+=v[i]*v[j]; m[i][n]+=v[i]*p.y; }
   }
-  for(let i=0;i<3;i++) {
+  for(let i=0;i<n;i++) {
     let pivot=i;
-    for(let j=i+1;j<3;j++) if(Math.abs(m[j][i])>Math.abs(m[pivot][i])) pivot=j;
+    for(let j=i+1;j<n;j++) if(Math.abs(m[j][i])>Math.abs(m[pivot][i])) pivot=j;
     [m[i],m[pivot]]=[m[pivot],m[i]];
     const d=m[i][i]; if(Math.abs(d)<1e-9) return null;
-    for(let k=i;k<4;k++) m[i][k]/=d;
-    for(let j=0;j<3;j++) if(j!==i) { const f=m[j][i]; for(let k=i;k<4;k++) m[j][k]-=f*m[i][k]; }
+    for(let k=i;k<=n;k++) m[i][k]/=d;
+    for(let j=0;j<n;j++) if(j!==i) { const f=m[j][i]; for(let k=i;k<=n;k++) m[j][k]-=f*m[i][k]; }
   }
-  const c=m.map(row=>row[3]);
+  const c=m.map(row=>row[n]);
   const error=Math.sqrt(points.reduce((s,p)=>s+(p.y-basis(p.x).reduce((v,b,i)=>v+b*c[i],0))**2,0)/points.length);
   return {c,error};
+}
+
+function fitHandwrittenSine(points) {
+  // Equal horizontal weighting avoids over-weighting slow/dense crests. Small
+  // backwards pen movements are harmless; loops still fail the travel gate.
+  const sorted=[...points].sort((a,b)=>a.x-b.x);
+  let j=1;
+  const samples=Array.from({length:81},(_,i)=>{
+    const x=i/80;
+    while(j<sorted.length-1 && sorted[j].x<x) j++;
+    const a=sorted[j-1],b=sorted[j],t=Math.max(0,Math.min(1,(x-a.x)/(b.x-a.x || 1)));
+    return {x,y:a.y+(b.y-a.y)*t};
+  });
+  const smooth=samples.map((p,i)=>{
+    const neighbors=samples.slice(Math.max(0,i-2),Math.min(samples.length,i+3));
+    return {x:p.x,y:neighbors.reduce((sum,p)=>sum+p.y,0)/neighbors.length};
+  });
+  let best=null;
+  for(let frequency=TAU*.55;frequency<=TAU*5;frequency+=.06) {
+    // A drifting hand-drawn baseline is removed when making the clean sine.
+    const result=fit(smooth,t=>[Math.sin(frequency*t),Math.cos(frequency*t),1,t-.5]);
+    if(!result) continue;
+    const [s,c,offset,slope]=result.c, amplitude=Math.hypot(s,c);
+    if(amplitude<.16 || Math.abs(slope)>1.5 || result.error>.14 || result.error>amplitude*.28) continue;
+    // Require a crest AND a trough, not just a U, S-shaped bend, or tiny jitter.
+    const threshold=amplitude*.55;
+    const hasOscillations=values=>{
+      let direction=0, extreme=values[0], turns=0;
+      for(const value of values.slice(1)) {
+        if(direction===0) {
+          if(Math.abs(value-extreme)>threshold) { direction=Math.sign(value-extreme); extreme=value; }
+        } else if((value-extreme)*direction>=0) extreme=value;
+        else if(Math.abs(value-extreme)>threshold) { turns++; direction=-direction; extreme=value; }
+      }
+      return turns>=2;
+    };
+    if(!hasOscillations(smooth.map(p=>p.y)) || !hasOscillations(smooth.map(p=>p.y-slope*(p.x-.5)))) continue;
+    if(!best || result.error<best.error) best={curve:{amplitude,frequency,phase:Math.atan2(c,s),offset},error:result.error};
+  }
+  return best;
 }
 export function curveValue(obj, t) {
   const c=obj.curve;
@@ -116,12 +157,12 @@ export function recognizeShape(raw) {
     }
     return null;
   }
-  let best=null;
+  let best=null, handwritten=null;
   for(const axis of ['x','y']) {
     const span=axis==='x'?width:height; if(span<size*.2) continue;
     const q=p.map(p=>axis==='x'?{x:(p.x-x)/width,y:(p.y-y)/(height||1)}:{x:(p.y-y)/height,y:(p.x-x)/(width||1)});
     const travel=q.slice(1).reduce((s,p,i)=>s+Math.abs(p.x-q[i].x),0);
-    if(travel>1.25) continue;
+    if(travel>1.45 || Math.abs(q.at(-1).x-q[0].x)<.8) continue;
     const quad=fit(q,t=>[t*t,t,1]);
     if(quad && Math.abs(quad.c[0])>.4 && quad.error<.075) {
       const [a,b,c]=quad.c, vertex=-b/(2*a);
@@ -134,7 +175,11 @@ export function recognizeShape(raw) {
         best={kind:'sine',...bounds,curveAxis:axis,curve:{amplitude:Math.hypot(s,c),frequency:f,phase:Math.atan2(c,s),offset},error:result.error};
       }
     }
+    const relaxed=best ? null : fitHandwrittenSine(q);
+    if(relaxed && (!handwritten || relaxed.error<handwritten.error)) handwritten={kind:'sine',...bounds,curveAxis:axis,...relaxed};
   }
+  // Preserve confident existing classifications, especially parabolas.
+  if(!best) best=handwritten;
   if(best) { delete best.error; setCurveRange(best,0,1); }
   return best;
 }

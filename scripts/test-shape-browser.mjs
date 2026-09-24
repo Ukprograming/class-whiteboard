@@ -60,7 +60,10 @@ const samples = {
   triangle:poly([{x:220,y:100},{x:100,y:300},{x:350,y:300},{x:220,y:100}]),
   parallelogram:poly([{x:180,y:100},{x:400,y:100},{x:320,y:300},{x:100,y:300},{x:180,y:100}]),
   parabola:Array.from({length:81},(_,i)=>({x:100+i*4,y:140+160*(2*i/80-1)**2})),
-  sine:Array.from({length:81},(_,i)=>({x:100+i*4,y:230+65*Math.sin(i/80*Math.PI*4)}))
+  sine:Array.from({length:101},(_,i)=>{
+    const t=i/100;
+    return {x:100+320*t,y:200+65*((.75+.5*t)*Math.sin(4*Math.PI*(t+.025*Math.sin(2*Math.PI*t)))+.7*t+.055*Math.sin(47*Math.PI*t))};
+  })
 };
 async function draw(kind) {
   await page.evaluate(()=>{wb.objects=[];wb.strokes=[];wb.history=[];wb.redoHistory=[];wb._setSelected(null);wb.setShapeType('auto');wb.setTool('shape');});

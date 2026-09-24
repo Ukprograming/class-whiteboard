@@ -50,6 +50,29 @@ for(const kind of ['parabola','sine']) for(const swap of [false,true]) for(const
   assert(Object.values(obj.curve).every(Number.isFinite));
 }
 assert.equal(recognizeShape([{x:1,y:1}]),null);
+const handwrittenWaves = {
+  amplitude:t=>(.65+.65*t)*Math.sin(4*Math.PI*t),
+  period:t=>Math.sin(4*Math.PI*(t+.045*Math.sin(2*Math.PI*t))),
+  tilt:t=>Math.sin(4*Math.PI*t)+1.1*t,
+  combined:t=>(.75+.5*t)*Math.sin(4*Math.PI*(t+.025*Math.sin(2*Math.PI*t)))+.7*t+.055*Math.sin(47*Math.PI*t)
+};
+for(const [name,wave] of Object.entries(handwrittenWaves)) for(const reverse of [false,true]) for(const swap of [false,true]) {
+  // Uneven pointer sampling simulates changes in drawing speed.
+  let points=Array.from({length:151},(_,i)=>{
+    const t=(i/150)**1.3;
+    return {x:100+400*t,y:200+65*wave(t)};
+  });
+  if(reverse) points.reverse();
+  if(swap) points=points.map(p=>({x:p.y,y:p.x}));
+  const obj=recognizeShape(points);
+  assert.equal(obj?.kind,'sine',`${name} reverse=${reverse} swap=${swap}`);
+  assert(Math.abs(obj.curve.frequency/(2*Math.PI)-2)<.3,`${name} preserves approximate cycle count`);
+  cases++;
+}
+for(const [name,wave] of Object.entries({u:t=>(2*t-1)**2,s:t=>(2*t-1)**3,ramp:t=>t,exponential:t=>Math.exp(2*t)})) {
+  const points=Array.from({length:121},(_,i)=>({x:400*i/120,y:50*wave(i/120)}));
+  assert.notEqual(recognizeShape(points)?.kind,'sine',`${name} is not an oscillating wave`);
+}
 assert.equal(recognizeShape([{x:1,y:1},{x:1,y:1}]),null);
 assert.equal(recognizeShape([{x:0,y:0},{x:100,y:1},{x:200,y:0}])?.kind,'line');
 assert.equal(recognizeShape(poly([{x:0,y:0},{x:100,y:100},{x:0,y:100},{x:100,y:0},{x:0,y:0},{x:100,y:50}])) ,null);
