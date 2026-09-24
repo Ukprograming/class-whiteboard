@@ -28,6 +28,8 @@ const moduleFiles = [
   "public/js/realtime-load-control.js",
   "public/js/realtime-send-queue.js",
   "public/js/stamps.js",
+  "public/js/stamp-artwork.mjs",
+  "public/js/stamp-history.mjs",
   "public/js/student.js",
   "public/js/student-bulk-import.js",
   "public/js/student-forms.js",

@@ -5,7 +5,7 @@
 
 import { recognizeShape, curvePoint, setCurveRange } from "./shape-recognition.mjs?v=20260924b";
 import { LaserTrail } from "./laser-trail.js?v=20260922";
-import { STAMP_PRESETS, drawStamp } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { STAMP_PRESETS, drawStamp, recordStampUse } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
 import { assertMediaSize } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { formatTextCount } from "./text-count.mjs?v=word-count-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { strokeIntersectsPath } from "./stroke-hit-test.mjs?v=eraser-hit-20260825&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -4773,6 +4773,7 @@ export class Whiteboard {
     };
 
     this._addObject(obj);
+    recordStampUse(key);
     if (this.onAction) {
       this.onAction({ type: "object", object: obj });
     }

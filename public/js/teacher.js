@@ -1,7 +1,7 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924b";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924b&arrow-tip=20260924";
-import { STAMP_PRESETS, createStampElement } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924b&stamp-refresh=20260924";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924b&arrow-tip=20260924&stamp-refresh=20260924";
+import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
 import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   canAcceptTeacherBoardSnapshot,
@@ -3273,11 +3273,13 @@ function updateModalDrawSettings() {
 function showModalToolMenu(tool) {
   if (!modalToolMenu) return;
   modalSettingsOpenTool = tool;
+  if (tool === "stamp") refreshModalStampPalette();
   modalDrawSettings?.classList.toggle("hidden", !["pen", "highlighter"].includes(tool));
   modalStickySettings?.classList.toggle("hidden", tool !== "sticky");
   modalStampSettings?.classList.toggle("hidden", tool !== "stamp");
   modalToolMenu.classList.toggle("stamp-open", tool === "stamp");
   modalToolMenu.classList.remove("hidden");
+  if (tool === "stamp" && modalStampItems) modalStampItems.scrollTop = 0;
   if (tool === "pen" || tool === "highlighter") updateModalDrawSettings();
   updateModalToolButtons();
   requestAnimationFrame(() => positionModalToolMenu(getModalToolButton(tool)));
@@ -3370,32 +3372,15 @@ modalStickyColorButtons.forEach(btn => {
   });
 });
 
-if (modalStampItems) {
-  const stampEntries = Object.entries(STAMP_PRESETS);
-  const orderedStampEntries = [
-    ...stampEntries.filter(([, preset]) => !!preset.imageSrc),
-    ...stampEntries.filter(([, preset]) => !preset.imageSrc)
-  ];
-  orderedStampEntries.forEach(([key, preset]) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "stamp-item";
-    item.dataset.stampKey = key;
-    item.title = preset.label || key;
-    item.setAttribute("aria-label", preset.label || key);
-    item.classList.toggle("active", key === modalSelectedStamp);
-    item.appendChild(createStampElement(key));
-    item.addEventListener("click", () => {
-      modalSelectedStamp = key;
-      modalBoard?.setStampType?.(key);
-      modalStampItems.querySelectorAll(".stamp-item").forEach(stampItem => {
-        stampItem.classList.toggle("active", stampItem === item);
-      });
-      closeModalToolMenu();
-    });
-    modalStampItems.appendChild(item);
-  });
+function refreshModalStampPalette() {
+  if (!modalStampItems) return;
+  renderStampPalette(modalStampItems, key => {
+    modalSelectedStamp = key;
+    modalBoard?.setStampType?.(key);
+    closeModalToolMenu();
+  }, modalSelectedStamp);
 }
+refreshModalStampPalette();
 
 document.addEventListener("pointerdown", event => {
   if (!modalSettingsOpenTool || !modalToolMenu || modalToolMenu.classList.contains("hidden")) return;
