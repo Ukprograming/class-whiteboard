@@ -111,6 +111,71 @@ for (const kind of ["edit-text", "text-appearance", "transform", "edit-table", "
   wb.undoLast(); wb.undoLast(); wb.redoLast(); wb.redoLast();
   assert.equal(wb.objects[0].text, "after", "creation followed by edit retains references through multiple undos");
 }
+// Clipboard snapshots retain the entire selection and undo as one operation.
+{
+  const wb = board();
+  const image = { pixels: "loaded-image" };
+  const kinds = ["rect", "text", "sticky", "table", "stamp", "image", "video", "audio", "youtube", "triangle"];
+  const originals = kinds.map((kind, i) => ({
+    id: `original-${i}`, kind, x: i * 10, y: i * 20, width: 80, height: 40,
+    groupId: "original-group", text: "copied text",
+    ...(kind === "image" ? { image, assetKey: "image-asset" } : {}),
+    ...(["video", "audio"].includes(kind) ? { assetKey: `${kind}-asset`, videoObjectUrl: `blob:${kind}` } : {}),
+    ...(kind === "table" ? { cells: [{ text: "cell" }] } : {}),
+    ...(kind === "triangle" ? { points: [{ x: 90, y: 180 }], shapeVertices: [{ x: 0, y: 1 }] } : {})
+  }));
+  wb.objects = [...originals, { id: "unselected", kind: "rect" }];
+  wb.strokes = [{ id: "ink", points: [{ x: 10, y: 20 }], groupId: "original-group" }];
+  wb.multiSelectedObjects = [...originals].reverse();
+  wb.multiSelectedStrokes = [...wb.strokes];
+  wb.selectedObj = originals.at(-1);
+  wb.copySelection();
+  originals[1].text = "changed after copy";
+  const before = snapshot(wb);
+  wb.pasteSelection();
+  const pasted = wb.multiSelectedObjects;
+  assert.equal(pasted.length, kinds.length);
+  assert.equal(wb.multiSelectedStrokes.length, 1);
+  assert.equal(JSON.stringify(pasted.map(obj => obj.kind)), JSON.stringify(kinds), "stacking order survives reversed selection order");
+  assert.equal(pasted[1].text, "copied text", "clipboard is a snapshot");
+  assert.equal(pasted[5].image, image, "image remains drawable");
+  assert.equal(pasted[5].assetKey, "image-asset");
+  assert.equal(pasted[6].videoObjectUrl, "blob:video");
+  assert.notEqual(pasted[3].cells, originals[3].cells);
+  assert.equal(pasted[9].points[0].x, 130);
+  assert.equal(pasted[9].shapeVertices[0].x, 0, "normalized vertices are not translated");
+  assert.equal(wb.multiSelectedStrokes[0].points[0].y, 60);
+  const groupId = pasted[0].groupId;
+  assert.notEqual(groupId, "original-group");
+  assert(pasted.every(obj => obj.groupId === groupId));
+  assert.equal(wb.multiSelectedStrokes[0].groupId, groupId);
+  for (let i = 0; i < pasted.length; i++) {
+    assert.notEqual(pasted[i].id, originals[i].id);
+    assert.equal(pasted[i].x, originals[i].x + 40);
+    assert.equal(pasted[i].y, originals[i].y + 40);
+  }
+  assert.equal(wb.history.length, 1);
+  assert.equal(wb.events.at(-1).type, "refresh", "paste notifies synchronization");
+  roundtrip(wb, before, snapshot(wb));
+  wb.pasteSelection();
+  assert.notEqual(wb.multiSelectedObjects[0].groupId, groupId);
+  const ids = [...wb.objects, ...wb.strokes].map(item => item.id);
+  assert.equal(new Set(ids).size, ids.length, "repeated pastes allocate unique IDs");
+}
+for (const strokeOnly of [false, true]) {
+  const wb = board();
+  if (strokeOnly) {
+    wb.strokes = [{ id: "ink", points: [{ x: 1, y: 2 }] }];
+    wb.multiSelectedStrokes = [...wb.strokes];
+  } else {
+    wb.objects = [{ id: "single", kind: "text", x: 10, y: 20 }];
+    wb.selectedObj = wb.objects[0];
+  }
+  const before = snapshot(wb);
+  wb.copySelection(); wb.pasteSelection();
+  assert.equal(strokeOnly ? wb.strokes.length : wb.objects.length, 2);
+  roundtrip(wb, before, snapshot(wb));
+}
 // Exercise the actual shared keyboard handler without invoking browser text editing.
 const ui = readFileSync("public/js/board-ui.js", "utf8");
 const start = ui.indexOf('  window.addEventListener("keydown", e => {');

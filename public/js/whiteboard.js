@@ -2232,32 +2232,68 @@ export class Whiteboard {
 
 
   copySelection() {
-    if (!this.selectedObj) return;
-    const kind = this.selectedObj.kind;
-    if (["image", "video", "audio"].includes(kind)) return;
-    this.clipboard = JSON.parse(JSON.stringify(this.selectedObj));
+    const selectedObjects = new Set(this.multiSelectedObjects?.length
+      ? this.multiSelectedObjects : this.selectedObj ? [this.selectedObj] : []);
+    const selectedStrokes = new Set(this.multiSelectedStrokes?.length
+      ? this.multiSelectedStrokes : this.selectedStroke ? [this.selectedStroke] : []);
+    // Keep board stacking order, regardless of the order of Shift-clicks.
+    const objects = this.objects.filter(obj => selectedObjects.has(obj));
+    const strokes = this.strokes.filter(stroke => selectedStrokes.has(stroke));
+    if (!objects.length && !strokes.length) return;
+    this.clipboard = {
+      objects: objects.map(obj => this._cloneClipboardItem(obj)),
+      strokes: strokes.map(stroke => this._cloneClipboardItem(stroke))
+    };
+  }
+
+  _cloneClipboardItem(item) {
+    // Image pixels can be shared; editable data must be independent copies.
+    const { image, ...data } = item;
+    const clone = JSON.parse(JSON.stringify(data));
+    if (image !== undefined) clone.image = image;
+    return clone;
   }
 
   pasteSelection() {
     if (!this.clipboard) return;
-    const base = this.clipboard;
-    const obj = {
-      ...JSON.parse(JSON.stringify(base)),
-      id: this._newEntityId("object"),
-      x: base.x + 40,
-      y: base.y + 40
+    const groups = new Map();
+    const cloneItem = (base, type) => {
+      const item = this._cloneClipboardItem(base);
+      item.id = this._newEntityId(type);
+      if (type === "object") {
+        item.x += 40;
+        item.y += 40;
+      }
+      if (item.points) {
+        item.points = item.points.map(point => ({ ...point, x: point.x + 40, y: point.y + 40 }));
+      }
+      if (item.groupId) {
+        if (!groups.has(item.groupId)) groups.set(item.groupId, this._newEntityId("group"));
+        item.groupId = groups.get(item.groupId);
+      }
+      if (this.isTeacherMode) item.isTeacherAnnotation = true;
+      return item;
     };
-    this.objects.push(obj);
-    this.history.push({ kind: "object", id: obj.id });
-    this._setSelected(obj);
-
-    // ★ 追加
+    const objects = this.clipboard.objects.map(obj => cloneItem(obj, "object"));
+    const strokes = this.clipboard.strokes.map(stroke => cloneItem(stroke, "stroke"));
+    if (!objects.length && !strokes.length) return;
+    // Undo removes in order; each removal exposes the next item at this index.
+    this.history.push({
+      kind: "remove-multi",
+      objects: objects.map(object => ({ object, index: this.objects.length })),
+      strokes: strokes.map(stroke => ({ stroke, index: this.strokes.length }))
+    });
+    this.objects.push(...objects);
+    this.strokes.push(...strokes);
+    this._setSelected(null);
+    this.multiSelectedObjects = objects;
+    this.multiSelectedStrokes = strokes;
+    this.selectedObj = objects.find(obj => obj.kind === "text" || obj.kind === "link") || objects[0] || null;
+    this.selectedStroke = strokes[0] || null;
+    this._fireSelectionChange();
     this._markDirty();
-
     this.render();
-    if (obj.kind === "youtube" && this.onAction) {
-      this.onAction({ type: "object", object: obj });
-    }
+    this.onAction?.({ type: "refresh" });
   }
 
   deleteSelection() {
