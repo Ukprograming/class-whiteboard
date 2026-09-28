@@ -210,7 +210,6 @@ export class Whiteboard {
 
     // ★ グリッド表示フラグ
     this.showGrid = true;
-    this.showWordCount = false;
     this.backgroundStyle = "grid";
 
     // ★ 追加：未保存フラグ & コールバック
@@ -2926,7 +2925,7 @@ export class Whiteboard {
   }
 
   // ★ 修正：色と配置も変更できるように拡張
-  setSelectedTextStyle({ fontSize, fontFamily, bold, color, align, writingMode,
+  setSelectedTextStyle({ fontSize, fontFamily, bold, color, align, writingMode, showWordCount,
     borderVisible, borderColor, borderWidth, borderStyle } = {}) {
     if (!this.selectedObj) return;
     if (!["text", "sticky", "link"].includes(this.selectedObj.kind)) return;
@@ -2937,10 +2936,11 @@ export class Whiteboard {
     if (color) this.selectedObj.textColor = color;
     if (align) this.selectedObj.textAlign = align;
     const obj = this.selectedObj;
-    const before = { writingMode: obj.writingMode || "horizontal-tb",
+    const before = { showWordCount: !!obj.showWordCount, writingMode: obj.writingMode || "horizontal-tb",
       borderVisible: !!obj.borderVisible, borderColor: obj.borderColor || "#111827",
       borderWidth: obj.borderWidth || 2, borderStyle: obj.borderStyle || "solid",
       width: obj.width, height: obj.height };
+    if (["text", "sticky"].includes(obj.kind) && typeof showWordCount === "boolean") obj.showWordCount = showWordCount;
     if (["text", "sticky"].includes(obj.kind) && ["horizontal-tb", "vertical-rl"].includes(writingMode)) {
       obj.writingMode = writingMode;
       if (writingMode !== before.writingMode) this._autoResizeTextObject(obj);
@@ -3120,6 +3120,7 @@ export class Whiteboard {
         base.fontFamily = o.fontFamily || "system-ui";
         base.bold = !!o.bold;
         base.textAlign = o.textAlign || "left";
+        if (o.kind !== "link") base.showWordCount = !!o.showWordCount;
         if (o.kind !== "link") base.writingMode = o.writingMode || "horizontal-tb";
         if (o.kind === "text") {
           base.borderVisible = !!o.borderVisible;
@@ -3438,6 +3439,7 @@ export class Whiteboard {
         obj.bold = !!o.bold;
         obj.textAlign = o.textAlign || "left";
         obj.textColor = o.textColor || null;
+        if (o.kind !== "link") obj.showWordCount = !!o.showWordCount;
         if (o.kind !== "link") obj.writingMode = o.writingMode === "vertical-rl" ? "vertical-rl" : "horizontal-tb";
         if (o.kind === "text") {
           obj.borderVisible = !!o.borderVisible;
@@ -4052,7 +4054,13 @@ export class Whiteboard {
   }
 
   setWordCountVisible(visible) {
-    this.showWordCount = !!visible;
+    const obj = this.selectedObj;
+    if (obj && ["text", "sticky"].includes(obj.kind)
+      && (this.tool === "select" || this.tool === obj.kind)) {
+      this.setSelectedTextStyle({ showWordCount: !!visible });
+    } else {
+      this.textDefaults.showWordCount = !!visible;
+    }
     this._updateTextCountLabel();
     this.render();
   }
@@ -4061,7 +4069,7 @@ export class Whiteboard {
     const label = this.textCountLabel;
     const editor = this.textEditor;
     if (!label || !editor) return;
-    const visible = this.showWordCount && editor.style.display !== "none"
+    const visible = this.editingObj?.showWordCount && editor.style.display !== "none"
       && ["text", "sticky"].includes(this.editingObj?.kind);
     label.hidden = !visible;
     if (!visible) return;
@@ -4521,6 +4529,7 @@ export class Whiteboard {
       bold,
       textColor,
       textAlign,
+      showWordCount: !!d.showWordCount,
       writingMode: d.writingMode || "horizontal-tb",
       ...(kind === "text" ? {
         borderVisible: !!d.borderVisible,
@@ -7722,7 +7731,7 @@ export class Whiteboard {
         }
 
         ctx.restore();
-        if (this.showWordCount && this.editingObj !== obj && (kind === "text" || kind === "sticky")) {
+        if (obj.showWordCount && this.editingObj !== obj && (kind === "text" || kind === "sticky")) {
           const label = formatTextCount(obj.text);
           ctx.font = "12px system-ui";
           ctx.textAlign = "right";

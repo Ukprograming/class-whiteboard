@@ -100,7 +100,32 @@ try {
   await drag(980, 730, 760, 570);
   assert.deepEqual(await page.evaluate(() => { const o = wb.objects.at(-1); return [o.x, o.y, o.width, o.height]; }), [760, 570, 220, 160]);
   await editor.fill("逆方向へのドラッグ\n横書き・実線"); await editor.press("Enter");
-  await page.evaluate(() => { wb.setWordCountVisible(true); wb._setSelected(null); });
+  // Counts belong to individual objects and survive history, transport, and reload.
+  await page.evaluate(() => { wb._setSelected(wb.objects[0]); wb.setTool("text"); });
+  await tool("text");
+  await page.locator("#wordCountToggle").check();
+  assert.deepEqual(await page.evaluate(() => wb.objects.map(o => !!o.showWordCount)), [true, false, false, false]);
+  assert.equal(await page.evaluate(() => receiver.objects[0].showWordCount), true);
+  await page.evaluate(() => { wb.setTool("select"); wb._setSelected(wb.objects[2]); });
+  assert.equal(await page.locator("#wordCountToggle").isChecked(), false);
+  await page.evaluate(() => wb._setSelected(wb.objects[0]));
+  assert.equal(await page.locator("#wordCountToggle").isChecked(), true);
+  await page.evaluate(() => wb.undoLast());
+  assert.equal(await page.locator("#wordCountToggle").isChecked(), false);
+  await page.evaluate(() => wb.redoLast());
+  assert.equal(await page.locator("#wordCountToggle").isChecked(), true);
+  await page.evaluate(() => { wb._setSelected(wb.objects[1]); wb.setWordCountVisible(true); });
+  assert.deepEqual(await page.evaluate(() => wb.objects.map(o => !!o.showWordCount)), [true, true, false, false]);
+  await page.evaluate(() => receiver.importBoardData(wb.exportBoardData()));
+  assert.deepEqual(await page.evaluate(() => receiver.objects.map(o => !!o.showWordCount)), [true, true, false, false]);
+  await page.evaluate(() => wb._openTextEditorForObject(wb.objects[1]));
+  assert.equal(await page.locator("#boardContainer > .text-editor-count").isVisible(), true);
+  await editor.press("Enter");
+  await page.evaluate(() => wb._openTextEditorForObject(wb.objects[2]));
+  assert.equal(await page.locator("#boardContainer > .text-editor-count").isVisible(), false);
+  await editor.press("Enter");
+  assert.equal(await page.evaluate(() => !!wb.textDefaults.showWordCount), false);
+  await page.evaluate(() => wb._setSelected(null));
   await page.screenshot({ path: "output/playwright/text-layout-desktop.png" });
   // A zoomed drag uses world dimensions, and touchcancel/pinch leave no object.
   await page.evaluate(() => { wb.scale = 2; wb.offsetX = 20; wb.offsetY = 30; wb.setTool("text"); });

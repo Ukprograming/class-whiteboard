@@ -985,6 +985,7 @@ export function initBoardUI() {
     const obj = wb.selectedObj;
     const source = obj && ["text", "sticky"].includes(obj.kind)
       && (wb.tool === "select" || wb.tool === obj.kind) ? obj : wb.textDefaults || {};
+    textStylePanel.querySelector("#wordCountToggle").checked = !!source.showWordCount;
     textStylePanel.querySelector("#verticalWritingToggle").checked = source.writingMode === "vertical-rl";
     textStylePanel.querySelector("#textBorderToggle").checked = !!source.borderVisible;
     textStylePanel.querySelector("[data-text-border-color]").value = source.borderColor || "#111827";
@@ -1379,9 +1380,10 @@ export function initBoardUI() {
     container.appendChild(textStylePanel);
 
     const wordCountToggle = textStylePanel.querySelector("#wordCountToggle");
-    wordCountToggle.checked = wb.showWordCount;
+    wordCountToggle.checked = false;
     wordCountToggle.addEventListener("change", () => {
       wb.setWordCountVisible(wordCountToggle.checked);
+      updateTextAppearanceControls();
     });
 
     const applyAppearance = style => {
