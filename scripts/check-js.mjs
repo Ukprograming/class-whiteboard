@@ -982,7 +982,7 @@ if (!whiteboardSource.includes('this._newEntityId("stroke")') ||
 }
 
 const interactionContracts = [
-  [whiteboardSource, 'canvas.style.cursor = isHandleHovered ? "pointer" : ""'],
+  [whiteboardSource, 'canvas.style.cursor = isHandleHovered ? "pointer" : canDragSelection ? "move" : ""'],
   [whiteboardSource, "this._activateToolForObject(hit)"],
   [whiteboardSource, "const wasEditingObject = !!this.editingObj"],
   [whiteboardSource, 'if (wasEditingObject) {\n        this.setTool("select");'],

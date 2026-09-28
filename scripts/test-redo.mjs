@@ -176,6 +176,77 @@ for (const strokeOnly of [false, true]) {
   assert.equal(strokeOnly ? wb.strokes.length : wb.objects.length, 2);
   roundtrip(wb, before, snapshot(wb));
 }
+// Drive the real mouse/touch handlers through a blank area of the group frame.
+Object.assign(context, { window: {}, document: {} });
+function dragBoard(scale = 1) {
+  const wb = board();
+  const handlers = {};
+  Object.assign(wb, {
+    tool: "select", scale, offsetX: 25, offsetY: 35, handleRects: [],
+    canvas: { style: {}, getBoundingClientRect: () => ({ left: 10, top: 20, width: 1000, height: 800 }) },
+    laserTrail: { active: false, end() {} },
+    _findTimerControlAt() { return null; },
+    _listen(target, type, handler) { if (target === this.canvas) handlers[type] = handler; }
+  });
+  wb.objects = [
+    { id: "left", kind: "rect", x: 0, y: 0, width: 30, height: 30 },
+    { id: "right", kind: "rect", x: 200, y: 100, width: 30, height: 30 }
+  ];
+  wb.multiSelectedObjects = [...wb.objects];
+  wb.selectedObj = wb.objects[0];
+  wb._attachEvents();
+  wb.pointer = (type, x, y, extra = {}) => {
+    const point = { clientX: 10 + wb.offsetX + x * scale, clientY: 20 + wb.offsetY + y * scale };
+    handlers[type]({ type, ...point, preventDefault() {},
+      ...(type.startsWith("touch") ? { touches: type === "touchend" ? [] : [point], changedTouches: [point] } : {}), ...extra });
+  };
+  return wb;
+}
+for (const touch of [false, true]) {
+  for (const scale of [0.5, 2]) {
+    const wb = dragBoard(scale);
+    wb.strokes = [{ id: "ink", width: 2, points: [{ x: 5, y: 5 }, { x: 10, y: 10 }] }];
+    wb.multiSelectedStrokes = [...wb.strokes];
+    const locked = { id: "locked", kind: "rect", x: 50, y: 50, width: 10, height: 10, locked: true };
+    wb.objects.push(locked); wb.multiSelectedObjects.push(locked);
+    const before = snapshot(wb);
+    if (!touch) {
+      wb.pointer("mousemove", 100, 60);
+      assert.equal(wb.canvas.style.cursor, "move");
+    }
+    wb.pointer(touch ? "touchstart" : "mousedown", 100, 60);
+    assert.equal(wb.isDraggingObj, true, "blank frame interior starts group movement");
+    wb.pointer(touch ? "touchmove" : "mousemove", 125, 75);
+    wb.pointer(touch ? "touchend" : "mouseup", 125, 75);
+    assert.equal(wb.objects[0].x, 25); assert.equal(wb.objects[1].x, 225);
+    assert.equal(wb.objects[0].y, 15); assert.equal(wb.objects[1].y, 115);
+    assert.equal(wb.strokes[0].points[0].x, 30);
+    assert.equal(locked.x, 50, "locked items stay put");
+    assert.equal(wb.multiSelectedObjects.length, 3);
+    assert.equal(wb.history.length, 1);
+    assert.equal(wb.events.filter(event => event.type === "modify").length, 2);
+    assert(wb.events.some(event => event.type === "refresh"));
+    roundtrip(wb, before, snapshot(wb));
+  }
+}
+{
+  const wb = dragBoard();
+  wb.handleRects = [{ name: "nw", x: 20, y: 30, size: 10 }];
+  wb.pointer("mousedown", 0, 0);
+  assert.equal(wb.dragStart.mode, "multi-selection-resize", "corner handles retain resize priority");
+}
+{
+  const wb = dragBoard();
+  const third = { id: "third", kind: "rect", x: 90, y: 50, width: 20, height: 20 };
+  wb.objects.push(third);
+  wb.pointer("mousedown", 100, 60, { shiftKey: true });
+  assert(wb.multiSelectedObjects.includes(third), "Shift-click can add an item inside the frame");
+}
+{
+  const wb = dragBoard();
+  wb.pointer("mousedown", 300, 200);
+  assert.equal(wb.isBoxSelecting, true, "outside the frame starts a new selection");
+}
 // Exercise the actual shared keyboard handler without invoking browser text editing.
 const ui = readFileSync("public/js/board-ui.js", "utf8");
 const start = ui.indexOf('  window.addEventListener("keydown", e => {');

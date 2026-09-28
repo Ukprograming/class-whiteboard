@@ -3882,6 +3882,13 @@ export class Whiteboard {
     };
   }
 
+  _isInsideMultiSelectionBounds(wx, wy) {
+    const bounds = this._getMultiSelectionBounds();
+    return !!(bounds &&
+      wx >= bounds.x && wx <= bounds.x + bounds.width &&
+      wy >= bounds.y && wy <= bounds.y + bounds.height);
+  }
+
   _startMultiSelectionResize(handle) {
     const bounds = this._getMultiSelectionBounds();
     if (!bounds || !["nw", "ne", "se", "sw"].includes(handle)) return false;
@@ -4901,7 +4908,9 @@ export class Whiteboard {
         return;
       }
 
-      if (button === 0) {
+      const insideMultiSelection = this.tool === "select" && !e.shiftKey &&
+        this._isInsideMultiSelectionBounds(wx, wy);
+      if (button === 0 && !insideMultiSelection) {
         const tableControl = this.tool === "select" ? this._hitTestTableControl(sx, sy) : null;
         if (tableControl?.object?.kind === "table") {
           this._setSelected(tableControl.object);
@@ -5015,6 +5024,11 @@ export class Whiteboard {
           if (handle && this._startMultiSelectionResize(handle)) {
             this.isResizingObj = true;
             this.resizeHandle = handle;
+            return;
+          }
+          if (insideMultiSelection) {
+            this._startSelectionDrag(wx, wy);
+            this.render();
             return;
           }
         }
@@ -5356,7 +5370,9 @@ export class Whiteboard {
         if (tableResizeHit) {
           canvas.style.cursor = tableResizeHit.axis === "column" ? "col-resize" : "row-resize";
         } else {
-          canvas.style.cursor = isHandleHovered ? "pointer" : "";
+          const canDragSelection = this.tool === "select" && !e.shiftKey &&
+            this._isInsideMultiSelectionBounds(wx, wy);
+          canvas.style.cursor = isHandleHovered ? "pointer" : canDragSelection ? "move" : "";
         }
       }
 
