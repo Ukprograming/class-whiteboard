@@ -57,3 +57,16 @@ order by updated_at;
 - `npm.cmd test`、`git diff --check`: 既存機能を含む回帰確認。
 
 Storageの実体はSQLの `DELETE FROM storage.objects` では消さず、[公式Storage削除API](https://supabase.com/docs/guides/storage/management/delete-objects)を使用します。
+
+## 2026-09-28 適用・実環境検証
+
+- 対象: `jgovtvleosgymlffaxnu`。`20260928034833_add_management_deletion` の適用済み状態を確認し、DBのロールバック検証が通過。
+- `delete-management-target` v1（JWT検証あり）、`process-storage-cleanup` v3（既存の専用Secret認証を維持）を配備。既存分を含む全10 Functionsについて、配備ソースとローカルソースのLF正規化後の一致を確認。
+- 使い捨て教員2人、生徒1人、クラス3件、実ファイル5件で認証付きAPI検証を実施。未認証・他教員・パスワード不一致の拒否、クラス削除、他クラスで参照中の教材・フォーム画像の保持、教員削除、古いJWTでの新規アップロード拒否を確認。
+- 検証後の対象Authユーザー・プロフィール・クラス・Storageオブジェクト・未完了ジョブはいずれも0件。削除完了ジョブと墓標は通常の仕様どおり保持。
+- 既存定期回収は2026-09-28 05:22 UTC開始のschedule実行まで成功していることを公開Actions履歴で確認。更新版workerの定期起動結果は次回以降に確認する。
+- `npm.cmd test` が通過。APIの実環境検証と、既存の画面操作テスト（認証・削除APIはモック）は別の確認として扱う。
+
+Storageの同じURLを削除直後に再取得すると、配信キャッシュから200応答が返る場合がありました。キャッシュを避けた再取得では拒否され、DBのStorageオブジェクトも0件でした。削除操作は保存元の削除を行いますが、配信済みのキャッシュや発行済み署名URLの即時失効までは保証しません。
+
+Security Advisorには、サービス専用テーブル3件の[RLSポリシーなし](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)のINFOが残ります。これらは一般利用者へのテーブル権限を取り消しているため意図した構成です。既存の保存用RPC2件の[SECURITY DEFINER警告](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable)と、[漏洩パスワード保護未設定](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)は今回の変更外として継続しています。
