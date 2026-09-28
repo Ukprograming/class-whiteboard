@@ -2,16 +2,17 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&arrow-tip=20260924&stamp-refresh=20260924";
 import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
 } from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
   getSelectedTeacherClass,
+  removeTeacherClassHints,
   saveTeacherClassHints,
   setSelectedTeacherClass,
-} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+} from "./teacher-class-storage.js?v=teacher-auth-split-20260712&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928";
 import { initTeacherForms } from "./teacher-forms.js?v=forms-20260830b&form-privacy=20260831&form-excel-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
 import { mergeAssignmentBoardRows } from "./assignment-utils.mjs?v=assignment-board-id-20260901&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -23,7 +24,8 @@ import {
   createTeacherDraftKey,
   createTeacherDraftStore,
   normalizeTeacherDraftIdentity,
-} from "./teacher-draft-store.mjs?v=teacher-draft-recovery-20260915&draft-recovery=20260915";
+} from "./teacher-draft-store.mjs?v=teacher-draft-recovery-20260915&draft-recovery=20260915&management-delete=20260928";
+import { initManagementDeletion } from "./management-deletion.js?v=20260928";
 
 async function requireSupabaseTeacher() {
   if (!supabaseEnabled) return null;
@@ -2647,6 +2649,8 @@ function setClassManagementStatus(message, isError = false) {
 
 function setClassManagementBusy(isBusy) {
   classManagementBusy = isBusy;
+  document.getElementById("deleteClassBtn").disabled = isBusy || !managedClasses.length || !supabaseEnabled;
+  document.getElementById("deleteTeacherAccountBtn").disabled = isBusy || !supabaseEnabled;
   [classManagementCreateClassForm, classManagementCreateStudentForm]
     .filter(Boolean)
     .forEach((form) => {
@@ -2843,6 +2847,7 @@ function openClassManagement() {
 }
 
 function closeClassManagement() {
+  if (classManagementBusy) return;
   if (!classManagementBackdrop) return;
   closeDeleteStudentsConfirmation();
   classManagementStudentPassword.value = "";
@@ -2855,6 +2860,37 @@ function closeClassManagement() {
 }
 
 if (teacherManageClassesBtn) teacherManageClassesBtn.addEventListener("click", openClassManagement);
+initManagementDeletion({
+  api: managementApi,
+  getClasses: () => managedClasses,
+  getSelectedClassId: () => classManagementClassSelect?.value,
+  setBusy: setClassManagementBusy,
+  onDeleted: async (target, result) => {
+    const codes = target.classes.map(klass => klass.class_code);
+    const leaving = target.kind === "teacher" || codes.includes(currentClassCode);
+    if (leaving) {
+      beginTeacherBoardLifecycleChange();
+      if (teacherDraftSaveTimerId) clearTimeout(teacherDraftSaveTimerId);
+      teacherBoard.isBoardDirty = false;
+      currentClassCode = null;
+      socket.disconnect?.();
+    }
+    if (target.kind === "teacher") await teacherDraftStore.clearContext({ teacherId: authenticatedTeacherId });
+    else for (const code of codes) await teacherDraftStore.clearContext({ teacherId: authenticatedTeacherId, classCode: code });
+    removeTeacherClassHints(codes);
+    const message = result.completed
+      ? "削除が完了しました。"
+      : `クラス・アカウントの利用を停止しました。残りの保存ファイル・認証情報は自動再試行で削除します。受付ID: ${result.jobId}`;
+    if (leaving) {
+      window.alert(message);
+      if (target.kind === "teacher") await authApi.signOut().catch(() => {});
+      window.location.replace("./teacher-login.html");
+    } else {
+      await refreshClassManagement();
+      document.getElementById("managementDeletionStatus").textContent = message;
+    }
+  },
+});
 if (classManagementCloseBtn) classManagementCloseBtn.addEventListener("click", closeClassManagement);
 if (classManagementBackdrop) {
   classManagementBackdrop.addEventListener("click", (event) => {

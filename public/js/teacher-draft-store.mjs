@@ -230,6 +230,44 @@ export function createTeacherDraftStore(options = {}) {
       return chooseNewestTeacherDraft([databaseDraft, sessionDraft], context);
     },
 
+    async clearContext({ teacherId, classCode } = {}) {
+      const normalizedTeacher = normalizeText(teacherId).toLowerCase();
+      if (!normalizedTeacher) return false;
+      const prefix = `${encodeURIComponent(normalizedTeacher)}:`
+        + (classCode ? `${encodeURIComponent(normalizeClassCode(classCode))}:` : "");
+      const storage = sessionStorageOrNull();
+      try {
+        if (storage?.getItem(markerKey)?.startsWith(prefix)) storage.removeItem(markerKey);
+        for (let i = (storage?.length || 0) - 1; i >= 0; i -= 1) {
+          const key = storage.key(i);
+          if (key?.startsWith(payloadPrefix + prefix)) storage.removeItem(key);
+        }
+        await enqueueDatabaseOperation(async () => {
+          const database = await openDatabase(indexedDBOrNull(), databaseName, storeName);
+          if (!database) return;
+          try {
+            await new Promise((resolve, reject) => {
+              const transaction = database.transaction(storeName, "readwrite");
+              const request = transaction.objectStore(storeName).openCursor();
+              request.onsuccess = () => {
+                const cursor = request.result;
+                if (!cursor) return;
+                if (String(cursor.key).startsWith(prefix)) cursor.delete();
+                cursor.continue();
+              };
+              transaction.oncomplete = resolve;
+              transaction.onerror = () => reject(transaction.error);
+              transaction.onabort = () => reject(transaction.error);
+            });
+          } finally { database.close(); }
+        });
+        return true;
+      } catch (error) {
+        logger.warn("Could not clear deleted classroom drafts.", error);
+        return false;
+      }
+    },
+
     clear(identity) {
       const draftKey = createTeacherDraftKey(identity);
       if (!draftKey) return Promise.resolve(false);

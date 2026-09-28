@@ -105,6 +105,8 @@ function parseResponse(payload, limit) {
   if (result.completed + result.failed !== result.claimed) {
     throw new Error("Cleanup endpoint returned inconsistent job counts.");
   }
+  result.managementPending = (payload.managementDeletions || []).some(job => job.pending);
+  result.managementBatchFull = (payload.managementDeletions || []).length >= 2;
   return result;
 }
 
@@ -182,9 +184,9 @@ export async function runStorageCleanup({
     for (const key of Object.keys(totals)) totals[key] += result[key];
     logger.log(
       `[storage-cleanup] batch ${batch}: queued=${result.staleUploadsQueued}, claimed=${result.claimed}, ` +
-      `completed=${result.completed}, objects=${result.deletedObjects}, failed=${result.failed}.`,
+      `completed=${result.completed}, objects=${result.deletedObjects}, failed=${result.failed}, managementPending=${result.managementPending}.`,
     );
-    if (result.claimed < options.limit) {
+    if (result.claimed < options.limit && !result.managementPending && !result.managementBatchFull) {
       possibleBacklog = false;
       break;
     }

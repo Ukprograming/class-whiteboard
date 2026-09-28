@@ -1,6 +1,7 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { getAdminClient, getUserClient } from "../_shared/supabase.ts";
 import { CleanupJob, removeCleanupJob } from "../_shared/storage-cleanup.ts";
+import { processPendingManagementDeletions } from "../_shared/management-deletion.ts";
 
 Deno.serve(async (req) => {
   const options = handleOptions(req);
@@ -51,5 +52,6 @@ Deno.serve(async (req) => {
       });
     }
   }
-  return jsonResponse({ ok: true, staleUploadsQueued, claimed: (data || []).length, completed, deletedObjects, failed });
+  const managementDeletions = await processPendingManagementDeletions(admin, ownerId);
+  return jsonResponse({ ok: true, staleUploadsQueued, claimed: (data || []).length, completed, deletedObjects, failed, managementDeletions });
 });

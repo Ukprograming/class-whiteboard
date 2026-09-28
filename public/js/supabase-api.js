@@ -1441,6 +1441,9 @@ export const managementApi = {
     void callFunction("process-storage-cleanup", { limit: 25 }).catch(() => {});
     return result;
   },
+  deleteManagementTarget(payload) {
+    return callFunction("delete-management-target", payload);
+  },
   copyBoardToClass(payload) {
     return callFunction("copy-board-to-class", payload);
   },

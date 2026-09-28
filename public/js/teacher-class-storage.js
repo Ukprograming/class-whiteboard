@@ -68,6 +68,18 @@ export function setSelectedTeacherClass(classCode) {
   }
 }
 
+export function removeTeacherClassHints(classCodes) {
+  const removed = new Set(classCodes.map(normalizeClassCode));
+  try {
+    localStorage.setItem(TEACHER_CLASS_HINTS_KEY, JSON.stringify(
+      getTeacherClassHints().filter(item => !removed.has(item.classCode))
+    ));
+    if (removed.has(getSelectedTeacherClass())) setSelectedTeacherClass("");
+  } catch (error) {
+    console.warn("Could not remove deleted class hints.", error);
+  }
+}
+
 export function getSelectedTeacherClass() {
   try {
     return normalizeClassCode(

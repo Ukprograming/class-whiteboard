@@ -2533,6 +2533,25 @@ body.camera-capture-open {
   z-index: 2100;
 }
 
+.management-deletion-dialog {
+  margin: auto;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  border: 1px solid #cbd5dd;
+  border-radius: 8px;
+  color: #17212b;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.management-deletion-dialog::backdrop { background: #0008; }
+.management-deletion-dialog h2 { margin: 0 0 14px; font-size: 20px; }
+.management-deletion-dialog label { display: block; margin: 12px 0 6px; overflow-wrap: anywhere; }
+.management-deletion-dialog input { width: 100%; min-height: 42px; box-sizing: border-box; }
+.management-deletion-dialog .delete-students-summary { white-space: pre-line; overflow-wrap: anywhere; }
+.management-deletion-dialog .delete-students-footer { padding: 16px 0 0; margin-top: 16px; flex-wrap: wrap; }
+.management-deletion-dialog .icon-btn-text { width: auto; min-width: 88px; padding: 10px 12px; }
+
 .delete-students-modal {
   width: min(520px, calc(100vw - 32px));
   height: auto;

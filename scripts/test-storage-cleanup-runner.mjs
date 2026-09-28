@@ -162,3 +162,16 @@ await withMockServer((_request, response) => {
 }
 
 console.log("Storage cleanup runner tests passed.");
+
+{
+  let requests = 0;
+  await withMockServer((_request, response) => {
+    requests += 1;
+    jsonResponse(response, { ok: true, staleUploadsQueued: 0, claimed: 0, completed: 0, deletedObjects: 0, failed: [],
+      managementDeletions: requests === 1 ? [{ pending: true, completed: false }] : [] });
+  }, async url => {
+    const result = await runCli(url, ["--retry-delay-ms", "0"]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(requests, 2, "pending management deletions must drain even without ordinary Storage jobs");
+  });
+}

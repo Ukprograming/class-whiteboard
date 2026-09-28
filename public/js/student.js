@@ -8,7 +8,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
