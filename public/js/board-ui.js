@@ -1,7 +1,7 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260911&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&stamp-refresh=20260924";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&stamp-refresh=20260924";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
@@ -1003,8 +1003,9 @@ export function initBoardUI() {
   function updateTextStylePanelFromSelection() {
     if (!textStylePanel) return;
     updateTextAppearanceControls();
-    const obj = wb.selectedObj;
-    if (!obj || !["text", "sticky", "link"].includes(obj.kind)) return;
+    const defaults = wb.textDefaults || {};
+    const obj = ["text", "sticky", "link"].includes(wb.selectedObj?.kind)
+      ? wb.selectedObj : { ...defaults, textColor: defaults.color, textAlign: defaults.align };
 
     // フォントサイズ
     if (textFontSizeSelect && obj.fontSize) {
@@ -1729,10 +1730,43 @@ export function initBoardUI() {
 
 
   // ========= ツールボタン共通処理 =========
+  let textSettingsPointerTarget = null;
+  const isTextSettingsTarget = target => {
+    if (!(target instanceof Element)) return false;
+    const kind = wb.editingObj?.kind;
+    return ["text", "sticky"].includes(kind) && (
+      !!target.closest("#textStylePanel") ||
+      target.closest("#wbSidebar [data-tool]")?.dataset.tool === kind
+    );
+  };
+  document.addEventListener("pointerdown", e => {
+    textSettingsPointerTarget = e.target;
+    if (wb.editingObj && document.activeElement !== wb.textEditor &&
+        e.target !== wb.textEditor && e.target !== wb.canvas && !isTextSettingsTarget(e.target)) {
+      wb._commitTextEditor();
+    }
+  }, true);
+  document.addEventListener("pointerup", () => { textSettingsPointerTarget = null; }, true);
+  wb.keepTextEditorOnBlur = e => isTextSettingsTarget(e?.relatedTarget || textSettingsPointerTarget);
+
   toolButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const tool = btn.dataset.tool;
       if (!tool) return;
+
+      if (["text", "sticky"].includes(tool)) {
+        const target = wb.editingObj || wb.selectedObj;
+        if (target?.kind === tool) {
+          // Open formatting without changing the canvas tool or ending editing.
+          updateToolButtons(tool, { showSettings: settingsOpenTool !== tool });
+          updateTextStylePanelFromSelection();
+        } else {
+          wb.setTool(tool);
+          wb._setSelected(null);
+          updateToolButtons(tool, { showSettings: true });
+        }
+        return;
+      }
 
       // 表のセル選択中は、1回で一括書式メニューを開く。
       if (tool === "table" && wb.selectedObj?.kind === "table" && currentTool !== "table") {

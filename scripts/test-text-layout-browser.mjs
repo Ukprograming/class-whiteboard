@@ -47,8 +47,7 @@ try {
   }
   const editor = page.locator("#boardContainer > textarea");
   await tool("text");
-  // The second tool tap opens its settings menu.
-  await tool("text");
+  // Text settings open on the first tool tap.
   await page.locator("label:has(#verticalWritingToggle)").click();
   await page.locator("label:has(#textBorderToggle)").click();
   await page.locator("[data-text-border-width]").selectOption("4");
@@ -155,9 +154,54 @@ try {
   assert(layout.scrollWidth <= layout.width + 1, JSON.stringify(layout));
   assert(layout.right <= 375 && layout.bottom <= 812, JSON.stringify(layout));
   await page.screenshot({ path: "output/playwright/text-layout-mobile.png" });
-  await tool("sticky"); await tool("sticky");
+  await tool("sticky");
   assert.equal(await page.locator("[data-text-border-settings]").isVisible(), false);
   assert.equal(await page.locator("label:has(#verticalWritingToggle)").isVisible(), true);
+  await page.setViewportSize({ width: 1100, height: 850 });
+  await page.evaluate(() => { wb.scale = 1; wb.offsetX = 0; wb.offsetY = 0; wb.render(); });
+  for (const kind of ["text", "sticky"]) {
+    await tool("pen");
+    await page.evaluate(() => wb._setSelected(null));
+    await tool(kind);
+    assert(await page.locator("#contextMenu").isVisible(), "first tap opens settings");
+    await page.locator("[data-text-font-size]").selectOption("24");
+    await page.locator("#textStylePanel input[data-text-color]").fill("#123456");
+    await page.mouse.click(700, 500);
+    assert(!await page.locator("#contextMenu").isVisible(), "placement closes settings");
+    const id = await page.evaluate(() => wb.editingObj.id);
+    assert.deepEqual(await page.evaluate(() => [wb.editingObj.fontSize, wb.editingObj.textColor]), [24, "#123456"]);
+    await editor.fill("書式を変更して入力を続ける");
+    await tool(kind);
+    assert(await editor.isVisible(), "tool click preserves editor");
+    await page.locator("[data-text-font-size]").selectOption("32");
+    await page.locator("[data-text-font-family]").selectOption("mincho");
+    await page.locator("#textStylePanel input[data-text-color]").fill("#654321");
+    await page.locator("[data-text-bold]").click();
+    assert.equal(await page.evaluate(() => wb.editingObj?.id), id);
+    assert.equal(await editor.inputValue(), "書式を変更して入力を続ける");
+    assert.equal(await editor.evaluate(el => el.style.fontSize), "32px");
+    assert.equal(await editor.evaluate(el => el.style.color), "rgb(101, 67, 33)");
+    await editor.fill("続けて入力できた"); await editor.press("Enter");
+    await tool(kind);
+    if (!await page.locator("#contextMenu").isVisible()) await tool(kind);
+    assert.equal(await page.evaluate(() => wb.selectedObj.id), id);
+    assert.equal(await page.evaluate(() => wb.tool), "select", "selected object keeps selection tool");
+    await page.locator("[data-text-font-size]").selectOption("24");
+    assert.equal(await page.evaluate(() => wb.selectedObj.fontSize), 24);
+    assert.equal(await page.evaluate(() => receiver.objects.at(-1).fontSize), 24);
+  }
+  await tool("pen");
+  await page.evaluate(() => wb._setSelected(null));
+  const count = await page.evaluate(() => wb.objects.length);
+  await tool("text"); await page.mouse.click(700, 650);
+  const blankId = await page.evaluate(() => wb.editingObj.id);
+  await tool("text");
+  assert(await editor.isVisible(), "empty new text also survives menu opening");
+  await page.locator("[data-text-font-size]").selectOption("32");
+  await page.mouse.click(1000, 750);
+  assert.equal(await page.evaluate(() => wb.objects.length), count);
+  assert.equal(await page.evaluate(id => receiver.objects.some(o => o.id === id), blankId), false);
+  assert.equal(await page.evaluate(id => wb.history.some(e => e.id === id || e.object?.id === id), blankId), false);
   assert.deepEqual(errors, []);
   console.log("Text layout browser checks passed: vertical editing, 3 borders, click/drag/reverse/zoom/touch, cancel/pinch, square sticky, save/reload, receiver, Undo, 375px menus.");
 } finally {

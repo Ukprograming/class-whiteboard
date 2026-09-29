@@ -4170,7 +4170,8 @@ export class Whiteboard {
       }
     });
 
-    this._listen(ta, "blur", () => {
+    this._listen(ta, "blur", e => {
+      if (this.editingObj && this.keepTextEditorOnBlur?.(e)) return;
       if (this.editingObj || this.editingTableCell) {
         this._commitTextEditor();
       }
@@ -4420,6 +4421,7 @@ export class Whiteboard {
   }
 
   _commitTextEditor() {
+    if (this._discardEmptyNewText()) return;
     if (this.editingTableCell) {
       const { obj, row, col, beforeSnapshot } = this.editingTableCell;
       const text = this.textEditor.value;
@@ -4494,6 +4496,7 @@ export class Whiteboard {
     }
     this.editingObj = null;
     this.textEditBefore = null;
+    this.newTextObject = null;
     this.textEditor.style.display = "none";
     this.render();
   }
@@ -4501,6 +4504,10 @@ export class Whiteboard {
 
 
   _cancelTextEditor() {
+    if (this.newTextObject === this.editingObj && this.editingObj) {
+      this.textEditor.value = "";
+      if (this._discardEmptyNewText()) return;
+    }
     this._clearTextEditSync();
     if (this.editingObj && this.textEditBefore && this.objects.includes(this.editingObj)) {
       const obj = this.editingObj;
@@ -4536,6 +4543,24 @@ export class Whiteboard {
       height = -height;
     }
     return { x, y, width, height };
+  }
+
+  _discardEmptyNewText() {
+    const obj = this.editingObj;
+    if (!obj || obj.kind !== "text" || this.newTextObject !== obj || this.textEditor.value.trim()) return false;
+    this._clearTextEditSync();
+    this.objects = this.objects.filter(item => item !== obj);
+    this.history = this.history.filter(entry => entry.id !== obj.id && entry.object !== obj);
+    this.redoHistory = (this.redoHistory || []).filter(entry => entry.id !== obj.id && entry.object !== obj);
+    this.editingObj = null;
+    this.textEditBefore = null;
+    this.newTextObject = null;
+    this.textEditor.style.display = "none";
+    if (this.selectedObj === obj) this._setSelected(null);
+    this._markDirty();
+    this.onAction?.({ type: "delete", objectId: obj.id });
+    this.render();
+    return true;
   }
 
   _updateTextPlacement(wx, wy) {
@@ -4592,9 +4617,12 @@ export class Whiteboard {
     this.render();
     this._openTextEditorForObject(obj);
 
+    this.newTextObject = kind === "text" ? obj : null;
+
     //   テキスト／付箋を配置して編集状態になったら
     //   ツールを自動で「選択」に戻す
     this.tool = "select";
+    this.onToolChange?.("select");
   }
 
 

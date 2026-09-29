@@ -45,6 +45,30 @@ function key(wb, name, extra = {}) {
   wb.textEditor.listeners.keydown(e);
   return e;
 }
+for (const finish of ["blur", "Enter", "Escape"]) {
+  const sender = board(); const receiver = board();
+  sender.onAction = action => receiver.applyAction(structuredClone(action));
+  sender._createTextObject(10, 20, "text");
+  const id = sender.objects[0].id;
+  if (finish === "blur") sender.textEditor.listeners.blur();
+  else key(sender, finish);
+  assert.equal(sender.objects.length, 0, `empty new text is discarded on ${finish}`);
+  assert.equal(receiver.objects.length, 0, "discard reaches receiver");
+  assert(!sender.history.some(entry => entry.id === id), "discard removes creation from Undo");
+  assert.equal(sender.selectedObj, null);
+}
+{
+  const wb = board();
+  wb._createTextObject(10, 20, "sticky");
+  wb._commitTextEditor();
+  assert.equal(wb.objects.length, 1, "blank sticky remains usable");
+  wb._createTextObject(10, 20, "text");
+  input(wb, "existing"); wb._commitTextEditor();
+  const obj = wb.objects.at(-1);
+  wb._openTextEditorForObject(obj);
+  input(wb, ""); wb._commitTextEditor();
+  assert(wb.objects.includes(obj), "clearing an existing text does not discard it");
+}
 for (const kind of ["text", "sticky"]) {
   const student = board(); const teacher = board(); const actions = [];
   student.onAction = action => {
@@ -112,7 +136,7 @@ const imports = ["public/js/board-ui.js", "public/js/student.js", "public/js/tea
 for (const path of imports) {
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (/import .*from "\.\/(whiteboard|board-ui)\.js\?|<script type="module" src="\.\/js\/(student|teacher)\.js\?/.test(line)) {
-      assert(line.includes("text-live=20260911"), `cache key missing in ${path}`);
+      assert(line.includes("text-live=20260929"), `cache key missing in ${path}`);
     }
   }
 }
