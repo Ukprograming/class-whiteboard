@@ -3455,6 +3455,17 @@ function setTeacherViewMode(mode) {
     el.style.display = "none";
   };
 
+  // Keep the page controls' space in the header so the mode buttons do not
+  // move when switching views. The controls themselves are unavailable there.
+  const setPageToolbarAvailable = (available) => {
+    if (!pageToolbar) return;
+    show(pageToolbar);
+    pageToolbar.classList.toggle("teacher-page-placeholder", !available);
+    pageToolbar.inert = !available;
+    if (available) pageToolbar.removeAttribute("aria-hidden");
+    else pageToolbar.setAttribute("aria-hidden", "true");
+  };
+
   const closeContextMenu = () => {
     if (!contextMenu) return;
     contextMenu.classList.add("hidden");
@@ -3491,7 +3502,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを表示
     if (sidebar) show(sidebar);
     if (bottomTools) show(bottomTools);
-    if (pageToolbar) show(pageToolbar);
+    setPageToolbarAvailable(true);
     closeContextMenu();
   } else if (mode === "student") {
     // 生徒画面タイルを表示
@@ -3509,7 +3520,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
-    if (pageToolbar) hide(pageToolbar);
+    setPageToolbarAvailable(false);
     closeContextMenu();
   } else if (mode === "notebook") {
     // ノート確認ビューを表示
@@ -3527,7 +3538,7 @@ function setTeacherViewMode(mode) {
     // ツールバーを隠す
     if (sidebar) hide(sidebar);
     if (bottomTools) hide(bottomTools);
-    if (pageToolbar) hide(pageToolbar);
+    setPageToolbarAvailable(false);
     closeContextMenu();
   }
 }

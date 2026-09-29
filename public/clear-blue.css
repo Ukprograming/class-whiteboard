@@ -80,6 +80,7 @@ button:disabled { cursor: not-allowed; }
   min-width: 176px; max-width: 540px; height: 54px;
   display: flex; align-items: center; gap: 3px; padding: 4px;
 }
+.teacher-app .page-toolbar.teacher-page-placeholder { visibility: hidden; pointer-events: none; }
 .app-root .page-tabs { flex: 1 1 auto; min-width: 44px; gap: 3px; scrollbar-width: thin; }
 .app-root .page-tab {
   flex: 0 0 auto; min-width: 60px; max-width: 150px; height: 44px;
