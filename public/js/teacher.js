@@ -9,6 +9,7 @@ import {
   createMonitorReceiver,
 } from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&monitor-recovery=20260929";
 import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
+import { createStudentTileRegistry } from "./student-tile-registry.mjs?v=student-tiles-20260930";
 import {
   getSelectedTeacherClass,
   removeTeacherClassHints,
@@ -482,6 +483,7 @@ let applyingSharedBoardRemote = false;
 let currentMonitoringStudentSocketId = null;
 let currentTeacherViewMode = "whiteboard";
 let connectedStudentSocketIds = new Set();
+const studentTileRegistry = createStudentTileRegistry();
 
 // 生徒画面確認用サムネイル
 let latestThumbnails = {}; // { socketId: { nickname, dataUrl } }
@@ -3573,7 +3575,31 @@ setTeacherViewMode("whiteboard");
 // ========= 生徒画面確認（タイル表示） =========
 
 socket.on("student-list-update", (list) => {
-  const normalizedList = list || [];
+  studentTileRegistry.setScope(currentClassCode);
+  const normalizedList = studentTileRegistry.updatePresence(list);
+  latestThumbnails = studentTileRegistry.getThumbnails();
+  // Move the selected chat/history with the account when its connection changes.
+  const previousChatSocketIds = new Set([
+    ...studentListForBoardScope.map(student => student.socketId),
+    ...Object.keys(chatHistories),
+    ...unreadStudentIds,
+    activeChatTargetSocketId,
+  ].filter(Boolean));
+  for (const previousId of previousChatSocketIds) {
+    const nextId = studentTileRegistry.selectedSocketId(previousId);
+    if (!nextId || nextId === previousId) continue;
+    if (chatHistories[previousId]) {
+      chatHistories[nextId] = [...(chatHistories[nextId] || []), ...chatHistories[previousId]]
+        .sort((a, b) => a.timestamp - b.timestamp);
+      delete chatHistories[previousId];
+    }
+    if (unreadStudentIds.delete(previousId)) unreadStudentIds.add(nextId);
+    if (unreadTemplateKindsByStudentId.has(previousId)) {
+      unreadTemplateKindsByStudentId.set(nextId, unreadTemplateKindsByStudentId.get(previousId));
+      unreadTemplateKindsByStudentId.delete(previousId);
+    }
+    if (activeChatTargetSocketId === previousId) activeChatTargetSocketId = nextId;
+  }
   const nextStudentSocketIds = new Set(
     normalizedList.map((student) => student?.socketId).filter(Boolean)
   );
@@ -3620,7 +3646,21 @@ socket.on("student-list-update", (list) => {
   normalizedList.forEach((s) => {
     if (!s || !s.socketId) return;
     studentNameMap[s.socketId] = s.nickname || s.socketId;
+    latestModeByStudent[s.socketId] = s.mode || latestModeByStudent[s.socketId] || "whiteboard";
+    const preview = latestThumbnails[s.socketId];
+    if (preview?.viewport) latestViewportByStudent[s.socketId] = preview.viewport;
+    if (preview?.mode === "notebook") {
+      notebookStudents[s.nickname || s.socketId] = { latestImageData: preview.dataUrl };
+      updateNotebookTile(s.nickname || s.socketId);
+      updateNotebookInfo();
+    }
   });
+  if (currentMonitoringStudentSocketId) {
+    const nextId = studentTileRegistry.selectedSocketId(currentMonitoringStudentSocketId);
+    if (nextId && nextId !== currentMonitoringStudentSocketId) {
+      startMonitoringStudent(nextId, studentNameMap[nextId]);
+    }
+  }
   updateModalChatTargetLabel();
   renderTiles();
 
@@ -3656,7 +3696,10 @@ socket.on("student-list-update", (list) => {
 
 
 socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport }) => {
-  if (!socketId || !dataUrl) return;
+  if (!currentClassCode || !socketId || !dataUrl) return;
+  studentTileRegistry.setScope(currentClassCode);
+  if (!studentTileRegistry.receiveThumbnail(socketId, { nickname, dataUrl, mode, viewport })) return;
+  latestThumbnails = studentTileRegistry.getThumbnails();
 
   // ★ mode が来ていればそれを、来ていなければ latestModeByStudent を参照
   const currentMode = mode || latestModeByStudent[socketId] || "whiteboard";
@@ -3666,7 +3709,7 @@ socket.on("student-thumbnail", ({ socketId, nickname, dataUrl, mode, viewport })
   }
 
   // ノート提出モードも、台形補正後の画像が通常サムネイル経路で届く。
-  latestThumbnails[socketId] = { nickname, dataUrl, mode: currentMode, viewport };
+  latestThumbnails[socketId].mode = currentMode;
   if (currentMode === "notebook") {
     const studentId = nickname || studentNameMap[socketId] || socketId;
     notebookStudents[studentId] = { latestImageData: dataUrl };
@@ -4154,6 +4197,9 @@ socket.on(
 
     const img = new Image();
     img.onload = () => {
+      // Loading may finish after a reconnect or student switch.
+      if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
+          studentTileRegistry.selectedSocketId(studentSocketId) !== studentSocketId) return;
       // ===== モーダル用の描画 =====
       if (modalCanvas && modalCtx && isCurrentMonitorResponse(studentSocketId, monitorRequestId)) {
         const cw = modalCanvas.width;
@@ -4196,14 +4242,18 @@ socket.on(
           // JPEG で軽量化（品質0.7くらい）
           const thumbDataUrl = thumbCanvas.toDataURL("image/jpeg", 0.7);
 
-          latestThumbnails[studentSocketId] = {
+          const thumbnail = {
             nickname:
               nickname ||
               getNotebookStudentIdForSocketId(studentSocketId) ||
               studentNameMap[studentSocketId] ||
               "",
-            dataUrl: thumbDataUrl
+            dataUrl: thumbDataUrl,
+            mode: effectiveMode,
+            viewport,
           };
+          if (!studentTileRegistry.receiveThumbnail(studentSocketId, thumbnail)) return;
+          latestThumbnails = studentTileRegistry.getThumbnails();
 
           // 生徒画面確認モードのタイルを再描画
           renderTiles();
@@ -5195,7 +5245,7 @@ socket.on("chat-message", payload => {
   if (!payload) return;
   if (payload.toRole !== "teacher") return;
 
-  const fromId = payload.fromSocketId;
+  const fromId = studentTileRegistry.selectedSocketId(payload.fromSocketId) || payload.fromSocketId;
   const fromNickname = payload.fromNickname || "生徒";
   const text = payload.message;
   const timestamp = payload.timestamp || Date.now();
