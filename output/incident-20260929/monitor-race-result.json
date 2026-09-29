@@ -1,0 +1,28 @@
+{
+  "teacher": [
+    {
+      "actionTiming": "none",
+      "imports": 1,
+      "ready": true,
+      "latestRevision": 10
+    },
+    {
+      "actionTiming": "before",
+      "imports": 0,
+      "ready": false,
+      "latestRevision": 11
+    },
+    {
+      "actionTiming": "during",
+      "imports": 0,
+      "ready": false,
+      "latestRevision": 11
+    }
+  ],
+  "student": {
+    "hasSentInitialBoardData": true,
+    "forceNextBoardSync": false,
+    "boardSyncRevision": 11
+  },
+  "boundary": "Local actual-source VM; not authenticated production reproduction."
+}

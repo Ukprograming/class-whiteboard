@@ -21,6 +21,7 @@ const moduleFiles = [
   "public/js/upload-status.mjs",
   "public/js/board-ui.js",
   "public/js/camera-utils.mjs",
+  "public/js/diagnostics.mjs",
   "public/js/assignment-utils.mjs",
   "public/js/form-api.js",
   "public/js/form-excel.js",

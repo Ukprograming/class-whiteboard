@@ -235,7 +235,7 @@ export class Whiteboard {
       get: () => this._onAction,
       set: handler => {
         this._onAction = typeof handler === "function"
-          ? action => handler({ ...action, pageId: action?.pageId || this.activePageId })
+          ? action => handler({ ...this._prepareRealtimeAction(action), pageId: action?.pageId || this.activePageId })
           : null;
       }
     });
@@ -249,6 +249,20 @@ export class Whiteboard {
     this._eventDisposers.push(() => {
       target.removeEventListener(type, handler, options);
     });
+  }
+
+  _prepareRealtimeAction(action) {
+    const object = action?.object;
+    if (!object || !["image", "video", "audio"].includes(object.kind)) return action;
+    // New media must travel through the asset-backed snapshot route. DOM
+    // elements and blob URLs are local to this document, not wire data.
+    if (action.type === "object") return { type: "refresh" };
+    if (action.type !== "modify") return action;
+    const portable = { ...object };
+    for (const key of ["image", "imageObjectUrl", "videoObjectUrl", "videoElement", "cachedImageDataUrl"]) {
+      delete portable[key];
+    }
+    return { ...action, object: portable };
   }
 
   destroy() {
@@ -769,6 +783,14 @@ export class Whiteboard {
         if (obj.kind === "youtube") this._normalizeYouTubeObject(obj);
         const idx = this.objects.findIndex(o => o.id === obj.id);
         if (idx >= 0) {
+          if (obj.kind === "image") {
+            const current = this.objects[idx];
+            if (current.assetKey && obj.assetKey && current.assetKey !== obj.assetKey) return;
+            // Geometry changes retain the receiver's own decoded image.
+            for (const key of ["image", "imageObjectUrl", "assetPath", "cachedImageDataUrl"]) {
+              if (current[key] != null) obj[key] = current[key];
+            }
+          }
           if (obj.kind === "video" || obj.kind === "audio") {
             const current = this.objects[idx];
             if (current?.assetKey && current.assetKey === obj.assetKey && current.videoObjectUrl) {

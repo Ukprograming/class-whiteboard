@@ -1,0 +1,35 @@
+{
+  "Commit": "156dfb32755882137db65239de8eaf478765b3a1",
+  "GeneratedAt": "2026-09-29T06:18:19.678Z",
+  "Checks": [
+    {
+      "Path": "public/js/teacher.js",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/js/student.js",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/js/board-ui.js",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/js/whiteboard.js",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/js/supabase-api.js",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/style.css",
+      "LFNormalizedMatches": true
+    },
+    {
+      "Path": "public/clear-blue.css",
+      "LFNormalizedMatches": true
+    }
+  ],
+  "Note": "Windows CRLF normalized to LF before comparing with deployed file byte hashes"
+}

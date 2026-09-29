@@ -53,7 +53,7 @@ function createHarness({ existing = null, failUpload = false, failCommit = false
       return Promise.resolve({ data: 1, error: null });
     },
   };
-  const context = vm.createContext({
+  const context = vm.createContext({ recordDiagnostic() {},
     supabase: client, supabaseEnabled: true, STORAGE_BUCKET: "class-whiteboard", SUPABASE_URL: "https://test.supabase.co",
     Blob, URL, fetch, console, assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD,
     crypto: { randomUUID: () => ids.shift() },

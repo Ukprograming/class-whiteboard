@@ -1,0 +1,297 @@
+{
+  "windowJst": "2026-09-29 00:00:00–20:43:00",
+  "project": "class whiteboard",
+  "httpSummary": {
+    "result": [
+      {
+        "count": 51,
+        "source": "edge_logs",
+        "status": "101"
+      },
+      {
+        "count": 2954,
+        "source": "edge_logs",
+        "status": "200"
+      },
+      {
+        "count": 2,
+        "source": "edge_logs",
+        "status": "204"
+      },
+      {
+        "count": 18,
+        "source": "edge_logs",
+        "status": "400"
+      },
+      {
+        "count": 34,
+        "source": "function_edge_logs",
+        "status": "200"
+      }
+    ]
+  },
+  "serviceSeverityCounts": {
+    "result": [
+      {
+        "count": 150,
+        "level": "info",
+        "severity": "",
+        "source": "auth_logs"
+      },
+      {
+        "count": 1,
+        "level": "warning",
+        "severity": "",
+        "source": "auth_logs"
+      },
+      {
+        "count": 66,
+        "level": "log",
+        "severity": "",
+        "source": "function_logs"
+      },
+      {
+        "count": 93,
+        "level": "",
+        "severity": "LOG",
+        "source": "postgres_logs"
+      },
+      {
+        "count": 22,
+        "level": "",
+        "severity": "ERROR",
+        "source": "postgres_logs"
+      },
+      {
+        "count": 100,
+        "level": "info",
+        "severity": "",
+        "source": "realtime_logs"
+      },
+      {
+        "count": 6,
+        "level": "warn",
+        "severity": "",
+        "source": "realtime_logs"
+      },
+      {
+        "count": 646,
+        "level": "info",
+        "severity": "",
+        "source": "storage_logs"
+      },
+      {
+        "count": 16,
+        "level": "warning",
+        "severity": "",
+        "source": "storage_logs"
+      }
+    ]
+  },
+  "duplicateUploads": [
+    {
+      "timeJst": "2026-09-29 16:19:42",
+      "student": "C/s024",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:19:43",
+      "student": "C/s024",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:20:17",
+      "student": "C/s025",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:20:17",
+      "student": "C/s025",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:20:45",
+      "student": "C/s022",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:20:46",
+      "student": "C/s022",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:13",
+      "student": "C/s021",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:13",
+      "student": "C/s021",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:16",
+      "student": "C/s020",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:17",
+      "student": "C/s020",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:21",
+      "student": "C/s020",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:22",
+      "student": "C/s020",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:21:32",
+      "student": "C/s024",
+      "route": "saved-board-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:22:27",
+      "student": "C/s025",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:22:27",
+      "student": "C/s025",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:22:42",
+      "student": "C/s025",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:22:42",
+      "student": "C/s025",
+      "route": "monitor-asset",
+      "status": "400"
+    },
+    {
+      "timeJst": "2026-09-29 16:33:27",
+      "student": "C/s020",
+      "route": "monitor-asset",
+      "status": "400"
+    }
+  ],
+  "duplicateCountsByStudent": {
+    "C/s024": 3,
+    "C/s025": 6,
+    "C/s022": 2,
+    "C/s021": 2,
+    "C/s020": 5
+  },
+  "targetHttpSummary": [
+    {
+      "count": 76,
+      "first": "2026-09-29T07:10:30.630000",
+      "last": "2026-09-29T07:22:59.934000",
+      "max_ms": 339,
+      "status": "200",
+      "student": "A/s009"
+    },
+    {
+      "count": 235,
+      "first": "2026-09-29T07:10:55.786000",
+      "last": "2026-09-29T07:22:37.495000",
+      "max_ms": 1413,
+      "status": "200",
+      "student": "C/s014"
+    }
+  ],
+  "targetSnapshotTimeline": [
+    {
+      "timeUtc": "2026-09-29T07:11:20.506000",
+      "student": "A/s009",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 339
+    },
+    {
+      "timeUtc": "2026-09-29T07:11:32.261000",
+      "student": "A/s009",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 145
+    },
+    {
+      "timeUtc": "2026-09-29T07:11:32.713000",
+      "student": "A/s009",
+      "actor": "A teacher",
+      "method": "GET",
+      "status": "200",
+      "originMs": 419
+    },
+    {
+      "timeUtc": "2026-09-29T07:13:27.283000",
+      "student": "C/s014",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 220
+    },
+    {
+      "timeUtc": "2026-09-29T07:13:27.688000",
+      "student": "C/s014",
+      "actor": "C teacher",
+      "method": "GET",
+      "status": "200",
+      "originMs": 423
+    },
+    {
+      "timeUtc": "2026-09-29T07:14:09.487000",
+      "student": "C/s014",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 233
+    },
+    {
+      "timeUtc": "2026-09-29T07:19:27.306000",
+      "student": "C/s014",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 352
+    },
+    {
+      "timeUtc": "2026-09-29T07:20:50.847000",
+      "student": "C/s014",
+      "actor": "student",
+      "method": "POST",
+      "status": "200",
+      "originMs": 242
+    }
+  ],
+  "notes": [
+    "Different services record overlapping events; counts must not be added as independent incidents.",
+    "HTTP success does not prove the board rendered or Broadcast content was applied.",
+    "No student board contents, email addresses, IP addresses, or tokens are retained in this evidence."
+  ]
+}

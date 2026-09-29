@@ -20,7 +20,7 @@ client.auth = { getSession: async () => ({ data: { session: { access_token: 'fix
 const events = [];
 let resumableCalls = 0;
 const source = readFileSync('public/js/supabase-api.js', 'utf8');
-const api = vm.createContext({ supabase: client, SUPABASE_URL: 'https://test.supabase.co', STORAGE_BUCKET: 'class-whiteboard', Blob, URL, fetch, crypto, console, assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD,
+const api = vm.createContext({ recordDiagnostic() {}, supabase: client, SUPABASE_URL: 'https://test.supabase.co', STORAGE_BUCKET: 'class-whiteboard', Blob, URL, fetch, crypto, console, assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD,
   CustomEvent, window: { dispatchEvent: event => events.push(event.detail) },
   uploadResumable: async options => {
     resumableCalls++;
@@ -51,6 +51,21 @@ try {
   assert(objects.every(o => !o.imageObjectUrl && !o.videoObjectUrl));
   await api.externalizeBoardAssets(board, snapshotPath);
   assert.equal(uploads, 3, 'saving again reuses immutable assets');
+  const alternating = structuredClone(board);
+  const monitorPath = 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/realtime/bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb.json';
+  await api.externalizeBoardAssets(alternating, monitorPath);
+  assert.equal(uploads, 6, 'first monitoring save creates its own immutable assets');
+  await api.externalizeBoardAssets(alternating, snapshotPath);
+  await api.externalizeBoardAssets(alternating, monitorPath);
+  assert.equal(uploads, 6, 'switching saved/monitor paths reuses both destinations without conflict uploads');
+  const parallelPath = 'students/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/realtime/concurrent.png';
+  const parallelBlob = new Blob(['same immutable bytes'], { type: 'image/png' });
+  const parallelResults = await Promise.all([
+    api.uploadImmutableBoardAsset(parallelPath, parallelBlob, 'image/png'),
+    api.uploadImmutableBoardAsset(parallelPath, parallelBlob, 'image/png'),
+  ]);
+  assert.equal(uploads, 7, 'concurrent saves share one asset upload');
+  assert.deepEqual(parallelResults, [true, false], 'only the creator owns upload cleanup');
   objects[0].imageObjectUrl = 'blob:https://expired.example/stale-image';
   await api.hydrateBoardAssets(board);
   assert.notEqual(objects[0].imageObjectUrl, 'blob:https://expired.example/stale-image', 'Storage hydration replaces an expired draft URL');
@@ -101,7 +116,7 @@ try {
   class FailedImage {
     set src(value) { this.currentSrc = value; this.onerror?.(); }
   }
-  const whiteboardRuntime = vm.createContext({ console, crypto, Image: FailedImage });
+  const whiteboardRuntime = vm.createContext({ recordDiagnostic() {}, console, crypto, Image: FailedImage });
   vm.runInContext(`${whiteboardSource}\nglobalThis.Whiteboard = Whiteboard;`, whiteboardRuntime);
   const recoveredBoard = Object.assign(Object.create(whiteboardRuntime.Whiteboard.prototype), {
     backgroundStyle: 'grid', _hidePagePattern: false, showGrid: true,
@@ -122,7 +137,7 @@ try {
   serialized.pages[0].boardData.objects.forEach(o => { delete o.imageObjectUrl; delete o.videoObjectUrl; });
   stored.set(snapshotPath, new Blob([JSON.stringify(serialized)]));
   const edgeSource = readFileSync('supabase/functions/copy-board-to-class/index.ts', 'utf8');
-  const edge = vm.createContext({ Blob, console });
+  const edge = vm.createContext({ recordDiagnostic() {}, Blob, console });
   vm.runInContext(stripTypeScriptTypes(edgeSource.slice(edgeSource.indexOf('const STORAGE_BUCKET'), edgeSource.indexOf('Deno.serve('))), edge);
   const distributed = await edge.createImmutableDistributionSnapshot(client, snapshotPath, 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb');
   const received = JSON.parse(await stored.get(distributed.targetSnapshotPath).text());

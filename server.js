@@ -665,6 +665,13 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("teacher-board-state-ack", ({ targetStudentSocketId, monitorRequestId, snapshotVersion, boardRevision }) => {
+    if (!isTeacherForClass(joinedClassCode) || !isStudentTargetInClass(joinedClassCode, targetStudentSocketId)) return;
+    io.to(targetStudentSocketId).emit("teacher-board-state-ack", {
+      teacherSocketId: socket.id, monitorRequestId, snapshotVersion, boardRevision,
+    });
+  });
+
   // 生徒 → 教員：ボードの全状態（初期同期用）
   socket.on("student-board-state", ({ targetTeacherSocketId, boardData, boardSnapshotPath, teacherSyncToken, snapshotVersion, boardRevision, monitorRequestId }) => {
     if (

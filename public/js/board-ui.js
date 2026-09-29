@@ -1,7 +1,8 @@
 // public/js/board-ui.js
 // ホワイトボードの共通 UI 初期化（ツールボタン・PDF読み込み・ズーム・サイドバー折りたたみなど）
 
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&stamp-refresh=20260924";
+import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&stamp-refresh=20260924&monitor-recovery=20260929";
 import { calculateCameraStageSize } from "./camera-utils.mjs?v=camera-frame-20260902b&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { installUploadStatus } from "./upload-status.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
@@ -144,6 +145,24 @@ export function initBoardUI() {
   let cameraRecordingStartedAt = 0;
   let cameraInsertPending = false;
   let cameraCaptureStream = null;
+  let cameraScrollState = null;
+  function recordCameraViewport(stage) {
+    const viewport = window.visualViewport;
+    const header = document.querySelector(".floating-topbar")?.getBoundingClientRect();
+    const sidebar = document.querySelector(".floating-sidebar")?.getBoundingClientRect();
+    const toolbar = document.querySelector(".floating-bottom-right")?.getBoundingClientRect();
+    recordDiagnostic("camera-viewport", { stage,
+      width: viewport?.width || window.innerWidth, height: viewport?.height || window.innerHeight,
+      scale: viewport?.scale || 1, offsetTop: viewport?.offsetTop || 0, offsetLeft: viewport?.offsetLeft || 0,
+      scrollX: window.scrollX, scrollY: window.scrollY,
+      headerTop: header?.top, headerBottom: header?.bottom,
+      sidebarTop: sidebar?.top, sidebarBottom: sidebar?.bottom,
+      toolbarTop: toolbar?.top, toolbarBottom: toolbar?.bottom,
+      fullscreen: !!document.fullscreenElement,
+      cameraOpen: document.body.classList.contains("camera-capture-open"),
+      chromeHidden: document.body.classList.contains("chrome-hidden"),
+    });
+  }
   let cameraCapturedBlob = null;
   let cameraPreviewUrl = "";
   let cameraRequestPending = false;
@@ -251,6 +270,16 @@ export function initBoardUI() {
   }
 
   function fitCameraCaptureStage() {
+    if (!cameraCaptureBackdrop || cameraCaptureBackdrop.classList.contains("hidden")) return;
+    const viewport = window.visualViewport;
+    const visibleWidth = viewport?.width || window.innerWidth;
+    const visibleHeight = viewport?.height || window.innerHeight;
+    cameraCaptureBackdrop.style.setProperty("--camera-viewport-width", `${visibleWidth}px`);
+    cameraCaptureBackdrop.style.setProperty("--camera-viewport-height", `${visibleHeight}px`);
+    cameraCaptureBackdrop.style.left = `${viewport?.offsetLeft || 0}px`;
+    cameraCaptureBackdrop.style.top = `${viewport?.offsetTop || 0}px`;
+    cameraCaptureBackdrop.style.width = `${visibleWidth}px`;
+    cameraCaptureBackdrop.style.height = `${visibleHeight}px`;
     const sourceWidth = cameraCaptureVideo?.videoWidth || 0;
     const sourceHeight = cameraCaptureVideo?.videoHeight || 0;
     const dialog = cameraCaptureStage?.closest(".camera-capture-dialog");
@@ -266,7 +295,7 @@ export function initBoardUI() {
       + (parseFloat(stageStyle.borderBottomWidth) || 0);
     const maxOuterWidth = Math.max(1, dialog.clientWidth - horizontalPadding);
     const viewportHeightRatio = window.matchMedia("(max-width: 640px)").matches ? 0.52 : 0.58;
-    const maxOuterHeight = Math.min(window.innerHeight * viewportHeightRatio, 560);
+    const maxOuterHeight = Math.min(visibleHeight * viewportHeightRatio, 560);
     const frame = calculateCameraStageSize(
       sourceWidth,
       sourceHeight,
@@ -327,7 +356,19 @@ export function initBoardUI() {
     cameraCaptureBackdrop?.classList.add("hidden");
     document.body.classList.remove("camera-capture-open");
     setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
-    cameraCaptureBtn?.focus();
+    cameraCaptureBtn?.focus({ preventScroll: true });
+    if (cameraScrollState) {
+      window.scrollTo(cameraScrollState.x, cameraScrollState.y);
+      document.body.scrollTop = cameraScrollState.bodyTop;
+      document.body.scrollLeft = cameraScrollState.bodyLeft;
+      const sidebar = document.querySelector("#wbSidebar .sidebar-content");
+      if (sidebar) sidebar.scrollTop = cameraScrollState.sidebarTop;
+      cameraScrollState = null;
+    }
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+      recordCameraViewport("closed");
+    });
     updateCameraDeviceSelectDisabled();
   }
 
@@ -355,6 +396,10 @@ export function initBoardUI() {
       return;
     }
 
+    recordCameraViewport("before-open");
+    cameraScrollState = { x: window.scrollX, y: window.scrollY,
+      bodyTop: document.body.scrollTop, bodyLeft: document.body.scrollLeft,
+      sidebarTop: document.querySelector("#wbSidebar .sidebar-content")?.scrollTop || 0 };
     cameraRequestPending = true;
     cameraMode = "photo";
     const requestId = ++cameraRequestId;
@@ -379,10 +424,11 @@ export function initBoardUI() {
       requestAnimationFrame(fitCameraCaptureStage);
       setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
       await refreshCameraDeviceOptions(cameraActiveDeviceId);
-      cameraCaptureShutterBtn?.focus();
+      cameraCaptureShutterBtn?.focus({ preventScroll: true });
+      recordCameraViewport("opened");
     } catch (error) {
       console.error("Failed to start whiteboard camera", error);
-      stopCameraCaptureStream();
+      closeCameraCapture();
       window.alert(cameraErrorMessage(error));
     } finally {
       cameraRequestPending = false;
@@ -418,7 +464,7 @@ export function initBoardUI() {
       cameraRequestPending = false;
       cameraCaptureShutterBtn.disabled = false;
       updateCameraDeviceSelectDisabled();
-      cameraCaptureShutterBtn?.focus();
+      cameraCaptureShutterBtn?.focus({ preventScroll: true });
     }
   }
 
@@ -482,14 +528,15 @@ export function initBoardUI() {
     cameraCaptureShutterBtn?.classList.add("hidden");
     cameraCaptureInsertBtn.disabled = false;
     setCameraMessage("撮影した画像を確認し、よければホワイトボードに挿入してください。");
-    cameraCaptureInsertBtn.focus();
+    cameraCaptureInsertBtn.focus({ preventScroll: true });
+    recordCameraViewport("photo-preview");
   }
 
   function retakeCameraFrame() {
     if (cameraInsertPending) return;
     clearCameraPreview();
     setCameraMessage("画面内に貼り付けたいものを収めて、撮影してください。");
-    cameraCaptureShutterBtn?.focus();
+    cameraCaptureShutterBtn?.focus({ preventScroll: true });
   }
 
   async function insertCameraFrame() {
@@ -598,7 +645,7 @@ export function initBoardUI() {
         cameraCaptureRetakeBtn.classList.remove("hidden");
         cameraCaptureInsertBtn.disabled = false;
         setCameraMessage("動画を再生して確認し、ホワイトボードに挿入してください。");
-        cameraCaptureInsertBtn.focus();
+        cameraCaptureInsertBtn.focus({ preventScroll: true });
       };
       cameraRecorder = recorder;
       recorder.start(1000);
@@ -659,6 +706,8 @@ export function initBoardUI() {
     stopCameraCaptureStream();
   });
   window.addEventListener("resize", fitCameraCaptureStage);
+  window.visualViewport?.addEventListener("resize", fitCameraCaptureStage);
+  window.visualViewport?.addEventListener("scroll", fitCameraCaptureStage);
 
   // ✅ Whiteboardの実スケールからズーム表示を更新
   function updateZoomLabelFromWB() {

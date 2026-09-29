@@ -1,0 +1,454 @@
+[
+  {
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "before": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1366,
+        "height": 768,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 1334,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 662,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 633,
+          "y": 686,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1366,
+          "height": 768,
+          "display": "block"
+        }
+      }
+    },
+    "after": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1366,
+        "height": 768,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 1334,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 662,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 633,
+          "y": 686,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1366,
+          "height": 768,
+          "display": "block"
+        }
+      }
+    },
+    "action": {
+      "action": {
+        "type": "object",
+        "object": {
+          "id": "object-cabc4d90-bd7c-424b-9871-13ce9894038b",
+          "kind": "image",
+          "x": 363,
+          "y": 144,
+          "width": 640,
+          "height": 480,
+          "image": {},
+          "assetKey": "63143b5e-2073-47ab-b79f-10e699562615"
+        },
+        "pageId": "page-1"
+      },
+      "senderImageReady": true,
+      "receiverImageReady": false
+    },
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 1280,
+      "height": 600
+    },
+    "before": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1280,
+        "height": 600,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 1248,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 494,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 547,
+          "y": 518,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 600,
+          "display": "block"
+        }
+      }
+    },
+    "after": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1280,
+        "height": 600,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 1248,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 494,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 547,
+          "y": 518,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1280,
+          "height": 600,
+          "display": "block"
+        }
+      }
+    },
+    "action": {
+      "action": {
+        "type": "object",
+        "object": {
+          "id": "object-9376cab4-4ba3-4af0-be73-bdbd7533ddac",
+          "kind": "image",
+          "x": 320,
+          "y": 60,
+          "width": 640,
+          "height": 480,
+          "image": {},
+          "assetKey": "7151e58c-b7f3-4049-afab-0f3804e3680e"
+        },
+        "pageId": "page-1"
+      },
+      "senderImageReady": true,
+      "receiverImageReady": false
+    },
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 1024,
+      "height": 576
+    },
+    "before": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1024,
+        "height": 576,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 992,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 470,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 291,
+          "y": 494,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1024,
+          "height": 576,
+          "display": "block"
+        }
+      }
+    },
+    "after": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 1024,
+        "height": 576,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 16,
+          "y": 12,
+          "width": 992,
+          "height": 54,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 16,
+          "y": 90,
+          "width": 64,
+          "height": 470,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 291,
+          "y": 494,
+          "width": 717,
+          "height": 68,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 1024,
+          "height": 576,
+          "display": "block"
+        }
+      }
+    },
+    "action": {
+      "action": {
+        "type": "object",
+        "object": {
+          "id": "object-2878b256-f3a7-4ffa-954b-1a3919f0602c",
+          "kind": "image",
+          "x": 192,
+          "y": 48,
+          "width": 640,
+          "height": 480,
+          "image": {},
+          "assetKey": "e3fa5dfe-f5e7-4c0a-8e40-4a911eb6ec4b"
+        },
+        "pageId": "page-1"
+      },
+      "senderImageReady": true,
+      "receiverImageReady": false
+    },
+    "errors": []
+  },
+  {
+    "viewport": {
+      "width": 683,
+      "height": 384
+    },
+    "before": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 683,
+        "height": 384,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 8,
+          "y": 8,
+          "width": 667,
+          "height": 52,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 8,
+          "y": 82,
+          "width": 58,
+          "height": 230,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 8,
+          "y": 316,
+          "width": 667,
+          "height": 60,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 683,
+          "height": 384,
+          "display": "block"
+        }
+      }
+    },
+    "after": {
+      "scroll": [
+        0,
+        0,
+        0
+      ],
+      "visual": {
+        "width": 683,
+        "height": 384,
+        "scale": 1,
+        "offsetTop": 0
+      },
+      "body": "app-root student-app",
+      "rects": {
+        ".floating-topbar": {
+          "x": 8,
+          "y": 8,
+          "width": 667,
+          "height": 52,
+          "display": "flex"
+        },
+        ".floating-sidebar": {
+          "x": 8,
+          "y": 82,
+          "width": 58,
+          "height": 230,
+          "display": "flex"
+        },
+        ".floating-bottom-right": {
+          "x": 8,
+          "y": 316,
+          "width": 667,
+          "height": 60,
+          "display": "flex"
+        },
+        "#whiteboard": {
+          "x": 0,
+          "y": 0,
+          "width": 683,
+          "height": 384,
+          "display": "block"
+        }
+      }
+    },
+    "action": {
+      "action": {
+        "type": "object",
+        "object": {
+          "id": "object-a454c84a-d5b5-4f2d-bd10-3da363a1826e",
+          "kind": "image",
+          "x": 21.5,
+          "y": -48,
+          "width": 640,
+          "height": 480,
+          "image": {},
+          "assetKey": "c48ce611-eb26-4097-bb66-ec2d29ac9520"
+        },
+        "pageId": "page-1"
+      },
+      "senderImageReady": true,
+      "receiverImageReady": false
+    },
+    "errors": []
+  }
+]

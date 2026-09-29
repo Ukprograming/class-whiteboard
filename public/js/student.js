@@ -1,6 +1,7 @@
+import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
 // public/js/student.js
 import { createThumbnailSender } from "./thumbnail-sender.mjs?v=thumbnail-idle-20260916";
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924&monitor-recovery=20260929";
 import {
   assignmentApi,
   authApi,
@@ -8,7 +9,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
@@ -3217,8 +3218,13 @@ window.addEventListener("pagehide", () => {
 // ========= 生徒画面モニタリング（高機能版）関連 =========
 
 let currentTeacherSocketId = null;
-let hasSentInitialBoardData = false;
+let hasSentInitialBoardData = false; // True only after the teacher applies the snapshot.
 let forceNextBoardSync = false;
+let monitorRefreshRevision = 0;
+let pendingMonitorSnapshot = null;
+let monitorSnapshotAttempts = 0;
+const MONITOR_ACK_TIMEOUT_MS = 8000;
+const MAX_MONITOR_SNAPSHOT_ATTEMPTS = 3;
 let boardSnapshotSaveInFlight = null;
 let lastAppliedTeacherSyncToken = null;
 let boardSyncRevision = 0;
@@ -3226,10 +3232,19 @@ let currentMonitorRequestId = null;
 
 async function createBoardSyncPayload() {
   if (!whiteboard || !currentClassCode || !nickname) return null;
+  const requestId = currentMonitorRequestId;
+  if (boardSnapshotSaveInFlight) {
+    const previous = await boardSnapshotSaveInFlight;
+    if (previous?.requestId === requestId) return previous;
+    if (requestId !== currentMonitorRequestId) return null;
+    return createBoardSyncPayload();
+  }
   const boardData = whiteboard.exportBoardData();
   const teacherSyncToken = lastAppliedTeacherSyncToken;
   const syncRevision = boardSyncRevision;
   const snapshotVersion = crypto.randomUUID();
+  boardData.monitorSnapshot = { version: snapshotVersion, revision: syncRevision };
+  recordDiagnostic("monitor-save", { requestId, version: snapshotVersion, revision: syncRevision });
   if (!boardApi.enabled) {
     return {
       boardData,
@@ -3237,10 +3252,9 @@ async function createBoardSyncPayload() {
       teacherSyncToken,
       syncRevision,
       snapshotVersion,
+      requestId,
     };
   }
-
-  if (boardSnapshotSaveInFlight) return boardSnapshotSaveInFlight;
 
   boardSnapshotSaveInFlight = (async () => {
     try {
@@ -3256,9 +3270,11 @@ async function createBoardSyncPayload() {
         teacherSyncToken,
         syncRevision,
         snapshotVersion,
+        requestId,
       };
     } catch (error) {
       console.error("Failed to store realtime board snapshot:", error);
+      recordDiagnostic("monitor-error", { stage: "save", errorName: error?.name || "Error" });
       return null;
     } finally {
       boardSnapshotSaveInFlight = null;
@@ -3285,6 +3301,17 @@ async function sendBoardStateToTeacher(teacherSocketId, monitorRequestId = curre
 socket.on("teacher-joined-session", ({ teacherSocketId }) => {
   if (!whiteboard) return;
   void sendBoardStateToTeacher(teacherSocketId);
+});
+
+socket.on("teacher-board-state-ack", ({ teacherSocketId, monitorRequestId, snapshotVersion, boardRevision }) => {
+  if (teacherSocketId !== currentTeacherSocketId || monitorRequestId !== currentMonitorRequestId) return;
+  if (!pendingMonitorSnapshot || pendingMonitorSnapshot.snapshotVersion !== snapshotVersion ||
+    pendingMonitorSnapshot.syncRevision !== boardRevision) return;
+  hasSentInitialBoardData = true;
+  if (monitorRefreshRevision <= boardRevision) forceNextBoardSync = false;
+  pendingMonitorSnapshot = null;
+  monitorSnapshotAttempts = 0;
+  recordDiagnostic("monitor-ack", { requestId: monitorRequestId, version: snapshotVersion, revision: boardRevision });
 });
 
 // ★ 教員からのホワイトボード操作受信
@@ -3333,14 +3360,25 @@ if (whiteboard) {
       //    差分ではなく次回の sendScreenUpdate で全データを送るようにフラグを立てる
       if (action.type === "refresh") {
         forceNextBoardSync = true;
+        monitorRefreshRevision = boardSyncRevision;
         return;
       }
 
-      socket.emit("student-whiteboard-action", {
+      const requestId = currentMonitorRequestId;
+      void Promise.resolve(socket.emit("student-whiteboard-action", {
         targetTeacherSocketId: currentTeacherSocketId,
         action,
         boardRevision: boardSyncRevision,
         monitorRequestId: currentMonitorRequestId,
+      })).then(sent => {
+        if (sent !== false || requestId !== currentMonitorRequestId) return;
+        forceNextBoardSync = true;
+        monitorRefreshRevision = boardSyncRevision;
+        recordDiagnostic("monitor-delta-failed", { requestId, revision: boardSyncRevision });
+      }).catch(() => {
+        if (requestId !== currentMonitorRequestId) return;
+        forceNextBoardSync = true;
+        monitorRefreshRevision = boardSyncRevision;
       });
     }
   };
@@ -3397,6 +3435,10 @@ socket.on("start-monitoring", ({ teacherSocketId, monitorRequestId }) => {
   currentMonitorRequestId = monitorRequestId || null;
   hasSentInitialBoardData = false; // モニタリング開始時にリセット
   forceNextBoardSync = false;
+  pendingMonitorSnapshot = null;
+  monitorSnapshotAttempts = 0;
+  monitorRefreshRevision = boardSyncRevision;
+  recordDiagnostic("monitor-start", { requestId: currentMonitorRequestId, revision: boardSyncRevision });
 
   // ★ 共同編集開始時に、現在のボード状態を教員に送る
 
@@ -3433,6 +3475,7 @@ socket.on("stop-monitoring", ({ monitorRequestId } = {}) => {
   monitorLoopGeneration += 1;
   currentTeacherSocketId = null;
   currentMonitorRequestId = null;
+  pendingMonitorSnapshot = null;
   if (monitorIntervalId) {
     clearTimeout(monitorIntervalId);
     monitorIntervalId = null;
@@ -3510,10 +3553,17 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
     // ★ ホワイトボードの実データ（ストローク＋オブジェクト）を取得
     // 教師の書き込みも同じボードの内容として同期する。
     // ★ 変更：初回送信済み かつ 強制同期フラグが立っていない場合は、boardData を送らない（nullにする）
-    const shouldSendBoardData = !hasSentInitialBoardData || forceNextBoardSync;
+    if (pendingMonitorSnapshot && Date.now() - pendingMonitorSnapshot.sentAt >= MONITOR_ACK_TIMEOUT_MS) {
+      recordDiagnostic("monitor-ack-timeout", { requestId: monitorRequestId, attempt: monitorSnapshotAttempts });
+      pendingMonitorSnapshot = null;
+    }
+    const shouldSendBoardData = (!hasSentInitialBoardData || forceNextBoardSync) &&
+      !pendingMonitorSnapshot && monitorSnapshotAttempts < MAX_MONITOR_SNAPSHOT_ATTEMPTS;
 
     if (shouldSendBoardData) {
+      monitorSnapshotAttempts += 1;
       const syncPayload = await createBoardSyncPayload();
+      if (monitorRequestId !== currentMonitorRequestId || teacherSocketId !== currentTeacherSocketId) return;
       if (syncPayload) {
         boardData = syncPayload.boardData;
         boardSnapshotPath = syncPayload.boardSnapshotPath;
@@ -3521,6 +3571,7 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
         syncRevision = syncPayload.syncRevision;
         snapshotVersion = syncPayload.snapshotVersion;
         shouldCommitBoardSync = true;
+        pendingMonitorSnapshot = { ...syncPayload, sentAt: Date.now() };
       }
     }
   }
@@ -3548,10 +3599,8 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
     isSync: !!(boardData || boardSnapshotPath)
   });
   if (sent !== false && shouldCommitBoardSync) {
-    hasSentInitialBoardData = true;
-    if (syncRevision === boardSyncRevision) {
-      forceNextBoardSync = false;
-    }
+    recordDiagnostic("monitor-sent", { requestId: monitorRequestId, version: snapshotVersion,
+      revision: syncRevision, attempt: monitorSnapshotAttempts });
   }
 }
 

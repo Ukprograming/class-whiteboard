@@ -22,11 +22,15 @@ const student = board();
 const teacher = board();
 const messages = [];
 let revision = -1;
+const { createMonitorReceiver } = await import("data:text/javascript;base64," + Buffer.from(readFileSync("public/js/monitor-sync.js", "utf8")).toString("base64"));
+const modalReceiver = createMonitorReceiver({ apply: action => teacher.applyAction(action) });
 let receive;
 Object.assign(context, {
   whiteboard: student, modalBoard: teacher,
   currentTeacherSocketId: "teacher", currentMonitorRequestId: "monitor",
-  boardSyncRevision: 0, forceNextBoardSync: false,
+  boardSyncRevision: 0, forceNextBoardSync: false, monitorRefreshRevision: 0,
+  modalReceiver, modalGapTimer: null, clearTimeout, recordDiagnostic() {}, acknowledgeModalSnapshot() {},
+  scheduleModalResync(reason) { throw new Error(`Unexpected gap: ${reason}`); },
   sharedBoardSession: null, applyingSharedBoardRemote: false,
   scheduleStudentDraftSave() {},
   isCurrentMonitorResponse: (id, request) => id === "student" && request === "monitor",
@@ -61,6 +65,7 @@ function seed(objects, strokes) {
   teacher.objects = structuredClone(objects); teacher.strokes = structuredClone(strokes);
   student.history = []; student.multiSelectedObjects = []; student.multiSelectedStrokes = [];
   context.forceNextBoardSync = false;
+  modalReceiver.accept(context.boardSyncRevision, () => true);
 }
 function equalBoards() {
   assert.deepEqual(structuredClone(teacher.objects), structuredClone(student.objects));
@@ -71,6 +76,7 @@ function snapshot() {
   assert.equal(context.forceNextBoardSync, true);
   teacher.objects = structuredClone(student.objects); teacher.strokes = structuredClone(student.strokes);
   context.forceNextBoardSync = false;
+  modalReceiver.accept(context.boardSyncRevision, () => true);
 }
 for (const kind of ["text", "sticky", "rect", "image", "stamp", "table", "timer", "youtube", "video", "audio"]) {
   seed([{ id: kind, kind }], []);

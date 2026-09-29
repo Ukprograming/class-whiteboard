@@ -1,3 +1,4 @@
+import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
 import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
@@ -35,6 +36,7 @@ const TEACHER_REALTIME_EVENTS = new Set([
   "start-monitoring",
   "stop-monitoring",
   "teacher-whiteboard-action",
+  "teacher-board-state-ack",
   "teacher-annotation-update",
   "teacherSetHighQuality",
   "teacherShareToStudent",
@@ -95,6 +97,7 @@ const RELIABLE_CONTROL_EVENTS = new Set([
   "student-screen-share-started",
   "student-screen-share-stopped",
   "student-teacher-action-ack",
+  "teacher-board-state-ack",
 ]);
 const REALTIME_INITIAL_JOIN_TIMEOUT_MS = 30000;
 const STUDENT_JOIN_SPREAD_WINDOW_MS = 3000;
@@ -901,6 +904,7 @@ function createSupabaseRealtimeBridge() {
     }
     if (channelStatuses.get(targetChannel) !== "SUBSCRIBED") {
       console.warn(`[realtime] ${eventName} skipped while its channel is reconnecting.`);
+      recordDiagnostic("realtime-send-failed", { event: eventName, reason: "channel-not-subscribed" });
       dispatch("realtime-send-failed", { eventName, reason: "channel-not-subscribed" });
       return false;
     }
@@ -1137,6 +1141,10 @@ function createSupabaseRealtimeBridge() {
           classCode: payload.classCode,
           monitorRequestId: payload.monitorRequestId,
         });
+        break;
+      case "teacher-board-state-ack":
+        if (payload.targetStudentSocketId !== socketId) return;
+        dispatch(eventName, { ...payload, teacherSocketId: message.senderSocketId });
         break;
       case "teacher-whiteboard-action": {
         const target = payload.targetSocketId || payload.targetStudentSocketId;
@@ -1764,7 +1772,28 @@ function isAssetAlreadyStored(error) {
   return /already exists|resource exists|duplicate/i.test(message);
 }
 
+const immutableAssetUploads = new Map();
 async function uploadImmutableBoardAsset(path, blob, mimeType, fileName = "メディア") {
+  const pending = immutableAssetUploads.get(path);
+  if (pending) {
+    await pending;
+    return false;
+  }
+  const task = (async () => {
+    // assetKey identifies immutable content. Check the target even when the
+    // current assetPath belongs to the other (saved/monitoring) destination.
+    if (await storageObjectExists(path)) {
+      recordDiagnostic("asset-reused", { bytes: blob.size });
+      return false;
+    }
+    return performImmutableBoardAssetUpload(path, blob, mimeType, fileName);
+  })();
+  immutableAssetUploads.set(path, task);
+  try { return await task; }
+  finally { if (immutableAssetUploads.get(path) === task) immutableAssetUploads.delete(path); }
+}
+
+async function performImmutableBoardAssetUpload(path, blob, mimeType, fileName = "メディア") {
   if (blob.size > RESUMABLE_UPLOAD_THRESHOLD) {
     const id = crypto.randomUUID();
     const notify = detail => window.dispatchEvent(new CustomEvent("board-asset-upload", {

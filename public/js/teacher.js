@@ -1,12 +1,14 @@
 // public/js/teacher.js
-import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924";
-import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&arrow-tip=20260924&stamp-refresh=20260924";
+import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924&monitor-recovery=20260929";
+import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&arrow-tip=20260924&stamp-refresh=20260924&monitor-recovery=20260929";
 import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
-} from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+  createMonitorReceiver,
+} from "./monitor-sync.js?v=monitor-sync-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&monitor-recovery=20260929";
+import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
 import {
   getSelectedTeacherClass,
   removeTeacherClassHints,
@@ -230,6 +232,11 @@ let currentModalMonitorRequestId = null;
 let modalBoardLoadState = "idle";
 let modalBoardLoadTimerId = null;
 const MODAL_BOARD_LOAD_TIMEOUT_MS = 10000;
+let modalGapTimer = null;
+let modalRecoveryAttempts = 0;
+const modalReceiver = createMonitorReceiver({ apply: action => modalBoard?.applyAction(action) });
+const modalSnapshotLoads = new Map();
+let modalAcceptedSnapshot = null;
 // ★ 追加: モーダル内のボードに「初期同期済み」かどうか
 let modalHasInitialBoardData = false;
 
@@ -3735,6 +3742,7 @@ function updateModalBoardInteractionLock() {
 }
 
 function setModalBoardLoadState(state, message = "") {
+  recordDiagnostic("monitor-state", { requestId: currentModalMonitorRequestId, state });
   modalBoardLoadState = state;
   const isBlocked = state === "loading" || state === "error";
   if (modalBoardLoadingOverlay) {
@@ -3764,8 +3772,14 @@ function completeStudentModalBoardLoad(studentSocketId, monitorRequestId) {
   return true;
 }
 
-function requestStudentModalBoardState(studentSocketId) {
+function requestStudentModalBoardState(studentSocketId, recovery = false) {
   if (!currentClassCode || !studentSocketId) return null;
+  if (!recovery) modalRecoveryAttempts = 0;
+  clearTimeout(modalGapTimer);
+  modalGapTimer = null;
+  modalReceiver.reset();
+  modalSnapshotLoads.clear();
+  modalAcceptedSnapshot = null;
 
   clearModalBoardLoadTimer();
   clearPendingTeacherSync(studentSocketId);
@@ -3777,6 +3791,11 @@ function requestStudentModalBoardState(studentSocketId) {
   setModalBoardLoadState("loading", "生徒の画面を読み込み中…");
   modalBoardLoadTimerId = setTimeout(() => {
     if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
+    if (modalRecoveryAttempts < 2) {
+      modalRecoveryAttempts += 1;
+      requestStudentModalBoardState(studentSocketId, true);
+      return;
+    }
     setModalBoardLoadState(
       "error",
       "生徒の画面を読み込めませんでした。再読み込みしてください。"
@@ -3789,6 +3808,79 @@ function requestStudentModalBoardState(studentSocketId) {
     monitorRequestId,
   });
   return monitorRequestId;
+}
+
+function scheduleModalResync(reason) {
+  if (modalGapTimer || !currentMonitoringStudentSocketId) return;
+  const student = currentMonitoringStudentSocketId;
+  const request = currentModalMonitorRequestId;
+  recordDiagnostic("monitor-resync", { requestId: request, reason });
+  modalGapTimer = setTimeout(() => {
+    modalGapTimer = null;
+    if (!isCurrentMonitorResponse(student, request)) return;
+    if (modalRecoveryAttempts >= 2) {
+      setModalBoardLoadState("error", "同期が途切れました。再読み込みしてください。");
+      return;
+    }
+    modalRecoveryAttempts += 1;
+    requestStudentModalBoardState(student, true);
+  }, 1200);
+}
+
+function acknowledgeModalSnapshot() {
+  const snapshot = modalAcceptedSnapshot;
+  if (!snapshot || !modalReceiver.ready || modalReceiver.hasGap()) return;
+  if (!isCurrentMonitorResponse(snapshot.studentSocketId, snapshot.monitorRequestId)) return;
+  clearTimeout(modalGapTimer);
+  modalGapTimer = null;
+  completeStudentModalBoardLoad(snapshot.studentSocketId, snapshot.monitorRequestId);
+  modalRecoveryAttempts = 0;
+  void socket.emit("teacher-board-state-ack", { classCode: currentClassCode,
+    targetStudentSocketId: snapshot.studentSocketId, monitorRequestId: snapshot.monitorRequestId,
+    snapshotVersion: snapshot.snapshotVersion, boardRevision: snapshot.boardRevision });
+  modalAcceptedSnapshot = null;
+}
+
+async function receiveStudentSnapshot({ studentSocketId, monitorRequestId, boardData,
+  boardSnapshotPath, snapshotVersion, boardRevision, teacherSyncToken, viewport }) {
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
+  if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) return;
+  const key = `${monitorRequestId}:${snapshotVersion}`;
+  // The first caller owns error reporting and recovery for this shared load.
+  if (modalSnapshotLoads.has(key)) return modalSnapshotLoads.get(key).catch(() => {});
+  const task = (async () => {
+    const started = performance.now();
+    recordDiagnostic("monitor-download", { requestId: monitorRequestId, version: snapshotVersion, revision: boardRevision });
+    const resolved = await resolveRealtimeBoardData(boardData, boardSnapshotPath, snapshotVersion);
+    if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
+    if (!isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)) return;
+    if (!resolved) { scheduleModalResync("snapshot-unavailable"); return; }
+    // The path can be overwritten by a later save. Never label newer contents
+    // with an older revision merely because its download returned HTTP 200.
+    if (resolved.monitorSnapshot && (resolved.monitorSnapshot.version !== snapshotVersion ||
+      resolved.monitorSnapshot.revision !== boardRevision)) {
+      scheduleModalResync("snapshot-version-mismatch"); return;
+    }
+    if ((latestModeByStudent[studentSocketId] || "whiteboard") !== "whiteboard" || modalShowingSavedFeedback) return;
+    if (modalReceiver.baseline != null && boardRevision < modalReceiver.baseline) return;
+    const accepted = modalReceiver.accept(boardRevision, () =>
+      importStudentBoardDataIntoModal(resolved, studentSocketId, viewport || latestViewportByStudent[studentSocketId]));
+    if (!accepted) { scheduleModalResync("snapshot-history-gap"); return; }
+    rememberStudentBoardRevision(studentSocketId, modalReceiver.revision);
+    latestBoardDataByStudent[studentSocketId] = resolved;
+    if (teacherSyncToken) latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+    recordDiagnostic("monitor-applied", { requestId: monitorRequestId, version: snapshotVersion,
+      revision: modalReceiver.revision, durationMs: Math.round(performance.now() - started) });
+    modalAcceptedSnapshot = { studentSocketId, monitorRequestId, snapshotVersion, boardRevision };
+    if (modalReceiver.hasGap()) { scheduleModalResync("revision-gap"); return; }
+    acknowledgeModalSnapshot();
+  })();
+  modalSnapshotLoads.set(key, task);
+  try { await task; }
+  catch (error) {
+    recordDiagnostic("monitor-error", { requestId: monitorRequestId, errorName: error?.name || "Error" });
+    if (isCurrentMonitorResponse(studentSocketId, monitorRequestId)) scheduleModalResync("snapshot-apply-error");
+  } finally { if (modalSnapshotLoads.get(key) === task) modalSnapshotLoads.delete(key); }
 }
 
 modalBoardRetryBtn?.addEventListener("click", () => {
@@ -3882,9 +3974,13 @@ socket.on("student-teacher-action-ack", ({
 }) => {
   if (!studentSocketId || !teacherSyncToken) return;
   if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
-  if (!clearPendingTeacherSync(studentSocketId, teacherSyncToken)) return;
-  latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+  if (clearPendingTeacherSync(studentSocketId, teacherSyncToken)) {
+    latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
+  }
+  const result = modalReceiver.receive(boardRevision, null);
+  if (result === "gap" || result === "overflow") scheduleModalResync("teacher-ack-gap");
   rememberStudentBoardRevision(studentSocketId, boardRevision);
+  acknowledgeModalSnapshot();
 });
 
 function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
@@ -3926,94 +4022,27 @@ function importStudentBoardDataIntoModal(boardData, studentSocketId, viewport) {
 }
 
 // 生徒の現在のホワイトボード全体状態（セッション開始直後など）
-socket.on("student-board-state", async ({
-  studentSocketId,
-  boardData: incomingBoardData,
-  boardSnapshotPath,
-  teacherSyncToken,
-  snapshotVersion,
-  boardRevision,
-  monitorRequestId,
-}) => {
-  if (
-    !isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
-    !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)
-  ) {
-    return;
-  }
-  if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
-  const boardData = await resolveRealtimeBoardData(
-    incomingBoardData,
-    boardSnapshotPath,
-    snapshotVersion
-  );
-  if (
-    !isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
-    !isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken)
-  ) {
-    return;
-  }
-  if (isStaleStudentBoardRevision(studentSocketId, boardRevision, false)) return;
-  console.log("[teacher] student-board-state", {
-    studentSocketId,
-    hasBoardData: !!boardData
-  });
-
-  if (!studentSocketId || !boardData) return;
-
-  rememberStudentBoardRevision(studentSocketId, boardRevision);
-  if (teacherSyncToken) {
-    latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
-  }
-  latestBoardDataByStudent[studentSocketId] = boardData;
-
-  // ★ その生徒の現在モード（なければ whiteboard とみなす）
-  const mode = latestModeByStudent[studentSocketId] || "whiteboard";
-  // 画面共有・ノートモードのときは、ボードデータは保存だけして画面には反映しない
-  if (mode !== "whiteboard") {
-    return;
-  }
-
-  if (
-    !currentMonitoringStudentSocketId ||
-    studentSocketId !== currentMonitoringStudentSocketId
-  ) {
-    return;
-  }
-
-  const imported = importStudentBoardDataIntoModal(
-    boardData,
-    studentSocketId,
-    latestViewportByStudent[studentSocketId]
-  );
-  if (imported) completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
+socket.on("student-board-state", async payload => {
+  await receiveStudentSnapshot(payload);
 });
 
-
-
-// 生徒側の増分操作（ペン・消しゴム・図形など）
-socket.on("student-whiteboard-action", ({
-  studentSocketId,
-  action,
-  boardRevision,
-  monitorRequestId,
-}) => {
-  console.log("[teacher] student-whiteboard-action", {
-    studentSocketId,
-    hasAction: !!action
-  });
-
-  // 今監視している生徒以外の操作は無視
-  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) {
-    return;
+socket.on("student-whiteboard-action", ({ studentSocketId, action, boardRevision, monitorRequestId }) => {
+  if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId) || !action || !modalBoard) return;
+  try {
+    const result = modalReceiver.receive(boardRevision, action);
+    recordDiagnostic("monitor-delta", { requestId: monitorRequestId, revision: boardRevision, state: result });
+    if (modalReceiver.revision != null) rememberStudentBoardRevision(studentSocketId, modalReceiver.revision);
+    if (result === "gap" || result === "overflow" || result === "invalid") scheduleModalResync(result);
+    else if (modalReceiver.ready && !modalReceiver.hasGap()) {
+      clearTimeout(modalGapTimer);
+      modalGapTimer = null;
+      acknowledgeModalSnapshot();
+    }
+  } catch (error) {
+    recordDiagnostic("monitor-error", { errorName: error?.name || "Error", stage: "delta" });
+    scheduleModalResync("delta-apply-error");
   }
-
-  if (!modalBoard || !action || typeof modalBoard.applyAction !== "function") return;
-  if (isStaleStudentBoardRevision(studentSocketId, boardRevision)) return;
-  modalBoard.applyAction(action);
-  rememberStudentBoardRevision(studentSocketId, boardRevision);
 });
-
 
 // ★ 生徒側からの「画面更新」（スクショ＋ボードデータ）
 //   → 共同編集中の生徒のボードデータを定期的に上書きする用途
@@ -4038,32 +4067,6 @@ socket.on(
   }) => {
     if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
     const effectiveMode = mode || "whiteboard";
-    let boardData = null;
-    if (
-      isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
-      !isStaleStudentBoardRevision(studentSocketId, boardRevision, false)
-    ) {
-      const resolvedBoardData = await resolveRealtimeBoardData(
-        incomingBoardData,
-        boardSnapshotPath,
-        snapshotVersion
-      );
-      if (
-        isCurrentMonitorResponse(studentSocketId, monitorRequestId) &&
-        isCurrentTeacherBoardSync(studentSocketId, teacherSyncToken) &&
-        !isStaleStudentBoardRevision(studentSocketId, boardRevision, false)
-      ) {
-        boardData = resolvedBoardData;
-      }
-    }
-
-    console.log("[teacher] student-screen-update", {
-      studentSocketId,
-      mode: effectiveMode,
-      hasBoardData: !!boardData,
-      hasImage: !!dataUrl
-    });
-
     if (!studentSocketId) return;
 
     // 画像更新だけが先に届いても、UUID の socketId ではなく認証済みの生徒IDを表示する。
@@ -4085,15 +4088,6 @@ socket.on(
     // ★ 追加：モードに応じてグリッド表示切り替え
     if (modalBoard && currentMonitoringStudentSocketId === studentSocketId) {
       modalBoard.setShowGrid(effectiveMode !== "notebook");
-    }
-
-    // 最新の boardData は保持しておく（whiteboardモード用）
-    if (boardData) {
-      rememberStudentBoardRevision(studentSocketId, boardRevision);
-      if (teacherSyncToken) {
-        latestTeacherSyncTokenByStudent.set(studentSocketId, teacherSyncToken);
-      }
-      latestBoardDataByStudent[studentSocketId] = boardData;
     }
 
     // 監視中の生徒以外ならモーダル描画は無視
@@ -4135,10 +4129,11 @@ socket.on(
         return;
       }
 
-      // 初期同期がまだ、または強制同期(isSync=true)の場合に取り込む
-      if ((!modalHasInitialBoardData || isSync) && boardData) {
-        const imported = importStudentBoardDataIntoModal(boardData, studentSocketId, viewport);
-        if (imported) completeStudentModalBoardLoad(studentSocketId, monitorRequestId);
+      if (incomingBoardData || boardSnapshotPath) {
+        await receiveStudentSnapshot({ studentSocketId, monitorRequestId,
+          boardData: incomingBoardData, boardSnapshotPath, snapshotVersion,
+          boardRevision, teacherSyncToken, viewport });
+        if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId)) return;
       }
 
       // whiteboardモードでは overlay 上に書きながら、生徒WBと同期（onActionで emit）
@@ -4500,6 +4495,11 @@ function stopMonitoringStudent() {
   clearPendingTeacherSync(stoppedStudentSocketId);
   delete latestBoardDataByStudent[stoppedStudentSocketId];
   clearModalBoardLoadTimer();
+  clearTimeout(modalGapTimer);
+  modalGapTimer = null;
+  modalReceiver.reset();
+  modalSnapshotLoads.clear();
+  modalAcceptedSnapshot = null;
   currentModalMonitorRequestId = null;
   currentMonitoringStudentSocketId = null;
   setModalBoardLoadState("idle");
