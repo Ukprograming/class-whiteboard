@@ -17,7 +17,7 @@
   <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <link href="./clear-blue.css?v=20260929-sidebar-fit" rel="stylesheet" />
+  <link href="./clear-blue.css?v=20260930-header-mode-chat" rel="stylesheet" />
   <script type="module" src="./js/clear-blue-ui.js?v=20260918-controls"></script>
 </head>
 
@@ -227,23 +227,8 @@
     </button>
   </nav>
 
-    <!-- 中央：モード切り替え -->
-    <div class="topbar-center">
-      <div class="mode-switcher">
-        <button id="studentModeWhiteboard" class="mode-btn active" title="ホワイトボード">
-          <span class="material-symbols-rounded">edit_note</span>
-        <span class="control-label">ホワイトボード</span></button>
-        <button id="studentModeScreen" class="mode-btn" title="全画面共有">
-          <span class="material-symbols-rounded">screen_share</span>
-        <span class="control-label">全画面共有</span></button>
-        <button id="studentModeNotebook" class="mode-btn" title="ノート提出">
-          <span class="material-symbols-rounded">assignment</span>
-        <span class="control-label">ノート提出</span></button>
-      </div>
-    </div>
-
-    <!-- 右側：チャットなど -->
-    <div class="topbar-right">
+    <!-- 課題・フォーム通知 -->
+    <div class="student-header-actions">
       <button id="studentAssignmentChip" class="icon-btn hidden" type="button" title="未提出の課題" aria-label="未提出の課題を開く" aria-expanded="false">
         <span class="material-symbols-rounded">assignment</span>
         <span id="studentAssignmentCount" class="assignment-notify-count">0</span>
@@ -252,6 +237,23 @@
         <span class="material-symbols-rounded">fact_check</span>
         <span id="studentFormLiveDot" class="form-live-dot hidden"></span>
       <span class="control-label">フォーム</span></button>
+    </div>
+
+    <!-- 右側：モード切り替えとチャット -->
+    <div class="topbar-right">
+      <div class="topbar-center">
+        <div class="mode-switcher">
+          <button id="studentModeWhiteboard" class="mode-btn active" title="ホワイトボード">
+            <span class="material-symbols-rounded">edit_note</span>
+          <span class="control-label">ホワイトボード</span></button>
+          <button id="studentModeScreen" class="mode-btn" title="全画面共有">
+            <span class="material-symbols-rounded">screen_share</span>
+          <span class="control-label">全画面共有</span></button>
+          <button id="studentModeNotebook" class="mode-btn" title="ノート提出">
+            <span class="material-symbols-rounded">assignment</span>
+          <span class="control-label">ノート提出</span></button>
+        </div>
+      </div>
       <button id="chatToggleBtn" class="icon-btn" title="チャット">
         <span class="material-symbols-rounded">chat</span>
         <span id="chatNotifyDot" class="chat-notify-dot"></span>

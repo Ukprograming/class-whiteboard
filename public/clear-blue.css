@@ -44,12 +44,15 @@ button:disabled { cursor: not-allowed; }
   pointer-events: none;
 }
 .floating-topbar > * { pointer-events: auto; }
-.app-root :is(.topbar-left, .topbar-center, .topbar-right) {
+.app-root :is(.topbar-left, .topbar-center, .topbar-right, .student-header-actions) {
   position: static; transform: none; min-width: 0; flex: 0 0 auto;
   display: flex; align-items: center; gap: 10px;
 }
 .app-root .topbar-right { margin-left: auto; }
-.app-root :is(.icon-btn-text, .class-status-pill, .mode-switcher, .topbar-right > .icon-btn,
+.app-root .student-header-actions { margin-left: auto; }
+.app-root .student-header-actions:not(:has(.icon-btn:not(.hidden))) { display: none; }
+.app-root.student-app .topbar-right .topbar-center { flex: 0 0 auto; justify-content: flex-start; }
+.app-root :is(.icon-btn-text, .class-status-pill, .mode-switcher, :is(.topbar-right, .student-header-actions) > .icon-btn,
   .page-toolbar, .floating-sidebar, .floating-bottom-right, .context-menu, .floating-palette) {
   background: var(--cw-surface); color: var(--cw-text);
   border: 1px solid var(--cw-line); border-radius: var(--cw-radius);
@@ -96,8 +99,8 @@ button:disabled { cursor: not-allowed; }
 .app-root .mode-btn { width: auto; min-width: 44px; height: 44px; padding: 0 12px; gap: 8px; color: var(--cw-text); }
 .app-root .mode-btn.active { background: var(--cw-accent-soft); color: var(--cw-accent-strong); border-color: transparent; box-shadow: none; }
 .control-label { font-size: 13px; font-weight: 700; white-space: nowrap; }
-.app-root .topbar-right > .icon-btn { width: auto; min-width: 54px; height: 54px; padding: 0 14px; gap: 8px; }
-.app-root .topbar-right .app-icon, .mode-btn .app-icon { width: 24px; height: 24px; flex-shrink: 0; }
+.app-root :is(.topbar-right, .student-header-actions) > .icon-btn { width: auto; min-width: 54px; height: 54px; padding: 0 14px; gap: 8px; }
+.app-root :is(.topbar-right, .student-header-actions) .app-icon, .mode-btn .app-icon { width: 24px; height: 24px; flex-shrink: 0; }
 
 /* Every original drawing tool stays in the rail. Scrolling only applies when
    the viewport is too short; collapse always leaves its reopening handle. */
@@ -274,8 +277,8 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 
 @media (max-width: 1439px) {
   .app-root .floating-topbar { gap: 8px; }
-  .app-root :is(.topbar-left, .topbar-right) { gap: 6px; }
-  .app-root .topbar-right > .icon-btn .control-label { display: none; }
+  .app-root :is(.topbar-left, .topbar-right, .student-header-actions) { gap: 6px; }
+  .app-root :is(.topbar-right, .student-header-actions) > .icon-btn:not(#chatToggleBtn) .control-label { display: none; }
   .app-root .class-status-pill { max-width: 145px; }
   .app-root .class-status-pill > span:last-child { max-width: 100px; }
   .app-root .page-toolbar { flex-basis: 260px; max-width: 380px; }
@@ -284,7 +287,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .class-status-pill { width: 44px; max-width: 44px; padding: 0; justify-content: center; }
   .app-root .class-status-pill > span:last-child { width: 0; max-width: 0; opacity: 0; }
   .app-root .class-status-pill:is(:hover, :focus, :focus-within) > span:last-child { width: max-content; max-width: min(320px, 70vw); opacity: 1; }
-  .app-root .topbar-right > .icon-btn { min-width: 46px; padding: 0; }
+  .app-root :is(.topbar-right, .student-header-actions) > .icon-btn { min-width: 46px; padding: 0; }
   .app-root .icon-btn-text { padding: 0 12px; }
   .app-root .mode-btn { padding: 0 8px; }
   .app-root .floating-bottom-right .edit-tools { gap: 2px; }
@@ -302,6 +305,8 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   /* Stack each icon and label rather than removing the mode name. */
   .app-root .mode-btn { padding: 0 6px; flex-direction: column; gap: 2px; }
   .app-root .mode-btn .control-label { font-size: 12px; line-height: 14px; }
+  .app-root .topbar-right > #chatToggleBtn { flex-direction: column; padding: 0 6px; gap: 2px; }
+  .app-root #chatToggleBtn .control-label { font-size: 12px; line-height: 14px; }
 }
 @media (max-width: 760px) {
   :root { --ui-header-bottom: 70px; }
@@ -309,13 +314,13 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .icon-btn-text { width: 44px; height: 52px; padding: 0; }
   .app-root .icon-btn-text .control-label { display: none; }
   .app-root .class-status-pill { height: 52px; min-height: 52px; }
-  .app-root :is(.topbar-left, .topbar-right) { gap: 3px; }
+  .app-root :is(.topbar-left, .topbar-right, .student-header-actions) { gap: 3px; }
   .app-root .page-toolbar { min-width: 148px; gap: 0; padding: 3px; height: 52px; }
   .app-root .page-tool-btn { width: 32px; flex-basis: 32px; }
   .app-root .page-tab { min-width: 44px; padding: 0 7px; font-size: 12px; }
   .app-root .mode-switcher { min-height: 52px; padding: 3px; gap: 0; }
   .app-root .mode-btn { min-width: 40px; }
-  .app-root .topbar-right > .icon-btn { height: 52px; min-width: 40px; }
+  .app-root :is(.topbar-right, .student-header-actions) > .icon-btn { height: 52px; min-width: 40px; }
   .app-root .floating-sidebar { left: 8px; width: 58px; max-height: calc(100dvh - var(--ui-header-bottom) - 12px - max(72px, env(safe-area-inset-bottom) + 64px)); }
   .app-root .sidebar-content { padding: 6px; }
   .app-root .tool-btn { width: 44px; height: 44px; }
@@ -348,7 +353,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .class-status-pill { width: 30px; min-width: 30px; max-width: 30px; border: 0; box-shadow: none; background: white; }
   .app-root .mode-switcher { padding: 3px; }
   .app-root .mode-btn { min-width: 38px; }
-  .app-root .topbar-right > .icon-btn { min-width: 38px; }
+  .app-root :is(.topbar-right, .student-header-actions) > .icon-btn { min-width: 38px; }
   .app-root .page-tool-btn { width: 44px; flex-basis: 44px; }
   .app-root .page-tab { min-width: 70px; }
   .app-root .dropdown-content { position: fixed; top: 64px; left: 8px; margin-top: 0; max-height: calc(100dvh - 78px); }
@@ -364,7 +369,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .icon-btn-text { width: 40px; }
   .app-root .class-status-pill { width: 28px; min-width: 28px; max-width: 28px; }
   .app-root .mode-btn { min-width: 36px; }
-  .app-root .topbar-right > .icon-btn { min-width: 36px; }
+  .app-root :is(.topbar-right, .student-header-actions) > .icon-btn { min-width: 36px; }
 }
 
 /* Class details are a tooltip, not an expanding item in the header layout. */
@@ -432,4 +437,35 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .floating-topbar:has(.page-toolbar:not(.hidden)) .chrome-toggle { top: 0; }
   body:has(.page-toolbar.hidden) { --ui-header-bottom: 124px; }
   .app-root.chrome-hidden .topbar-right { margin-right: 0; }
+}
+
+/* Student modes and chat share a right-anchored group. Page visibility cannot
+   move it; narrow screens give it a row below the file/notification controls. */
+@media (max-width: 1000px) {
+  .app-root.student-app { --ui-header-bottom: 194px; }
+  .app-root.student-app:not(.chrome-hidden) .floating-topbar {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    height: auto; row-gap: 6px; padding-right: 0;
+  }
+  .app-root.student-app .topbar-left { grid-row: 1; grid-column: 1; justify-self: start; }
+  .app-root.student-app .student-header-actions { grid-row: 1; grid-column: 2; margin-right: 52px; }
+  .app-root.student-app .topbar-right {
+    grid-row: 2; grid-column: 1 / -1; justify-content: flex-end; margin: 0;
+  }
+  .app-root.student-app .page-toolbar {
+    grid-row: 3; grid-column: 1 / -1; max-width: none; padding-right: 3px;
+  }
+  .app-root.student-app:not(.chrome-hidden) .floating-topbar .chrome-toggle {
+    position: absolute; top: 0; right: 0;
+  }
+  .app-root.student-app:has(.page-toolbar.hidden) { --ui-header-bottom: 136px; }
+  .app-root.student-app.chrome-hidden .topbar-right { margin-left: auto; }
+}
+@media (max-width: 760px) {
+  .app-root.student-app { --ui-header-bottom: 182px; }
+  .app-root.student-app:has(.page-toolbar.hidden) { --ui-header-bottom: 124px; }
+  .app-root.student-app .student-header-actions { margin-right: 48px; }
+}
+@media (max-width: 480px) {
+  .app-root.student-app .mode-btn { padding: 0 4px; }
 }
