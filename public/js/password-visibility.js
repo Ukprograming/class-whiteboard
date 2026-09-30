@@ -6,6 +6,7 @@
     const input = inputId ? document.getElementById(inputId) : null;
     if (!input) continue;
 
+    const fieldLabel = button.dataset.passwordVisibilityLabel || "パスワード";
     const activeReasons = new Set();
 
     const render = () => {
@@ -13,7 +14,7 @@
       input.type = visible ? "text" : "password";
       button.dataset.visible = String(visible);
       button.setAttribute("aria-pressed", String(visible));
-      button.setAttribute("aria-label", visible ? "パスワードを隠す" : "パスワードを表示");
+      button.setAttribute("aria-label", `${fieldLabel}を${visible ? "隠す" : "表示"}`);
     };
 
     const showFor = (reason) => {
