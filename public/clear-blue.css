@@ -275,11 +275,10 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 @media (max-width: 1439px) {
   .app-root .floating-topbar { gap: 8px; }
   .app-root :is(.topbar-left, .topbar-right) { gap: 6px; }
-  .app-root :is(.mode-btn, .topbar-right > .icon-btn) .control-label { display: none; }
-  .app-root .mode-btn { padding: 0; width: 44px; }
+  .app-root .topbar-right > .icon-btn .control-label { display: none; }
   .app-root .class-status-pill { max-width: 145px; }
   .app-root .class-status-pill > span:last-child { max-width: 100px; }
-  .app-root .page-toolbar { max-width: none; }
+  .app-root .page-toolbar { flex-basis: 260px; max-width: 380px; }
 }
 @media (max-width: 1000px) {
   .app-root .class-status-pill { width: 44px; max-width: 44px; padding: 0; justify-content: center; }
@@ -287,9 +286,22 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .class-status-pill:is(:hover, :focus, :focus-within) > span:last-child { width: max-content; max-width: min(320px, 70vw); opacity: 1; }
   .app-root .topbar-right > .icon-btn { min-width: 46px; padding: 0; }
   .app-root .icon-btn-text { padding: 0 12px; }
+  .app-root .mode-btn { padding: 0 8px; }
   .app-root .floating-bottom-right .edit-tools { gap: 2px; }
   .app-root .floating-bottom-right .icon-btn { flex-basis: 44px; width: 44px; }
   .app-root .floating-bottom-right .edit-label { display: none; }
+}
+/* Give mode names priority over the file label and the tab viewport on tablets. */
+@media (max-width: 1100px) {
+  .app-root .icon-btn-text { width: 44px; padding: 0; }
+  .app-root .icon-btn-text .control-label { display: none; }
+  .app-root .page-toolbar { min-width: 148px; gap: 0; padding: 3px; }
+  .app-root .page-tool-btn { width: 32px; flex-basis: 32px; }
+}
+@media (max-width: 900px) {
+  /* Stack each icon and label rather than removing the mode name. */
+  .app-root .mode-btn { padding: 0 6px; flex-direction: column; gap: 2px; }
+  .app-root .mode-btn .control-label { font-size: 12px; line-height: 14px; }
 }
 @media (max-width: 760px) {
   :root { --ui-header-bottom: 70px; }
@@ -302,7 +314,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .page-tool-btn { width: 32px; flex-basis: 32px; }
   .app-root .page-tab { min-width: 44px; padding: 0 7px; font-size: 12px; }
   .app-root .mode-switcher { min-height: 52px; padding: 3px; gap: 0; }
-  .app-root .mode-btn { width: 40px; min-width: 40px; }
+  .app-root .mode-btn { min-width: 40px; }
   .app-root .topbar-right > .icon-btn { height: 52px; min-width: 40px; }
   .app-root .floating-sidebar { left: 8px; width: 58px; max-height: calc(100dvh - var(--ui-header-bottom) - 12px - max(72px, env(safe-area-inset-bottom) + 64px)); }
   .app-root .sidebar-content { padding: 6px; }
@@ -324,7 +336,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 }
 /* A phone cannot fit all controls in one row at usable sizes. The page group
    wraps INSIDE the same header, with horizontally scrollable tabs; no removal. */
-@media (max-width: 680px) {
+@media (max-width: 720px) {
   :root { --ui-header-bottom: 124px; }
   .app-root .floating-topbar { flex-wrap: wrap; height: auto; row-gap: 6px; }
   .app-root .page-toolbar { order: 4; flex: 1 1 100%; max-width: 100%; }
@@ -335,7 +347,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .topbar-left { gap: 2px; }
   .app-root .class-status-pill { width: 30px; min-width: 30px; max-width: 30px; border: 0; box-shadow: none; background: white; }
   .app-root .mode-switcher { padding: 3px; }
-  .app-root .mode-btn { width: 38px; min-width: 38px; }
+  .app-root .mode-btn { min-width: 38px; }
   .app-root .topbar-right > .icon-btn { min-width: 38px; }
   .app-root .page-tool-btn { width: 44px; flex-basis: 44px; }
   .app-root .page-tab { min-width: 70px; }
@@ -351,7 +363,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root .floating-topbar { column-gap: 2px; }
   .app-root .icon-btn-text { width: 40px; }
   .app-root .class-status-pill { width: 28px; min-width: 28px; max-width: 28px; }
-  .app-root .mode-btn { width: 36px; min-width: 36px; }
+  .app-root .mode-btn { min-width: 36px; }
   .app-root .topbar-right > .icon-btn { min-width: 36px; }
 }
 
@@ -393,7 +405,7 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
 .app-root .compact-page-nav .icon-btn:disabled { opacity: .35; cursor: default; }
 .app-root.chrome-hidden .chrome-toggle { pointer-events: auto; }
 .app-root.sidebar-tools-collapsed :is(#contextMenu, #textSettings, .floating-palette) { display: none !important; }
-@media (max-width: 680px) {
+@media (max-width: 720px) {
   .app-root .class-status-pill,
   .app-root .class-status-pill:is(:hover, :focus, :focus-within) { width: 28px; min-width: 28px; max-width: 28px; }
   .app-root .floating-topbar { padding-right: 48px; }
@@ -404,4 +416,20 @@ body.notebook-panel-expanded .student-notebook-layout { padding: 0; }
   .app-root.chrome-hidden .floating-topbar > #chromeToggle { position: static; }
   .app-root.chrome-hidden .floating-topbar,
   .app-root.chrome-hidden .floating-topbar:has(.page-toolbar:not(.hidden)) { padding-right: 0; flex-wrap: nowrap; }
+}
+
+/* On narrow phones, keep all three student mode names and optional actions
+   readable by giving the mode group its own row. */
+@media (max-width: 480px) {
+  :root { --ui-header-bottom: 182px; }
+  .app-root:not(.chrome-hidden) .floating-topbar {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; padding-right: 0;
+  }
+  .app-root .topbar-left { grid-row: 1; grid-column: 1; }
+  .app-root .topbar-right { grid-row: 1; grid-column: 2; margin-right: 48px; }
+  .app-root .topbar-center { grid-row: 2; grid-column: 1 / -1; }
+  .app-root .page-toolbar { grid-row: 3; grid-column: 1 / -1; padding-right: 3px; }
+  .app-root .floating-topbar:has(.page-toolbar:not(.hidden)) .chrome-toggle { top: 0; }
+  body:has(.page-toolbar.hidden) { --ui-header-bottom: 124px; }
+  .app-root.chrome-hidden .topbar-right { margin-right: 0; }
 }

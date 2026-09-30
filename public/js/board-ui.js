@@ -280,8 +280,8 @@ export function initBoardUI() {
     cameraCaptureBackdrop.style.top = `${viewport?.offsetTop || 0}px`;
     cameraCaptureBackdrop.style.width = `${visibleWidth}px`;
     cameraCaptureBackdrop.style.height = `${visibleHeight}px`;
-    const sourceWidth = cameraCaptureVideo?.videoWidth || 0;
-    const sourceHeight = cameraCaptureVideo?.videoHeight || 0;
+    const sourceWidth = cameraCaptureVideo?.videoWidth || 640;
+    const sourceHeight = cameraCaptureVideo?.videoHeight || 480;
     const dialog = cameraCaptureStage?.closest(".camera-capture-dialog");
     if (!sourceWidth || !sourceHeight || !cameraCaptureStage || !dialog || !dialog.clientWidth) return;
 
@@ -294,8 +294,8 @@ export function initBoardUI() {
     const borderHeight = (parseFloat(stageStyle.borderTopWidth) || 0)
       + (parseFloat(stageStyle.borderBottomWidth) || 0);
     const maxOuterWidth = Math.max(1, dialog.clientWidth - horizontalPadding);
-    const viewportHeightRatio = window.matchMedia("(max-width: 640px)").matches ? 0.52 : 0.58;
-    const maxOuterHeight = Math.min(visibleHeight * viewportHeightRatio, 560);
+    // The flexible third grid row is the space left after all camera controls.
+    const maxOuterHeight = parseFloat(dialogStyle.gridTemplateRows.split(" ")[2]) || 1;
     const frame = calculateCameraStageSize(
       sourceWidth,
       sourceHeight,
@@ -708,6 +708,14 @@ export function initBoardUI() {
   window.addEventListener("resize", fitCameraCaptureStage);
   window.visualViewport?.addEventListener("resize", fitCameraCaptureStage);
   window.visualViewport?.addEventListener("scroll", fitCameraCaptureStage);
+  if (cameraCaptureStage && window.ResizeObserver) {
+    const cameraLayoutObserver = new ResizeObserver(fitCameraCaptureStage);
+    const dialog = cameraCaptureStage.closest(".camera-capture-dialog");
+    cameraLayoutObserver.observe(dialog);
+    for (const child of dialog.children) {
+      if (child !== cameraCaptureStage) cameraLayoutObserver.observe(child);
+    }
+  }
 
   // ✅ Whiteboardの実スケールからズーム表示を更新
   function updateZoomLabelFromWB() {

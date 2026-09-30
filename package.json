@@ -13,7 +13,8 @@
     "test:browser:link": "node scripts/test-link-browser.mjs",
     "test:browser:text": "node scripts/test-text-layout-browser.mjs",
     "test:browser:teacher-draft": "node scripts/verify-teacher-draft-browser.cjs",
-    "test:browser:monitor-recovery": "node scripts/test-monitor-camera-browser.cjs"
+    "test:browser:monitor-recovery": "node scripts/test-monitor-camera-browser.cjs",
+    "test:browser:camera-layout": "node scripts/test-camera-layout-browser.cjs"
   },
   "keywords": [],
   "author": "",
