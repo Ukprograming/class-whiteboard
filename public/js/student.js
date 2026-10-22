@@ -2386,6 +2386,7 @@ const cornerSelectionCtx = cornerSelectionCanvas
   : null;
 const cornerInstruction = document.getElementById("cornerInstruction");
 const resetPerspectiveBtn = document.getElementById("resetPerspectiveBtn");
+const undoCornerBtn = document.getElementById("undoCornerBtn");
 const cameraExpandBtn = document.getElementById("cameraExpandBtn");
 const cameraZoomOutBtn = document.getElementById("cameraZoomOutBtn");
 const cameraZoomInBtn = document.getElementById("cameraZoomInBtn");
@@ -2604,12 +2605,28 @@ function getContainedVideoRect() {
 }
 
 function updateCornerSelectionUI() {
+  const phaseChanged = notebookLayoutEl?.classList.contains("perspective-ready") !== cornersLocked;
+  notebookLayoutEl?.classList.toggle("perspective-ready", cornersLocked);
+  if (phaseChanged) {
+    closeExpandedNotebookPanel();
+    resetCameraView();
+    requestAnimationFrame(() => {
+      centerFeedbackImage();
+      if (viewMode === "notebook") {
+        const nextControl = cornersLocked ? resetPerspectiveBtn : cameraExpandBtn;
+        nextControl?.focus({ preventScroll: true });
+      }
+    });
+  }
   if (cornerInstruction) {
     cornerInstruction.classList.toggle("is-complete", cornersLocked);
     cornerInstruction.textContent = cornersLocked
       ? "台形補正済み"
-      : `${selectedCorners.length + 1}/4 ${CORNER_LABELS[selectedCorners.length]}をクリック`;
+      : currentStream
+        ? `${selectedCorners.length + 1}/4 ${CORNER_LABELS[selectedCorners.length]}を選択`
+        : "カメラを開始してください";
   }
+  if (undoCornerBtn) undoCornerBtn.disabled = !selectedCorners.length || cornersLocked;
   resetPerspectiveBtn?.classList.toggle("hidden", !cornersLocked);
   drawCornerSelectionOverlay();
 }
@@ -2866,6 +2883,11 @@ if (cornerSelectionCanvas) {
 }
 
 resetPerspectiveBtn?.addEventListener("click", resetPerspectiveCorrection);
+undoCornerBtn?.addEventListener("click", () => {
+  if (cornersLocked || !selectedCorners.length) return;
+  selectedCorners.pop();
+  updateCornerSelectionUI();
+});
 cameraZoomOutBtn?.addEventListener("click", () => setCameraZoom(cameraScale / 1.25));
 cameraZoomInBtn?.addEventListener("click", () => setCameraZoom(cameraScale * 1.25));
 cameraResetViewBtn?.addEventListener("click", resetCameraView);
@@ -3046,6 +3068,10 @@ socket.on("teacherSharedImage", ({ imageData }) => {
 
     feedbackImage.src = imageData;
     feedbackViewport?.classList.add("has-feedback");
+    feedbackSection?.classList.add("has-feedback");
+    for (const control of [feedbackZoomOutBtn, feedbackZoomInBtn, feedbackResetBtn, feedbackExpandBtn]) {
+      if (control) control.disabled = false;
+    }
 
     // 中央フィット
     centerFeedbackImage();
@@ -3104,6 +3130,11 @@ feedbackZoomOutBtn?.addEventListener("click", () => setFeedbackZoom(fbScale / 1.
 feedbackZoomInBtn?.addEventListener("click", () => setFeedbackZoom(fbScale * 1.25));
 feedbackResetBtn?.addEventListener("click", centerFeedbackImage);
 
+// 非表示中の受信や画面の回転後も、表示枠に画像全体を収める。
+if (feedbackViewport && typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(centerFeedbackImage).observe(feedbackViewport);
+}
+
 
 
 // 細い筆記は縮小画像の変化検出で見逃すため、ノートは定期的に更新する。
@@ -3145,6 +3176,8 @@ function updateNotebookCaptureLayout() {
   // updateModeUI はノート提出用の定数初期化より先に呼ばれるため、ここではDOMから取得する。
   const captureButton = document.getElementById("startCameraBtn");
   if (captureButton) {
+    captureButton.classList.toggle("notebook-action-primary", !cameraActive);
+    captureButton.classList.toggle("notebook-action-quiet", cameraActive);
     const label = captureButton.querySelector("span");
     if (label) label.textContent = cameraActive ? "カメラを再起動" : "撮影を開始";
   }

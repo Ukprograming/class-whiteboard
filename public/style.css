@@ -7518,20 +7518,65 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   background-size: 240px 240px, 240px 240px, auto;
 }
 
-/* カメラ未起動時はフィードバックだけを大きく表示する。 */
-.student-notebook-layout:not(.camera-active) .student-notebook-content {
+/* 四隅の選択中は撮影映像、選択後は補正画像とフィードバックに集中する。 */
+.student-notebook-layout .student-notebook-content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
+  padding: 12px 0 0;
 }
 
-.student-notebook-layout:not(.camera-active) .video-section,
-.student-notebook-layout:not(.camera-active) .preview-section {
+.student-notebook-layout :is(.video-section, .preview-section, .feedback-section) {
+  min-width: 0;
+  grid-row: 1;
+}
+
+.student-notebook-layout .video-section,
+.student-notebook-layout.perspective-ready .preview-section {
+  grid-column: 1;
+}
+
+.student-notebook-layout:not(.perspective-ready) :is(.preview-section, .feedback-section),
+.student-notebook-layout.perspective-ready .video-section {
   display: none;
 }
 
-.student-notebook-layout:not(.camera-active) .feedback-section {
-  grid-column: 1;
-  grid-row: 1;
+.student-notebook-layout.perspective-ready .student-notebook-content {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.student-notebook-layout.perspective-ready .feedback-section {
+  grid-column: 2;
+}
+
+.student-notebook-layout.perspective-ready.camera-active :is(.notebook-camera-field, #startCameraBtn),
+.feedback-section:not(.has-feedback) .notebook-view-controls {
+  display: none;
+}
+
+.student-notebook-layout:not(.camera-active) .notebook-camera-surface {
+  visibility: hidden;
+}
+
+.notebook-camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 20px;
+  color: var(--cw-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.camera-active .notebook-camera-placeholder {
+  display: none;
+}
+
+.student-notebook-layout .notebook-control-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
 }
 
 .notebook-section-title {
@@ -7706,6 +7751,14 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   display: none;
 }
 
+#feedbackZoomLabel.expanded-only {
+  display: none;
+}
+
+.feedback-section.is-expanded #feedbackZoomLabel {
+  display: inline-flex;
+}
+
 .corner-instruction {
   flex: 0 0 auto;
   padding: 4px 9px;
@@ -7782,7 +7835,8 @@ body.sidebar-collapsed .floating-topbar .topbar-right {
   box-sizing: border-box;
 }
 
-.video-section.is-expanded .expanded-only {
+.video-section.is-expanded .expanded-only,
+.feedback-section.is-expanded .expanded-only {
   display: inline-flex;
 }
 
@@ -8065,6 +8119,7 @@ body.notebook-panel-expanded .student-notebook-layout {
 /* Notebook submission: compact controls aligned with the whiteboard shell. */
 .student-notebook-toolbar {
   min-height: 64px;
+  position: relative;
   padding: 9px 12px 9px 14px;
   gap: 16px;
   border-radius: 14px;
@@ -8343,6 +8398,7 @@ body.notebook-panel-expanded .student-notebook-layout {
   white-space: normal;
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
   transform: translate(-50%, -4px);
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
@@ -8363,17 +8419,23 @@ body.notebook-panel-expanded .student-notebook-layout {
 .notebook-help:hover .notebook-help-tooltip,
 .notebook-help:focus-within .notebook-help-tooltip {
   opacity: 1;
+  visibility: visible;
   transform: translate(-50%, 0);
+}
+
+.notebook-section-heading .notebook-help {
+  position: static;
 }
 
 .notebook-section-heading .notebook-help-tooltip {
   left: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   transform: translate(0, -4px);
 }
 
 .notebook-section-heading .notebook-help-tooltip::before {
-  left: 13px;
-  transform: rotate(45deg);
+  display: none;
 }
 
 .notebook-section-heading .notebook-help:hover .notebook-help-tooltip,
@@ -8381,14 +8443,19 @@ body.notebook-panel-expanded .student-notebook-layout {
   transform: translate(0, 0);
 }
 
+.student-notebook-toolbar-left .notebook-help {
+  position: static;
+}
+
 .student-notebook-toolbar-left .notebook-help-tooltip {
-  left: 0;
+  left: 12px;
+  max-width: min(280px, calc(100% - 24px));
+  box-sizing: border-box;
   transform: translate(0, -4px);
 }
 
 .student-notebook-toolbar-left .notebook-help-tooltip::before {
-  left: 13px;
-  transform: rotate(45deg);
+  display: none;
 }
 
 .student-notebook-toolbar-left .notebook-help:hover .notebook-help-tooltip,
@@ -8443,20 +8510,6 @@ body.notebook-panel-expanded .student-notebook-layout {
 
 .feedback-viewport.has-feedback #feedbackImage {
   display: block;
-}
-
-@media (max-width: 1500px) {
-  .student-notebook-layout.camera-active .feedback-section .notebook-section-title {
-    flex-wrap: wrap;
-  }
-
-  .student-notebook-layout.camera-active .feedback-section .notebook-section-heading {
-    flex: 1 1 100%;
-  }
-
-  .student-notebook-layout.camera-active .feedback-section .notebook-view-controls {
-    flex: 1 1 100%;
-  }
 }
 
 @media (max-width: 1320px) {
@@ -8519,7 +8572,7 @@ body.notebook-panel-expanded .student-notebook-layout {
 
   .student-notebook-content {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: repeat(3, minmax(420px, 70vh));
+    grid-template-rows: minmax(0, 1fr);
     padding: 12px 0 4px;
   }
 
@@ -8595,8 +8648,37 @@ body.notebook-panel-expanded .student-notebook-layout {
     margin-left: auto;
   }
 
-  .student-notebook-content {
-    grid-template-rows: repeat(3, minmax(360px, 68vh));
+}
+
+@media (max-width: 760px) {
+  .student-notebook-layout .student-notebook-content {
+    grid-template-rows: minmax(300px, 1fr);
+  }
+
+  .student-notebook-layout.perspective-ready .student-notebook-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(360px, 65dvh));
+  }
+
+  .student-notebook-layout.perspective-ready .feedback-section {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .student-notebook-layout .notebook-section-heading {
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 621px) and (max-width: 980px) {
+  .student-notebook-layout.perspective-ready .student-notebook-toolbar {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .student-notebook-layout.perspective-ready .student-notebook-toolbar-right {
+    flex: 1 1 auto;
+    justify-content: flex-end;
   }
 }
 
