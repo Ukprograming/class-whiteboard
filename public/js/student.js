@@ -372,6 +372,7 @@ let captureMode = "whiteboard";
 // 画面表示モード：'whiteboard' | 'screen' | 'notebook'
 let viewMode = "whiteboard";
 let currentStream = null; // ノート提出用カメラの MediaStream
+let notebookPreviewTimerId = null;
 
 let screenStream = null;
 let screenVideo = null;
@@ -2716,11 +2717,8 @@ if (startCameraBtn) {
       return;
     }
 
-    // 既存ストリーム停止
-    if (currentStream) {
-      currentStream.getTracks().forEach((t) => t.stop());
-      currentStream = null;
-    }
+    // 再起動時は、古い映像とプレビュー更新タイマーを一緒に停止する。
+    stopNotebookCamera();
 
     const deviceId = cameraSelect ? cameraSelect.value : undefined;
 
@@ -2736,12 +2734,17 @@ if (startCameraBtn) {
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (viewMode !== "notebook") {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       currentStream = stream;
       updateNotebookCaptureLayout();
 
       if (videoEl) {
         videoEl.srcObject = stream;
         videoEl.onloadedmetadata = () => {
+          if (currentStream !== stream || viewMode !== "notebook") return;
           videoEl.play();
           console.log("Notebook camera started:", {
             width: videoEl.videoWidth,
@@ -2749,6 +2752,7 @@ if (startCameraBtn) {
           });
           setupPreviewCanvas();
           updateCornerSelectionUI();
+          startNotebookPreviewLoop();
           // カメラ起動を共通の送信スケジュールへ通知する。
           sendWhiteboardThumbnail();
         };
@@ -3102,8 +3106,31 @@ feedbackResetBtn?.addEventListener("click", centerFeedbackImage);
 
 
 
+// 細い筆記は縮小画像の変化検出で見逃すため、ノートは定期的に更新する。
+// 生徒のプレビューは、教師が一覧を表示していなくても撮影中は動かす。
+function startNotebookPreviewLoop() {
+  if (notebookPreviewTimerId !== null) clearTimeout(notebookPreviewTimerId);
+  const stream = currentStream;
+  const refresh = () => {
+    notebookPreviewTimerId = null;
+    if (!stream || currentStream !== stream || viewMode !== "notebook") return;
+    try {
+      drawCorrectedFrameToPreview();
+      // 一覧表示中だけ共通の送信制限を通して送る。別の送信経路は作らない。
+      sendWhiteboardThumbnail();
+    } catch (error) {
+      console.warn("Notebook preview update failed; the next update will retry.", error);
+    } finally {
+      notebookPreviewTimerId = setTimeout(refresh, CAPTURE_INTERVAL_MS);
+    }
+  };
+  notebookPreviewTimerId = setTimeout(refresh, CAPTURE_INTERVAL_MS);
+}
+
 // ノート提出用カメラ停止
 function stopNotebookCamera() {
+  if (notebookPreviewTimerId !== null) clearTimeout(notebookPreviewTimerId);
+  notebookPreviewTimerId = null;
   if (currentStream) {
     currentStream.getTracks().forEach((t) => t.stop());
     currentStream = null;
