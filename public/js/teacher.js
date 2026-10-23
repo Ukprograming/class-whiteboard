@@ -2,7 +2,7 @@
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&modal-tool-scope=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924&monitor-recovery=20260929&camera-layout=20260930";
 import { Whiteboard } from "./whiteboard.js?v=tool-settings-20260818c&draw-style=20260824&modal-highlighter-width=20260824&asset-lifecycle=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&youtube=20260831b&multi-select=20260901b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&laser=20260922&shape-recognition=20260924c&arrow-tip=20260924&stamp-refresh=20260924&monitor-recovery=20260929";
 import { renderStampPalette } from "./stamps.js?v=png-reaction-stamps-20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&stamp-refresh=20260924";
-import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929";
+import { assignmentApi, authApi, boardApi, createRealtimeBridge, managementApi, supabaseEnabled } from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929&notebook-modal=20261023";
 import {
   canAcceptTeacherBoardSnapshot,
   isMatchingMonitorRequest,
@@ -321,8 +321,10 @@ let modalCurrentStudentMode = "whiteboard";
 // 座標系が分かれ、ペン幅も画像に対して不自然に太く見えてしまう。
 let modalImageElement = null;
 let modalImageViewportKey = "";
+let modalImageLoadSequence = 0;
 
 function clearModalImageViewport() {
+  modalImageLoadSequence += 1;
   modalImageElement = null;
   modalImageViewportKey = "";
   if (!modalCanvas || !modalCtx) return;
@@ -717,6 +719,7 @@ async function restoreTeacherDraft(classCode) {
 }
 
 window.addEventListener("pagehide", () => {
+  stopMonitoringStudent();
   void persistTeacherDraftNow();
 });
 
@@ -4098,6 +4101,8 @@ socket.on(
     nickname,
     classCode,
     dataUrl,
+    notebookImagePath,
+    notebookImageVersion,
     viewport,
     mode,
     boardData: incomingBoardData,
@@ -4193,12 +4198,33 @@ socket.on(
 
     // --- 2. ノート提出モード & 3. 画面共有モード ---
     // どちらも「下レイヤーに画像を表示し、上レイヤーはローカル描画のみ」という動きに統一
-    if (!dataUrl) return;
+    if (!dataUrl && !notebookImagePath) return;
+
+    const imageLoadSequence = ++modalImageLoadSequence;
+    let imageUrl = dataUrl;
+    let objectUrl = null;
+    if (effectiveMode === "notebook" && notebookImagePath) {
+      try {
+        const blob = await boardApi.loadNotebookMonitorImage(notebookImagePath, notebookImageVersion);
+        if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
+            imageLoadSequence !== modalImageLoadSequence || modalShowingSavedFeedback ||
+            modalCurrentStudentMode !== effectiveMode) return;
+        objectUrl = URL.createObjectURL(blob);
+        imageUrl = objectUrl;
+      } catch (error) {
+        console.warn("Failed to load notebook image; the next monitoring update will retry.", error);
+        return;
+      }
+    }
 
     const img = new Image();
+    img.onerror = () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
     img.onload = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       // Loading may finish after a reconnect or student switch.
       if (!isCurrentMonitorResponse(studentSocketId, monitorRequestId) ||
+          imageLoadSequence !== modalImageLoadSequence || modalShowingSavedFeedback ||
+          modalCurrentStudentMode !== effectiveMode ||
           studentTileRegistry.selectedSocketId(studentSocketId) !== studentSocketId) return;
       // ===== モーダル用の描画 =====
       if (modalCanvas && modalCtx && isCurrentMonitorResponse(studentSocketId, monitorRequestId)) {
@@ -4261,7 +4287,7 @@ socket.on(
       }
     };
 
-    img.src = dataUrl;
+    img.src = imageUrl;
   }
 );
 
@@ -4672,7 +4698,7 @@ function renderTiles() {
 
       // Whiteboard monitoring uses structured snapshots/actions only. The
       // high-resolution request is an image path and is unnecessary here.
-      if ((currentInfo.mode || latestModeByStudent[socketId]) !== "whiteboard") {
+      if ((currentInfo.mode || latestModeByStudent[socketId]) === "screen") {
         socket.emit("request-highres", {
           classCode: currentClassCode,
           studentSocketId: socketId
@@ -5610,6 +5636,16 @@ function resizeFeedbackCanvasToImage() {
 }
 
 function openFeedbackModal(studentId) {
+  // Notebook tiles use the same monitored modal as the student-view tiles.
+  // This also avoids retaining the old preview when a higher-detail frame arrives.
+  const connectedStudent = studentListForBoardScope.find(student =>
+    (student.nickname || student.socketId) === studentId &&
+    studentTileRegistry.selectedSocketId(student.socketId) === student.socketId
+  );
+  if (connectedStudent) {
+    startMonitoringStudent(connectedStudent.socketId, connectedStudent.nickname);
+    return;
+  }
   currentStudentId = studentId;
   if (modalStudentLabel) {
     modalStudentLabel.textContent = `生徒：${studentId}`;

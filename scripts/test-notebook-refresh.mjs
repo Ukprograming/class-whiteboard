@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createThumbnailSender } from "../public/js/thumbnail-sender.mjs";
+import { openNotebookCamera } from "../public/js/notebook-image.mjs";
 
 const source = readFileSync("public/js/student.js", "utf8").replace(/\r\n/g, "\n");
 function slice(start, end) {
@@ -46,6 +47,7 @@ const handlers = {}, clicks = {}, sent = [], streams = [];
 let failSend = false;
 const warnings = [];
 const c = vm.createContext({
+  openNotebookCamera,
   console: { ...console, warn: (...args) => warnings.push(args), log() {} },
   setTimeout: clock.setTimer, clearTimeout: clock.clearTimer,
   createThumbnailSender: options => createThumbnailSender({ ...options, ...clock, random: () => 0.5 }),

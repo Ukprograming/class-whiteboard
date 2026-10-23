@@ -13,7 +13,14 @@ function slice(source, start, end) {
 }
 const backend = `
 export const supabaseEnabled=false, supabase=null;
-export const authApi={}, assignmentApi={}, boardApi={enabled:false}, managementApi={};
+export const authApi={}, assignmentApi={}, boardApi={
+  enabled:true,
+  getActiveSharedBoard:async()=>({sharedBoard:null}),
+  async saveNotebookMonitorImage({blob}) {
+    const dataUrl=await new Promise(resolve=>{const reader=new FileReader(); reader.onload=()=>resolve(reader.result); reader.readAsDataURL(blob)});
+    return window.saveNotebookFrame(dataUrl);
+  },
+}, managementApi={};
 export const getStudentLoginHints=()=>[];
 export function createRealtimeBridge(){
   const handlers={};
@@ -25,11 +32,16 @@ export function createRealtimeBridge(){
         window.fixtureSent.push({at:performance.now(),...payload});
         await window.deliverThumbnail(payload);
       }
+      if(event==='student-screen-update'){
+        window.fixtureMonitorSent.push(payload);
+        await window.deliverMonitor(payload);
+      }
       return true;
     }
   };
 }`;
-const teacherHtml = `<!doctype html><meta charset="utf-8"><div id="notebookInfo"></div><div id="notebookStudentGrid"></div><script type="module">
+const teacherHtml = `<!doctype html><meta charset="utf-8"><div id="notebookInfo"></div><div id="notebookStudentGrid"></div>
+<div id="fixtureModal" style="position:relative;width:800px;height:600px"><canvas id="modalCanvas" width="800" height="600" style="width:800px;height:600px"></canvas><canvas id="overlay" width="800" height="600" style="position:absolute;inset:0;pointer-events:none"></canvas></div><script type="module">
 import {createStudentTileRegistry} from '/js/student-tile-registry.mjs';
 const studentTileRegistry=createStudentTileRegistry();
 const currentClassCode='TEST';
@@ -37,30 +49,51 @@ studentTileRegistry.setScope(currentClassCode);
 studentTileRegistry.updatePresence([{socketId:'student-socket',nickname:'student'}]);
 let latestThumbnails={},latestModeByStudent={},latestViewportByStudent={},studentNameMap={},notebookStudents={};
 const notebookInfo=document.querySelector('#notebookInfo'), notebookStudentGrid=document.querySelector('#notebookStudentGrid');
-const socket={on(event,handler){if(event==='student-thumbnail')window.receiveThumbnail=handler}};
+const socket={on(event,handler){if(event==='student-thumbnail')window.receiveThumbnail=handler; if(event==='student-screen-update')window.receiveMonitor=handler}};
+const modalCanvas=document.querySelector('#modalCanvas'), modalCtx=modalCanvas.getContext('2d');
+let modalCurrentStudentMode='notebook', currentMonitoringStudentSocketId=null, currentModalMonitorRequestId=null;
+let modalShowingSavedFeedback=false;
+const modalTitle=null;
+const modalBoard={scale:1,offsetX:0,offsetY:0,setShowGrid(){},render(){renderModalImageLayer()}};
+function isCurrentMonitorResponse(id,request){return id===currentMonitoringStudentSocketId && request===currentModalMonitorRequestId}
+function setModalImageLayerMode(){} function updateModalRestoreFeedbackButton(){} function renderTiles(){}
+let readyCount=0;
+function completeStudentModalBoardLoad(){readyCount++}
+const boardApi={async loadNotebookMonitorImage(path,version){const dataUrl=await window.loadNotebookFrame(path,version);return (await fetch(dataUrl)).blob()}};
+${slice(teacherSource, 'let modalImageElement = null;', '// ★ 追加: ノート提出モード用に')}
+${slice(teacherSource, 'socket.on(\n  "student-screen-update",', 'function getStudentModalNavigationEntries()')}
+window.openNotebook=request=>{currentMonitoringStudentSocketId='student-socket';currentModalMonitorRequestId=request;clearModalImageViewport()};
+window.closeNotebook=()=>{currentMonitoringStudentSocketId=null;currentModalMonitorRequestId=null};
+window.modalState=()=>({width:modalImageElement?.naturalWidth,height:modalImageElement?.naturalHeight,readyCount,scale:modalBoard.scale,offsetX:modalBoard.offsetX});
+window.zoomNotebook=()=>{modalBoard.scale*=1.5;modalBoard.offsetX-=40;modalBoard.render()};
 function updateStudentTilePreview(){} function openFeedbackModal(){}
 ${slice(teacherSource, 'function updateNotebookInfo()', '/** ★ 追加: 生徒モーダル内')}
 ${slice(teacherSource, 'socket.on("student-thumbnail",', '// ★ ここを「Canvasベースのモーダル表示」に修正')}
 window.teacherImage=()=>notebookStudents.student?.latestImageData;
 </script>`;
 
-async function main() {
+async function main(cameraWidth=1920,cameraHeight=1080) {
   fs.mkdirSync('output/playwright/notebook-refresh', { recursive: true });
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true });
   try {
     const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
     const errors = [];
-    await context.addInitScript(() => {
+    await context.addInitScript(({cameraWidth,cameraHeight}) => {
       window.pdfjsLib = { GlobalWorkerOptions: {} };
       window.fixtureSent = [];
+      window.fixtureMonitorSent = [];
+      window.fixtureCameraRequests = [];
       const source = document.createElement('canvas');
-      source.width = 1920; source.height = 1080;
+      source.width = cameraWidth; source.height = cameraHeight;
       window.paintNotebook = revision => {
         window.fixtureRevision = revision;
         const ctx = source.getContext('2d');
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, source.width, source.height);
+        ctx.setTransform(cameraWidth/1920,0,0,cameraHeight/1080,0,0);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 1920, 1080);
         ctx.fillStyle = '#1e293b'; ctx.font = '40px sans-serif';
         ctx.fillText('Notebook', 600, 300);
+        ctx.font='12px sans-serif';
+        for(let y=330;y<850;y+=15) for(let x=500;x<1450;x+=55) ctx.fillText('細字12ab',x,y);
         // A short, fine line is visible in the corrected image but below the
         // camera noise threshold in the 96x72 thumbnail sample.
         if (revision > 0) ctx.fillRect(800, 500, 100, 3);
@@ -68,7 +101,8 @@ async function main() {
       };
       window.paintNotebook(0);
       window.fixtureStreams = [];
-      navigator.mediaDevices.getUserMedia = async () => {
+      navigator.mediaDevices.getUserMedia = async request => {
+        window.fixtureCameraRequests.push(request);
         const stream = source.captureStream(0);
         const track = stream.getVideoTracks()[0];
         setInterval(() => {
@@ -81,7 +115,7 @@ async function main() {
         return stream;
       };
       navigator.mediaDevices.enumerateDevices = async () => [{kind:'videoinput',deviceId:'fixture',label:'Synthetic notebook'}];
-    });
+    },{cameraWidth,cameraHeight});
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'localhost') return route.abort();
@@ -98,6 +132,14 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
       return route.fulfill({ contentType:types[path.extname(file)] || 'application/octet-stream', body });
     });
     const teacher = await context.newPage(), student = await context.newPage();
+    const notebookFrames=new Map();
+    let notebookUploads=0,notebookDownloads=0;
+    await student.exposeFunction('saveNotebookFrame', dataUrl=>{
+      const imagePath='students/abcd-1234/realtime/abcd-5678-notebook.jpg';
+      notebookFrames.set(imagePath,dataUrl);notebookUploads++;
+      return {imagePath,version:String(notebookUploads)};
+    });
+    await teacher.exposeFunction('loadNotebookFrame', imagePath=>{notebookDownloads++;return notebookFrames.get(imagePath)});
     for (const page of [teacher, student]) {
       page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
       page.on('dialog', async dialog => { errors.push(dialog.message()); console.error(dialog.message()); await dialog.dismiss(); });
@@ -106,6 +148,8 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     await teacher.waitForFunction(() => !!window.receiveThumbnail);
     await student.exposeFunction('deliverThumbnail', payload => teacher.evaluate(payload =>
       window.receiveThumbnail({socketId:'student-socket',...payload}), payload));
+    await student.exposeFunction('deliverMonitor', payload => teacher.evaluate(payload =>
+      window.receiveMonitor({studentSocketId:'student-socket',nickname:'student',...payload}), payload));
     await student.goto('http://localhost:3000/student.html');
     await student.waitForFunction(() => !!window.notebookFixture);
     await student.evaluate(() => fixtureBridge.receive('join-success', {classCode:'TEST',nickname:'student'}));
@@ -168,8 +212,9 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     // Video is contained in the stage. Use its actual contained rectangle.
     const rect = await student.evaluate(() => {
       const stage = document.querySelector('.notebook-camera-stage'), r = stage.getBoundingClientRect();
-      const scale = Math.min(stage.clientWidth/1920, stage.clientHeight/1080);
-      return { x:r.x+(stage.clientWidth-1920*scale)/2, y:r.y+(stage.clientHeight-1080*scale)/2, width:1920*scale, height:1080*scale };
+      const video=document.querySelector('#video');
+      const scale = Math.min(stage.clientWidth/video.videoWidth, stage.clientHeight/video.videoHeight);
+      return { x:r.x+(stage.clientWidth-video.videoWidth*scale)/2, y:r.y+(stage.clientHeight-video.videoHeight*scale)/2, width:video.videoWidth*scale, height:video.videoHeight*scale };
     });
     assert(box && rect.width > 0);
     for (const [x,y] of [[.2,.15],[.8,.2],[.85,.85],[.15,.8]]) await student.mouse.click(rect.x+rect.width*x,rect.y+rect.height*y);
@@ -179,6 +224,7 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     await student.evaluate(() => paintNotebook(1));
     await student.waitForFunction(before => document.querySelector('#previewCanvas').toDataURL() !== before, initial, {timeout:12000});
     assert.equal(await student.evaluate(() => fixtureSent.length), 0, 'local preview works without teacher list');
+    assert.equal(notebookUploads,0,'unselected students do not upload high-resolution images');
     const nextSample = await student.evaluate(() => [...notebookFixture.sample().pixels]);
     const { thumbnailChanged } = await import('../public/js/thumbnail-sender.mjs');
     assert(!thumbnailChanged({key:'camera',pixels:sample,noisy:true},{key:'camera',pixels:nextSample,noisy:true}), 'fine edit reproduces old change-detection blind spot');
@@ -190,6 +236,48 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     await student.evaluate(() => paintNotebook(2));
     await teacher.waitForFunction(before => teacherImage() !== before, first, {timeout:15000});
     await teacher.waitForFunction(before => document.querySelector('#notebookStudentGrid canvas').toDataURL() !== before, firstTile);
+    // Real sender, perspective correction, JPEG encoding, receiver, image
+    // decoding and canvas rendering; Storage/Realtime are local fixtures.
+    await teacher.evaluate(()=>openNotebook('modal-one'));
+    await student.evaluate(()=>fixtureBridge.receive('start-monitoring',{teacherSocketId:'teacher',monitorRequestId:'modal-one'}));
+    await teacher.waitForFunction(()=>modalState().height>0);
+    const high=await teacher.evaluate(()=>modalState());
+    assert(high.width>=cameraWidth*.69 && high.height>=cameraWidth*.98);
+    assert(high.height<=cameraWidth && high.height<=3840);
+    const actualCamera=await student.locator('#video').evaluate(video=>({width:video.videoWidth,height:video.videoHeight}));
+    assert.deepEqual(actualCamera,{width:cameraWidth,height:cameraHeight});
+    assert.equal(await student.evaluate(()=>fixtureCameraRequests[0].video.width.ideal),3840);
+    assert.equal(await student.locator('#previewCanvas').evaluate(canvas=>canvas.width),640,'list preview stays lightweight while modal is open');
+    assert([...notebookFrames.values()][0].length>120000,'detail exceeds the old Realtime image budget');
+    assert(await student.evaluate(()=>fixtureMonitorSent.every(payload=>!payload.dataUrl && payload.notebookImagePath)));
+    await teacher.evaluate(()=>{
+      const ctx=document.querySelector('#overlay').getContext('2d');ctx.fillStyle='#e34a55';ctx.fillRect(300,250,80,5);
+      zoomNotebook();
+    });
+    const zoomed=await teacher.evaluate(()=>modalState());
+    const annotation=await teacher.locator('#overlay').evaluate(canvas=>canvas.toDataURL());
+    await student.evaluate(()=>paintNotebook(1));
+    await teacher.waitForFunction(before=>modalState().readyCount>before,zoomed.readyCount);
+    const updated=await teacher.evaluate(()=>modalState());
+    assert.equal(updated.scale,zoomed.scale);assert.equal(updated.offsetX,zoomed.offsetX);
+    assert.equal(await teacher.locator('#overlay').evaluate(canvas=>canvas.toDataURL()),annotation,'refresh retains annotations');
+    assert(await teacher.locator('#modalCanvas').evaluate(canvas=>canvas.getContext('2d').getImageData(400,300,1,1).data[3]===255));
+    await teacher.screenshot({path:'output/playwright/notebook-refresh/high-resolution-modal.png'});
+    await teacher.screenshot({path:`output/playwright/notebook-refresh/high-resolution-modal-${cameraWidth}.png`});
+    await teacher.evaluate(()=>closeNotebook());
+    await student.evaluate(()=>fixtureBridge.receive('stop-monitoring',{monitorRequestId:'modal-one'}));
+    const uploadsAfterClose=notebookUploads;
+    // Reopen immediately, then ensure an obsolete stop cannot cancel the new session.
+    await teacher.evaluate(()=>openNotebook('modal-two'));
+    await student.evaluate(()=>{
+      fixtureBridge.receive('start-monitoring',{teacherSocketId:'teacher',monitorRequestId:'modal-two'});
+      fixtureBridge.receive('stop-monitoring',{monitorRequestId:'modal-one'});
+    });
+    await teacher.waitForFunction(height=>modalState().height===height,high.height);
+    assert(notebookUploads>uploadsAfterClose);
+    await teacher.evaluate(()=>closeNotebook());
+    await student.evaluate(()=>fixtureBridge.receive('stop-monitoring',{monitorRequestId:'modal-two'}));
+    const finalUploadCount=notebookUploads;
     await student.screenshot({path:'output/playwright/notebook-refresh/student.png'});
     await teacher.screenshot({path:'output/playwright/notebook-refresh/teacher.png'});
     await student.evaluate(() => fixtureBridge.receive('student-view-stop', {}));
@@ -198,6 +286,19 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     await student.evaluate(() => paintNotebook(0));
     await student.waitForFunction(before => document.querySelector('#previewCanvas').toDataURL() !== before, last, {timeout:12000});
     assert.equal(await student.evaluate(() => fixtureSent.length), sentCount);
+    assert.equal(notebookUploads,finalUploadCount,'closing modal stops high-resolution uploads while camera continues');
+    const cameraResult={source:actualCamera,modal:{width:high.width,height:high.height},previewWidth:640,notebookUploads,notebookDownloads,annotationsAndZoomPreserved:true,closeStopsUploads:true,reopen:true,errors,boundary:'Synthetic camera and local transport; real hardware and authenticated Supabase unverified'};
+    if(cameraWidth!==1920) {
+      await student.locator('#resetPerspectiveBtn').click();
+      await student.locator('#startCameraBtn').click();
+      await student.waitForFunction(()=>fixtureStreams.length===2 && document.querySelector('#video').srcObject===fixtureStreams[1]);
+      await student.locator('#studentModeWhiteboard').click();
+      assert(await student.evaluate(()=>fixtureStreams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended'))));
+      assert.deepEqual(errors,[]);
+      fs.writeFileSync(`output/playwright/notebook-refresh/camera-${cameraWidth}.json`,JSON.stringify(cameraResult,null,2));
+      console.log(JSON.stringify(cameraResult,null,2));
+      return cameraResult;
+    }
     const viewports = [[1366,900],[1024,768],[768,1024],[683,384],[375,667],[320,568]];
     assert(!await student.locator('#feedbackExpandBtn').isVisible(), 'empty feedback has no inactive controls');
     await student.evaluate(() => {
@@ -258,9 +359,18 @@ window.notebookFixture={sample:sampleThumbnail,corners:()=>selectedCorners.lengt
     const times = await student.evaluate(() => fixtureSent.map(item => item.at));
     for (let i=1;i<times.length;i++) assert(times[i]-times[i-1]>=5000);
     assert.deepEqual(errors, []);
-    const result = {fourCornerCorrection:true,fineEditBelowNoiseThreshold:true,localPreviewWithoutTeacher:true,teacherNotebookTileUpdated:true,listStopKeepsPreview:true,cameraRestartAndExit:true,undoCorner:true,expandedCorrectionTransition:true,hiddenFeedbackFitsOnReturn:true,layouts,sendIntervalsMs:times.slice(1).map((t,i)=>t-times[i]),errors,boundary:'Synthetic camera and local transport; real devices and authenticated Supabase unverified'};
+    const result = {highResolutionModal:{width:high.width,height:high.height,notebookUploads,notebookDownloads,annotationsAndZoomPreserved:true,closeStopsUploads:true,reopen:true},fourCornerCorrection:true,fineEditBelowNoiseThreshold:true,localPreviewWithoutTeacher:true,teacherNotebookTileUpdated:true,listStopKeepsPreview:true,cameraRestartAndExit:true,undoCorner:true,expandedCorrectionTransition:true,hiddenFeedbackFitsOnReturn:true,layouts,sendIntervalsMs:times.slice(1).map((t,i)=>t-times[i]),errors,boundary:'Synthetic camera and local transport; real devices and authenticated Supabase unverified'};
     fs.writeFileSync('output/playwright/notebook-refresh/results.json',JSON.stringify(result,null,2));
+    fs.writeFileSync(`output/playwright/notebook-refresh/camera-${cameraWidth}.json`,JSON.stringify(cameraResult,null,2));
     console.log(JSON.stringify(result,null,2));
+    return cameraResult;
   } finally { await browser.close(); }
 }
-main().catch(error => { console.error(error); process.exitCode=1; });
+async function runCameras() {
+  const results=[];
+  for(const [width,height] of [[1920,1080],[2560,1440],[3840,2160]]) results.push(await main(width,height));
+  assert(results[0].modal.width<results[1].modal.width && results[1].modal.width<results[2].modal.width);
+  assert(results[2].modal.height>2560,'4K detail passes the previous output limit');
+  fs.writeFileSync('output/playwright/notebook-refresh/camera-resolutions.json',JSON.stringify(results,null,2));
+}
+runCameras().catch(error => { console.error(error); process.exitCode=1; });

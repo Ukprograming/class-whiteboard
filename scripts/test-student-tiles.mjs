@@ -135,6 +135,7 @@ Object.assign(c, {
   Image: class { constructor() { decodedImage = this; this.width = 640; this.height = 480; } },
   isCurrentMonitorResponse: (id, request) => id === c.currentMonitoringStudentSocketId && request === "request",
   modalCurrentStudentMode: "whiteboard", modalShowingSavedFeedback: false,
+  modalImageLoadSequence: 0,
   modalCanvas: null, modalCtx: null, modalTitle: null, modalBoard: null,
   setModalImageLayerMode() {}, updateModalRestoreFeedbackButton() {},
   completeStudentModalBoardLoad() { throw new Error("stale image completed a new modal"); },

@@ -2,6 +2,7 @@ import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.2";
 import { assertMediaSize, RESUMABLE_UPLOAD_THRESHOLD } from "./media-limits.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { uploadResumable } from "./resumable-upload.mjs?v=media-upload-20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
+import { isNotebookImagePath } from "./notebook-image.mjs?v=20261023";
 import { createRealtimeJoinCoordinator } from "./realtime-join-coordinator.js?v=realtime-join-20260819&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { createOrderedRetryQueue } from "./realtime-send-queue.js?v=stroke-delivery-20260818&realtime-scale=20260824&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import {
@@ -1057,6 +1058,8 @@ function createSupabaseRealtimeBridge() {
           nickname: message.senderNickname,
           classCode: payload.classCode,
           dataUrl: payload.dataUrl,
+          notebookImagePath: payload.notebookImagePath,
+          notebookImageVersion: payload.notebookImageVersion,
           viewport: payload.viewport,
           mode: payload.mode,
           boardData: payload.boardData,
@@ -2130,6 +2133,33 @@ export const boardApi = {
       fileName: data.name,
       boardData,
     };
+  },
+
+  async saveNotebookMonitorImage(payload) {
+    assertSupabase();
+    // Resolve the logged-in student, rather than accepting a caller's path.
+    const owner = await resolveOwner({ classCode: payload.classCode, role: "student" });
+    if (!(payload.blob instanceof Blob) || payload.blob.type !== "image/jpeg" ||
+        payload.blob.size > 8 * 1024 * 1024) {
+      throw new Error("Invalid notebook image.");
+    }
+    // One replaceable object per student/class keeps monitoring storage bounded.
+    const imagePath = `students/${owner.studentId}/realtime/${owner.classId}-notebook.jpg`;
+    const upload = await supabase.storage.from(STORAGE_BUCKET).upload(imagePath, payload.blob, {
+      contentType: "image/jpeg", cacheControl: "0", upsert: true,
+    });
+    if (upload.error) throw upload.error;
+    return { imagePath, version: crypto.randomUUID() };
+  },
+
+  async loadNotebookMonitorImage(imagePath, version) {
+    assertSupabase();
+    if (!isNotebookImagePath(imagePath)) throw new Error("Invalid notebook image path.");
+    const download = await supabase.storage.from(STORAGE_BUCKET).download(
+      imagePath, { cacheNonce: String(version || crypto.randomUUID()) }, { cache: "no-store" }
+    );
+    if (download.error) throw download.error;
+    return download.data;
   },
 
   async saveRealtimeBoardSnapshot(payload) {

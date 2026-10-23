@@ -1,4 +1,5 @@
 import { recordDiagnostic } from "./diagnostics.mjs?v=monitor-recovery-20260929";
+import { notebookImageSize, encodeNotebookImage, openNotebookCamera } from "./notebook-image.mjs?v=20261023-camera4k";
 // public/js/student.js
 import { createThumbnailSender } from "./thumbnail-sender.mjs?v=thumbnail-idle-20260916";
 import { initBoardUI } from "./board-ui.js?v=tool-settings-20260818c&draw-style=20260824&highlighter-settings=20260824&png-stamps=20260824&session-recovery=20260824&eraser-hit=20260825&timer-tool=20260826&table-tool=20260901b&forms=20260830b&youtube=20260831b&camera-tool=20260902b&edit-selection=20260902&new-board=20260904&module-singleton=20260904&media-file=20260904&pdf-render=20260905&insert-auto-select=20260905&zoom-step=20260909&media-background=20260910&media-upload=20260911&ruled-spacing=20260911&word-count=20260911b&text-live=20260929&tooltip=20260929&delete-sync=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&text-layout=20260916&redo-login=20260917&clear-blue=20260917&independent-controls=20260918&laser=20260922&compact-pages=20260923&shape-recognition=20260924c&stamp-refresh=20260924&monitor-recovery=20260929&camera-layout=20260930";
@@ -9,7 +10,7 @@ import {
   createRealtimeBridge,
   getStudentLoginHints,
   supabaseEnabled,
-} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929";
+} from "./supabase-api.js?v=monitor-sync-20260819&realtime-scale=20260902&realtime-duplex=20260824&session-recovery=20260824&student-delete=20260826&forms=20260830&assignments=20260831&history-delete=20260904&auth-singleton=20260904&mode-presence=20260905&auth-load=20260905&media-background=20260910&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&management-delete=20260928&monitor-recovery=20260929&notebook-modal=20261023";
 import { jitteredInterval } from "./realtime-load-control.js?v=realtime-scale-20260824&burst-control=20260905&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { initStudentForms } from "./student-forms.js?v=forms-20260830&form-history=20260831&form-images=20260901&history-delete=20260904&auth-singleton=20260904&auth-load=20260905&media-upload=20260911&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915";
 import { replaceMaterialIcons } from "./ui-icons.js?v=forms-20260830b&assignments=20260831&camera-tool=20260902b&media-file=20260904&security-reliability=20260912&production-fixes=20260915&draft-recovery=20260915&redo-login=20260917&clear-blue=20260917";
@@ -2740,17 +2741,7 @@ if (startCameraBtn) {
     const deviceId = cameraSelect ? cameraSelect.value : undefined;
 
     try {
-      const constraints = {
-        video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          facingMode: "environment"
-        },
-        audio: false
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await openNotebookCamera(navigator.mediaDevices, deviceId);
       if (viewMode !== "notebook") {
         stream.getTracks().forEach((t) => t.stop());
         return;
@@ -3010,18 +3001,26 @@ function renderPerspectiveCorrection(sourceCanvas, targetCanvas, sourcePoints) {
 
 // 台形補正メイン
 function drawCorrectedFrameToPreview() {
-  if (!videoEl || !previewCanvas || !previewCtx) return;
+  drawCorrectedFrameToCanvas(previewCanvas);
+}
+
+// A modal frame is corrected directly from the camera, never enlarged from
+// the low-resolution preview. Both outputs use exactly the same four corners.
+function drawCorrectedFrameToCanvas(targetCanvas) {
+  if (!videoEl || !targetCanvas) return;
+  const targetCtx = targetCanvas.getContext("2d");
+  if (!targetCtx) return;
 
   const vw = videoEl.videoWidth;
   const vh = videoEl.videoHeight;
   if (!vw || !vh) {
     // カメラがまだ準備できていない場合は真っ白に
-    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
     return;
   }
 
-  const dw = previewCanvas.width;
-  const dh = previewCanvas.height;
+  const dw = targetCanvas.width;
+  const dh = targetCanvas.height;
 
   // 元映像を隠しキャンバスに描画
   srcCanvas.width = vw;
@@ -3036,18 +3035,18 @@ function drawCorrectedFrameToPreview() {
           x: point.nx * (vw - 1),
           y: point.ny * (vh - 1),
         }));
-        if (!renderPerspectiveCorrection(srcCanvas, previewCanvas, sourcePoints)) {
-          previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+        if (!renderPerspectiveCorrection(srcCanvas, targetCanvas, sourcePoints)) {
+          targetCtx.drawImage(videoEl, 0, 0, dw, dh);
         }
       } else {
-        previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+        targetCtx.drawImage(videoEl, 0, 0, dw, dh);
       }
     } else {
-      previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+      targetCtx.drawImage(videoEl, 0, 0, dw, dh);
     }
   } catch (e) {
     console.error("Perspective correction failed", e);
-    previewCtx.drawImage(videoEl, 0, 0, dw, dh);
+    targetCtx.drawImage(videoEl, 0, 0, dw, dh);
   }
 }
 
@@ -3543,10 +3542,13 @@ socket.on("stop-monitoring", ({ monitorRequestId } = {}) => {
 });
 
 async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonitorRequestId) {
-  if (!currentClassCode) return;
+  if (!currentClassCode || currentTeacherSocketId !== teacherSocketId ||
+      currentMonitorRequestId !== monitorRequestId) return;
 
   const monitoringMode = viewMode;
   let dataUrl;
+  let notebookImagePath = null;
+  let notebookImageVersion = null;
   let viewport;
   let boardData = null; // ★ ホワイトボードの実データ（必要に応じて）
   let boardSnapshotPath = null;
@@ -3580,17 +3582,28 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
 
   } else if (monitoringMode === "notebook") {
     // === ノート提出モード：台形補正後のノート画像を送る ===
-    if (!previewCanvas || !previewCanvas.width || !previewCanvas.height) return;
+    if (!currentStream || !videoEl?.videoWidth || !videoEl?.videoHeight) return;
+    const notebookStream = currentStream;
+    const size = notebookImageSize(videoEl.videoWidth, videoEl.videoHeight, getCurrentPaperAspect(), getOrderedCornersFromClicks());
+    if (!size) return;
+    const frame = document.createElement("canvas");
+    frame.width = size.width;
+    frame.height = size.height;
+    drawCorrectedFrameToCanvas(frame);
+    const blob = await encodeNotebookImage(frame);
+    if (viewMode !== monitoringMode || currentTeacherSocketId !== teacherSocketId ||
+        currentMonitorRequestId !== monitorRequestId || currentStream !== notebookStream) return;
 
-    // 最新フレームを previewCanvas に描画（カメラが止まっている場合は何もしない）
-    try {
-      drawCorrectedFrameToPreview();
-    } catch (e) {
-      console.error("drawCorrectedFrameToPreview error in sendScreenUpdate", e);
+    if (boardApi.enabled) {
+      const result = await boardApi.saveNotebookMonitorImage({ classCode: currentClassCode, blob });
+      if (currentStream !== notebookStream) return;
+      notebookImagePath = result.imagePath;
+      notebookImageVersion = result.version;
+    } else {
+      // Legacy Socket.IO has no private Storage; only the monitored student
+      // sends this image directly to the teacher (outside the thumbnail codec).
+      dataUrl = frame.toDataURL("image/jpeg", 0.92);
     }
-
-    // 個別モーダル用の中画質JPEGとして送信する。
-    dataUrl = encodeCanvasForRealtime(previewCanvas, { maxWidth: 720, quality: 0.6 });
 
     // ノート画像なのでビューポートは固定
     viewport = { scale: 1, offsetX: 0, offsetY: 0 };
@@ -3636,8 +3649,9 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
     }
   }
 
-  if (!dataUrl && monitoringMode !== "whiteboard") return;
+  if (!dataUrl && !notebookImagePath && monitoringMode !== "whiteboard") return;
   if (
+    viewMode !== monitoringMode ||
     currentTeacherSocketId !== teacherSocketId ||
     monitorRequestId !== currentMonitorRequestId
   ) return;
@@ -3646,6 +3660,8 @@ async function sendScreenUpdate(teacherSocketId, monitorRequestId = currentMonit
     classCode: currentClassCode,
     teacherSocketId,
     dataUrl,
+    notebookImagePath,
+    notebookImageVersion,
     viewport,
     // ★ 教員側には viewMode をモードとして渡す
     //   "whiteboard" | "screen" | "notebook"
